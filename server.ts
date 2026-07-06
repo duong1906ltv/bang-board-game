@@ -89,9 +89,22 @@ app.prepare().then(() => {
       if (pid && game.pickCharacter(code, pid, characterId)) broadcast(code);
     });
 
+    socket.on("drawCards", ({ code }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (pid && game.drawCards(code, pid)) broadcast(code);
+    });
+
+    socket.on("discardCard", ({ code, cardId }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (pid && game.discardCard(code, pid, cardId)) broadcast(code);
+    });
+
     socket.on("endTurn", ({ code }) => {
       const pid = playerIdOf(code, socket.id);
-      if (pid && game.endTurn(code, pid)) broadcast(code);
+      if (!pid) return;
+      const res = game.endTurn(code, pid);
+      if (res.ok) broadcast(code);
+      else if (res.error) socket.emit("errorMsg", res.error);
     });
 
     socket.on("restart", ({ code }) => {
