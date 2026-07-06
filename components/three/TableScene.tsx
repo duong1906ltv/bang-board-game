@@ -19,14 +19,14 @@ function plankTexture() {
   c.width = 128;
   c.height = 128;
   const ctx = c.getContext("2d")!;
-  ctx.fillStyle = "#3a2817";
+  ctx.fillStyle = "#6e4a28";
   ctx.fillRect(0, 0, 128, 128);
   const ph = 32;
   for (let y = 0; y < 128; y += ph) {
     const alt = (y / ph) % 2 === 0;
-    ctx.fillStyle = alt ? "#402c19" : "#341f10";
+    ctx.fillStyle = alt ? "#7a5330" : "#623f22";
     ctx.fillRect(0, y, 128, ph - 2);
-    ctx.strokeStyle = "rgba(0,0,0,0.45)";
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, y + ph - 1);
@@ -37,6 +37,57 @@ function plankTexture() {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(6, 6);
   return tex;
+}
+
+// A "WANTED" poster texture for the walls.
+function posterTexture() {
+  const c = document.createElement("canvas");
+  c.width = 200;
+  c.height = 280;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#e8d5a8";
+  ctx.fillRect(0, 0, 200, 280);
+  ctx.strokeStyle = "#6b4a24";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(8, 8, 184, 264);
+  ctx.fillStyle = "#3a2410";
+  ctx.textAlign = "center";
+  ctx.font = "bold 42px Georgia, serif";
+  ctx.fillText("WANTED", 100, 56);
+  ctx.font = "20px Georgia, serif";
+  ctx.fillText("DEAD OR ALIVE", 100, 82);
+  // silhouette face
+  ctx.fillStyle = "#8a6a44";
+  ctx.fillRect(50, 100, 100, 100);
+  ctx.fillStyle = "#5a4028";
+  ctx.beginPath();
+  ctx.arc(100, 150, 34, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#3a2410";
+  ctx.font = "bold 30px Georgia, serif";
+  ctx.fillText("$500", 100, 240);
+  return new THREE.CanvasTexture(c);
+}
+
+// A simple saguaro cactus (trunk + two arms).
+function Cactus({ position }: { position: [number, number, number] }) {
+  const mat = <meshStandardMaterial color="#3f7a3a" roughness={0.9} />;
+  return (
+    <group position={position}>
+      <mesh castShadow position={[0, 0.7, 0]}>
+        <capsuleGeometry args={[0.16, 1.2, 6, 12]} />
+        {mat}
+      </mesh>
+      <mesh castShadow position={[0.28, 0.85, 0]} rotation={[0, 0, -0.5]}>
+        <capsuleGeometry args={[0.08, 0.5, 6, 12]} />
+        {mat}
+      </mesh>
+      <mesh castShadow position={[-0.28, 1.05, 0]} rotation={[0, 0, 0.5]}>
+        <capsuleGeometry args={[0.08, 0.5, 6, 12]} />
+        {mat}
+      </mesh>
+    </group>
+  );
 }
 
 // A rustic barrel: body + darker metal hoops. Placed as background props.
@@ -61,13 +112,14 @@ function Barrel({ position }: { position: [number, number, number] }) {
 // table, and a few barrels in the background. Sizes scale with the table.
 function Saloon({ felt }: { felt: number }) {
   const floorTex = useMemo(plankTexture, []);
+  const posterTex = useMemo(posterTexture, []);
   const roomW = felt * 6.5;
   const roomH = 7;
   const floorY = -1.55;
+  const wall = roomW / 2 - 0.05; // inner wall distance from centre
   const barrelR = felt * 2.3;
   const barrels: [number, number, number][] = [
     [Math.cos(2.1) * barrelR, floorY + 0.45, Math.sin(2.1) * barrelR],
-    [Math.cos(3.5) * barrelR, floorY + 0.45, Math.sin(3.5) * barrelR],
     [Math.cos(4.2) * barrelR, floorY + 0.45, Math.sin(4.2) * barrelR],
     [Math.cos(5.4) * barrelR, floorY + 0.45, Math.sin(5.4) * barrelR],
   ];
@@ -76,13 +128,22 @@ function Saloon({ felt }: { felt: number }) {
       {/* room walls + ceiling (we're inside the box) */}
       <mesh position={[0, floorY + roomH / 2, 0]}>
         <boxGeometry args={[roomW, roomH, roomW]} />
-        <meshStandardMaterial color="#2a1c11" side={THREE.BackSide} roughness={1} />
+        <meshStandardMaterial color="#6b4a2c" side={THREE.BackSide} roughness={1} />
       </mesh>
       {/* plank floor just above the box bottom */}
       <mesh position={[0, floorY + 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[roomW, roomW]} />
         <meshStandardMaterial map={floorTex} roughness={1} />
       </mesh>
+      {/* WANTED posters on the back wall */}
+      {[-1.4, 1.4].map((x, i) => (
+        <mesh key={i} position={[x, floorY + 2.4, -wall + 0.02]}>
+          <planeGeometry args={[1, 1.4]} />
+          <meshStandardMaterial map={posterTex} roughness={1} />
+        </mesh>
+      ))}
+      {/* sheriff star painted on the felt (large, subtle, behind the piles) */}
+      <SheriffStar radius={felt * 0.42} y={0.04} color="#b8912f" opacity={0.4} />
       {/* hanging lamp over the table */}
       <group position={[0, 2.7, 0]}>
         <mesh position={[0, 0.75, 0]}>
@@ -91,18 +152,44 @@ function Saloon({ felt }: { felt: number }) {
         </mesh>
         <mesh castShadow>
           <coneGeometry args={[0.5, 0.42, 24, 1, true]} />
-          <meshStandardMaterial color="#3a2a15" side={THREE.DoubleSide} emissive="#ffcf8f" emissiveIntensity={0.35} roughness={0.7} />
+          <meshStandardMaterial color="#4a3418" side={THREE.DoubleSide} emissive="#ffcf8f" emissiveIntensity={0.5} roughness={0.7} />
         </mesh>
         <mesh position={[0, -0.16, 0]}>
           <sphereGeometry args={[0.09, 16, 16]} />
-          <meshStandardMaterial color="#fff2d0" emissive="#ffe6b0" emissiveIntensity={2.2} />
+          <meshStandardMaterial color="#fff2d0" emissive="#ffe6b0" emissiveIntensity={2.4} />
         </mesh>
-        <pointLight position={[0, -0.15, 0]} color="#ffd9a0" intensity={18} distance={felt * 5} decay={2} castShadow />
+        <pointLight position={[0, -0.15, 0]} color="#ffe0b0" intensity={24} distance={felt * 6} decay={2} />
       </group>
       {barrels.map((p, i) => (
         <Barrel key={i} position={p} />
       ))}
+      <Cactus position={[Math.cos(3.5) * barrelR, floorY, Math.sin(3.5) * barrelR]} />
+      <Cactus position={[Math.cos(0.9) * barrelR * 1.1, floorY, Math.sin(0.9) * barrelR * 1.1]} />
     </group>
+  );
+}
+
+// A five-pointed sheriff star as a flat emblem (built from ten triangles).
+function SheriffStar({ radius, y, color, opacity = 1 }: { radius: number; y: number; color: string; opacity?: number }) {
+  const geo = useMemo(() => {
+    const shape = new THREE.Shape();
+    const spikes = 5;
+    const inner = radius * 0.42;
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? radius : inner;
+      const a = (Math.PI / spikes) * i - Math.PI / 2;
+      const x = Math.cos(a) * r;
+      const yy = Math.sin(a) * r;
+      if (i === 0) shape.moveTo(x, yy);
+      else shape.lineTo(x, yy);
+    }
+    shape.closePath();
+    return new THREE.ShapeGeometry(shape);
+  }, [radius]);
+  return (
+    <mesh geometry={geo} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <meshStandardMaterial color={color} transparent opacity={opacity} roughness={0.6} metalness={0.3} />
+    </mesh>
   );
 }
 
@@ -240,6 +327,27 @@ function Avatar({ position, color, dead }: { position: [number, number, number];
   );
 }
 
+// Blue "in play" cards (guns, Barrel, Scope, Jail…) laid face-up on the felt in
+// front of a seat, upright toward the camera so the whole table can read them.
+function FeltCards({ cards, ang, radius }: { cards: Card[]; ang: number; radius: number }) {
+  if (!cards.length) return null;
+  const cx = radius * Math.cos(ang);
+  const cz = radius * Math.sin(ang);
+  const tx = -Math.sin(ang);
+  const tz = Math.cos(ang);
+  const gap = 0.32;
+  return (
+    <group>
+      {cards.map((c, i) => {
+        const o = (i - (cards.length - 1) / 2) * gap;
+        return (
+          <CardMesh key={c.id} card={c} scale={0.42} position={[cx + tx * o, 0.07, cz + tz * o]} rotation={[-Math.PI / 2, 0, 0]} />
+        );
+      })}
+    </group>
+  );
+}
+
 function Opponents({ players, youSeat, ring, felt, arc }: { players: PlayerPublic[]; youSeat: number; ring: number; felt: number; arc: number }) {
   const others = players.filter((p) => p.seat !== youSeat);
   const seatR = felt + 0.2; // avatars just beyond the felt edge
@@ -262,6 +370,7 @@ function Opponents({ players, youSeat, ring, felt, arc }: { players: PlayerPubli
               color={AVATAR_COLORS[i % AVATAR_COLORS.length]}
               dead={!p.alive}
             />
+            <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.64} />
           </group>
         );
       })}
@@ -303,8 +412,8 @@ function Scene({ view }: { view: PlayerView }) {
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
     <>
-      <color attach="background" args={["#1c130c"]} />
-      <fog attach="fog" args={["#1c130c", felt * 2.6, felt * 6]} />
+      <color attach="background" args={["#3a2a1a"]} />
+      <fog attach="fog" args={["#3a2a1a", felt * 3, felt * 7]} />
       <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={fov} />
       {/* Fixed camera: keep it aimed at the table, no free orbit/zoom/pan. */}
       <OrbitControls
@@ -313,13 +422,17 @@ function Scene({ view }: { view: PlayerView }) {
         enableZoom={false}
         enablePan={false}
       />
-      {/* Dim warm ambient; the hanging lamp is the main light. */}
-      <ambientLight intensity={0.35} color="#ffe8c8" />
+      {/* Bright, warm room lighting. */}
+      <ambientLight intensity={0.85} color="#fff2dc" />
+      <hemisphereLight args={["#fff0d0", "#4a3420", 0.7]} />
+      <directionalLight position={[3, 6, 4]} intensity={0.8} color="#fff3e0" />
       <Environment preset="warehouse" />
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} />
+      {/* your own in-play cards, on the near edge of the felt */}
+      <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} />
     </>
   );
 }
