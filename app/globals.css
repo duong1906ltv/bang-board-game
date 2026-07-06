@@ -1,0 +1,584 @@
+:root {
+  --bg: #1a1109;
+  --bg2: #2a1c0e;
+  --panel: #2e2114;
+  --panel2: #3b2c1a;
+  --border: #5a4426;
+  --text: #f5ecdb;
+  --muted: #c2a988;
+  --accent: #e0a955;
+  --accent2: #b5701f;
+  --danger: #ef4444;
+  --good: #22c55e;
+  --moon: #ffcf6e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: radial-gradient(1200px 600px at 50% -10%, #4a3418 0%, var(--bg) 60%);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  min-height: 100vh;
+}
+
+.wrap {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 16px 60px;
+}
+
+.center {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+}
+
+h1 {
+  font-size: 2.2rem;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+.moon {
+  font-size: 3rem;
+  filter: drop-shadow(0 0 18px var(--moon));
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.card.wide {
+  max-width: 100%;
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 1rem;
+  margin-bottom: 14px;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  background: var(--accent2);
+  color: white;
+  transition: transform 0.05s ease, background 0.15s ease;
+  width: 100%;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--panel2);
+}
+
+button.danger {
+  background: var(--danger);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.err {
+  color: var(--danger);
+  font-size: 0.9rem;
+  margin-top: 6px;
+  min-height: 1.2em;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+}
+
+.code-pill {
+  font-family: monospace;
+  font-size: 1.6rem;
+  letter-spacing: 6px;
+  background: var(--bg2);
+  border: 1px dashed var(--accent);
+  padding: 8px 18px;
+  border-radius: 12px;
+  color: var(--moon);
+}
+
+.players {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.players li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg2);
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.dot.on {
+  background: var(--good);
+}
+
+.dot.off {
+  background: var(--muted);
+}
+
+.role-card {
+  text-align: center;
+  padding: 28px;
+  border-radius: 16px;
+  border: 2px solid var(--accent);
+  background: linear-gradient(160deg, var(--panel2), var(--panel));
+}
+
+.role-name {
+  font-size: 2rem;
+  font-weight: 800;
+  margin: 8px 0;
+}
+
+.role-werewolf {
+  color: #ff6b6b;
+}
+.role-minion {
+  color: #fb923c;
+}
+.role-mason {
+  color: #c4b5fd;
+}
+.role-seer {
+  color: #7dd3fc;
+}
+.role-robber {
+  color: #fca5a5;
+}
+.role-troublemaker {
+  color: #f0abfc;
+}
+.role-drunk {
+  color: #fcd34d;
+}
+.role-insomniac {
+  color: #67e8f9;
+}
+.role-hunter {
+  color: #fdba74;
+}
+.role-tanner {
+  color: #a3a3a3;
+}
+.role-villager {
+  color: #86efac;
+}
+
+.timer {
+  font-size: 2.6rem;
+  font-family: monospace;
+  text-align: center;
+  color: var(--moon);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.selectable {
+  background: var(--bg2);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.1s;
+}
+
+.selectable:hover {
+  border-color: var(--accent);
+}
+
+.selectable.picked {
+  border-color: var(--accent);
+  background: var(--panel2);
+}
+
+.chat {
+  height: 220px;
+  overflow-y: auto;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.chat .msg {
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.chat .who {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.section-title {
+  font-size: 1.4rem;
+  margin: 0 0 4px;
+}
+
+.banner {
+  text-align: center;
+  padding: 18px;
+  border-radius: 14px;
+  font-size: 1.4rem;
+  font-weight: 800;
+  margin-bottom: 16px;
+}
+
+.banner.village {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid var(--good);
+  color: #86efac;
+}
+
+.banner.werewolf {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid var(--danger);
+  color: #fca5a5;
+}
+
+.banner.none {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---- Role card modal ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 6, 16, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-card {
+  position: relative;
+  background: linear-gradient(160deg, var(--panel2), var(--panel));
+  border: 1px solid var(--border);
+  border-top: 5px solid currentColor;
+  border-radius: 18px;
+  padding: 28px 24px 24px;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: popIn 0.18s ease;
+}
+
+@keyframes popIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.modal-emoji {
+  font-size: 4.5rem;
+  line-height: 1;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.15));
+}
+
+.modal-card .role-name {
+  font-size: 1.8rem;
+  margin: 4px 0 10px;
+}
+
+.modal-ability {
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.5;
+  margin: 14px 0 6px;
+}
+
+.modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.modal-close:hover {
+  background: var(--panel2);
+  color: var(--text);
+}
+
+/* wake-order chips */
+.wake-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+
+.wake-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wake-chip b {
+  background: var(--panel2);
+  color: var(--muted);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+}
+
+.wake-chip.active {
+  border-color: var(--accent);
+  background: var(--panel2);
+  box-shadow: 0 0 12px rgba(192, 132, 252, 0.4);
+}
+
+.wake-chip.active b {
+  background: var(--accent2);
+  color: white;
+}
+
+/* team badges */
+.team-werewolf {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+.team-village {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: #22c55e;
+  color: #86efac;
+}
+.team-tanner {
+  background: rgba(163, 163, 163, 0.18);
+  border-color: #a3a3a3;
+  color: #d4d4d4;
+}
+
+/* ─── Bang! room / table ─────────────────────────────────────────────────── */
+.seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.seat {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.seat.turn {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(224, 169, 85, 0.35), 0 0 18px rgba(224, 169, 85, 0.25);
+}
+.seat.dead {
+  opacity: 0.5;
+  filter: grayscale(0.6);
+}
+.seat.me {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+}
+.seat .seat-name {
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.seat .seat-meta {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.hp {
+  display: inline-flex;
+  gap: 3px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.hp .pip {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+.hp .pip.empty {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+.role-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  margin-top: 6px;
+}
+.role-badge.hidden {
+  color: var(--muted);
+  font-style: italic;
+}
+.you-panel {
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid var(--accent2);
+  border-radius: 14px;
+  padding: 16px;
+  margin-top: 18px;
+}
+.you-panel h3 {
+  margin: 0 0 8px;
+}
+.hand {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  min-height: 40px;
+}
+.hand .card-chip {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
