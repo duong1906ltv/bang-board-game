@@ -1,15 +1,15 @@
 // Bang! card catalog + deck builder.
 //
 // Data transcribed from the provided card list. The four per-suit counts in the
-// source sum to each card's total copies; we assume the column order is
-// Spades, Hearts, Diamonds, Clubs (anchored by Scope = A♠ and Barrel = ♠, both
-// in the first column). Individual card RANKS (A..K) are not yet provided, so
-// `rank` is null for now — the "Draw!" mechanics (Barrel/Dynamite/Jail/Lucky
-// Duke/etc.) will need them to resolve exactly.
+// source sum to each card's total copies; the column order is Spades, Clubs,
+// Hearts, Diamonds (bích–chuồn–cơ–rô), per the source. Individual card RANKS
+// (A..K) are not yet provided, so `rank` is null for now — the "Draw!" mechanics
+// (Barrel/Dynamite/Jail/Lucky Duke/etc.) will need them to resolve exactly.
 
 export type Suit = "spades" | "hearts" | "diamonds" | "clubs";
 
-export const SUIT_ORDER: Suit[] = ["spades", "hearts", "diamonds", "clubs"];
+// Index order of the per-suit count tuple below: [♠, ♣, ♥, ♦].
+export const SUIT_ORDER: Suit[] = ["spades", "clubs", "hearts", "diamonds"];
 export const SUIT_SYMBOL: Record<Suit, string> = {
   spades: "♠",
   hearts: "♥",
@@ -29,7 +29,7 @@ export interface CardDef {
   name: string; // English name
   kind: CardKind;
   count: number; // total copies in the deck
-  suits: [number, number, number, number]; // copies per suit: [♠, ♥, ♦, ♣]
+  suits: [number, number, number, number]; // copies per suit: [♠, ♣, ♥, ♦]
   range?: number; // weapon range (guns only)
   effect: string;
   notes?: string[];
