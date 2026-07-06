@@ -120,6 +120,11 @@ export const CARD_DEFS: CardDef[] = [
     effect: "Tầm bắn cơ bản 5.", notes: ["Rule 6"] },
 ];
 
+// Lookup by slug.
+export const CARD_DEF_BY_ID: Record<string, CardDef> = Object.fromEntries(
+  CARD_DEFS.map((d) => [d.id, d])
+);
+
 // --- spec parsing ---
 
 function parseCardToken(tok: string): { suit: Suit; rank: number } {

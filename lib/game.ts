@@ -15,8 +15,9 @@ import {
   PUBLIC_ROLES,
   rankPriority,
   Role,
+  TurnPhase,
 } from "./types";
-import { buildDeck, Card } from "./cards";
+import { buildDeck, Card, CARD_DEF_BY_ID } from "./cards";
 
 export interface Player {
   id: string;
@@ -32,7 +33,8 @@ export interface Player {
   hp: number;
   maxHp: number;
   alive: boolean;
-  hand: Card[]; // stays empty until the card layer lands
+  hand: Card[];
+  equipment: Card[]; // blue cards in play (gun, Mustang, Scope, Jail, Dynamite...)
 }
 
 export interface Room {
@@ -41,6 +43,7 @@ export interface Room {
   players: Player[]; // kept in seat order
   hostId: string;
   turnIndex: number; // index into players[] whose turn it is (playing phase)
+  turnPhase: TurnPhase; // sub-phase of the current player's turn
   draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
   draftTimer: NodeJS.Timeout | null;
   deck: Card[]; // draw pile (top = end of array)
@@ -122,6 +125,7 @@ function newPlayer(name: string, socketId: string, isHost: boolean, seat: number
     maxHp: 0,
     alive: true,
     hand: [],
+    equipment: [],
   };
 }
 
@@ -134,6 +138,7 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     players: [player],
     hostId: player.id,
     turnIndex: 0,
+    turnPhase: "draw",
     draftEndsAt: null,
     draftTimer: null,
     deck: [],
@@ -280,7 +285,8 @@ function finalizeDraft(room: Room) {
     p.maxHp = p.character.maxHp + bonus;
     p.hp = p.maxHp;
     p.alive = true;
-    p.hand = []; // dealt when the card layer lands
+    p.hand = [];
+    p.equipment = [];
   });
   // Build and shuffle the draw pile, then deal each player a starting hand equal
   // to their life points (Bang! starting-hand rule).
@@ -292,26 +298,109 @@ function finalizeDraft(room: Room) {
 
   const sheriffIdx = room.players.findIndex((p) => p.role === "sheriff");
   room.turnIndex = sheriffIdx >= 0 ? sheriffIdx : 0;
+  room.turnPhase = "draw"; // Sheriff begins by drawing
   room.phase = "playing";
+}
+
+// --- deck helpers ---
+
+// Draw one card; reshuffle the discard pile into the deck if the deck is empty.
+function drawOne(room: Room): Card | null {
+  if (room.deck.length === 0) {
+    if (room.discard.length === 0) return null;
+    room.deck = shuffle(room.discard);
+    room.discard = [];
+  }
+  return room.deck.pop() ?? null;
+}
+
+// --- distance & range ---
+
+// Weapon range: the equipped gun's range, or 1 (Colt .45) if unarmed.
+export function rangeOf(p: Player): number {
+  let range = 1;
+  for (const c of p.equipment) {
+    const def = CARD_DEF_BY_ID[c.defId];
+    if (def?.kind === "gun" && def.range) range = def.range;
+  }
+  return range;
+}
+
+// Does a player have a given blue card equipped (e.g. mustang / scope)?
+function hasEquip(p: Player, defId: string): boolean {
+  return p.equipment.some((c) => c.defId === defId);
+}
+
+// Distance the viewer `from` sees to player `to`, counting only living players
+// around the circle. Mustang/Paul Regret add +1 to how far others see the
+// target; Scope/Rose Doolan subtract 1 from what the viewer sees. Minimum 1.
+export function distanceBetween(room: Room, from: Player, to: Player): number {
+  if (from.id === to.id) return 0;
+  const alive = [...room.players].sort((a, b) => a.seat - b.seat).filter((p) => p.alive);
+  const i = alive.findIndex((p) => p.id === from.id);
+  const j = alive.findIndex((p) => p.id === to.id);
+  if (i < 0 || j < 0) return Infinity;
+  const raw = Math.abs(i - j);
+  let dist = Math.min(raw, alive.length - raw);
+
+  // Target seen farther (Mustang, Paul Regret's ability).
+  if (hasEquip(to, "mustang") || to.character?.id === "paul-regret") dist += 1;
+  // Viewer sees farther/closer (Scope, Rose Doolan's ability).
+  if (hasEquip(from, "scope") || from.character?.id === "rose-doolan") dist -= 1;
+
+  return Math.max(1, dist);
 }
 
 // --- turn flow ---
 
-// Placeholder turn advance — hands the turn to the next living player.
-export function endTurn(code: string, playerId: string): boolean {
+// Draw phase: the active player draws their 2 cards, then may play.
+export function drawCards(code: string, playerId: string): boolean {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "playing" || room.turnPhase !== "draw") return false;
+  const current = room.players[room.turnIndex];
+  if (!current || current.id !== playerId) return false;
+  for (let k = 0; k < 2; k++) {
+    const c = drawOne(room);
+    if (c) current.hand.push(c);
+  }
+  room.turnPhase = "play";
+  return true;
+}
+
+// Discard a card from the active player's hand to the discard pile.
+export function discardCard(code: string, playerId: string, cardId: string): boolean {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return false;
   const current = room.players[room.turnIndex];
-  if (!current || current.id !== playerId) return false;
+  if (!current || current.id !== playerId || room.turnPhase === "draw") return false;
+  const idx = current.hand.findIndex((c) => c.id === cardId);
+  if (idx < 0) return false;
+  const [card] = current.hand.splice(idx, 1);
+  room.discard.push(card);
+  return true;
+}
+
+// End the turn: only allowed after drawing and once the hand is within the
+// life-point limit. Advances to the next living player, who starts by drawing.
+export function endTurn(code: string, playerId: string): { ok: boolean; error?: string } {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "playing") return { ok: false };
+  const current = room.players[room.turnIndex];
+  if (!current || current.id !== playerId) return { ok: false };
+  if (room.turnPhase === "draw") return { ok: false, error: "Bạn phải rút bài trước" };
+  if (current.hand.length > current.hp) {
+    return { ok: false, error: `Bỏ bớt ${current.hand.length - current.hp} lá (giới hạn = máu)` };
+  }
   const n = room.players.length;
   for (let step = 1; step <= n; step++) {
     const idx = (room.turnIndex + step) % n;
     if (room.players[idx].alive) {
       room.turnIndex = idx;
-      return true;
+      room.turnPhase = "draw";
+      return { ok: true };
     }
   }
-  return false;
+  return { ok: false };
 }
 
 export function restart(code: string): boolean {
@@ -320,6 +409,7 @@ export function restart(code: string): boolean {
   clearDraftTimer(room);
   room.phase = "lobby";
   room.turnIndex = 0;
+  room.turnPhase = "draw";
   room.draftEndsAt = null;
   room.deck = [];
   room.discard = [];
@@ -332,6 +422,7 @@ export function restart(code: string): boolean {
     p.maxHp = 0;
     p.alive = true;
     p.hand = [];
+    p.equipment = [];
   });
   return true;
 }
@@ -345,10 +436,15 @@ function visibleRole(p: Player): Role | null {
   return null;
 }
 
-function toPublic(p: Player, room: Room, turnId: string | null): PlayerPublic {
+function toPublic(p: Player, room: Room, viewer: Player | undefined, turnId: string | null): PlayerPublic {
   // Characters are public once the game is underway; during the draft, nobody
   // sees anyone else's options or pick.
-  const characterPublic = room.phase === "playing" || room.phase === "result" ? p.character : null;
+  const inGame = room.phase === "playing" || room.phase === "result";
+  const characterPublic = inGame ? p.character : null;
+  const distance =
+    room.phase === "playing" && viewer && viewer.alive && p.alive && p.id !== viewer.id
+      ? distanceBetween(room, viewer, p)
+      : null;
   return {
     id: p.id,
     name: p.name,
@@ -363,6 +459,8 @@ function toPublic(p: Player, room: Room, turnId: string | null): PlayerPublic {
     hasPicked: p.hasPicked,
     role: visibleRole(p),
     isTurn: turnId != null && p.id === turnId,
+    distance,
+    equipment: inGame ? p.equipment : [],
   };
 }
 
@@ -384,6 +482,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
   const me = room.players.find((p) => p.id === playerId);
   const turnPlayer = room.phase === "playing" ? room.players[room.turnIndex] : null;
   const turnId = turnPlayer ? turnPlayer.id : null;
+  const isMyTurn = !!(me && turnPlayer && turnPlayer.id === me.id);
   const bySeat = [...room.players].sort((a, b) => a.seat - b.seat);
 
   return {
@@ -400,9 +499,12 @@ export function buildView(room: Room, playerId: string): PlayerView {
       hp: me?.hp ?? 0,
       maxHp: me?.maxHp ?? 0,
       hand: me?.hand ?? [],
+      equipment: me?.equipment ?? [],
       alive: me?.alive ?? true,
+      turnPhase: isMyTurn ? room.turnPhase : null,
+      range: me ? rangeOf(me) : 1,
     },
-    players: bySeat.map((p) => toPublic(p, room, turnId)),
+    players: bySeat.map((p) => toPublic(p, room, me, turnId)),
     turnSeat: turnPlayer ? turnPlayer.seat : null,
     roleSetup: roleSetupFor(room.players.length),
     draft: room.phase === "drafting" ? buildDraft(room, me) : null,

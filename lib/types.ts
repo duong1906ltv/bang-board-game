@@ -79,6 +79,9 @@ export type { Card };
 
 export type Phase = "lobby" | "drafting" | "playing" | "result";
 
+// Sub-phases within a single player's turn.
+export type TurnPhase = "draw" | "play" | "discard";
+
 // ─── Views sent to clients ───────────────────────────────────────────────────
 
 export interface PlayerPublic {
@@ -95,6 +98,8 @@ export interface PlayerPublic {
   hasPicked: boolean; // draft progress (whether they've locked a character)
   role: Role | null; // visible only for public roles (Sheriff) or dead players
   isTurn: boolean;
+  distance: number | null; // distance from the viewing player (null for self / not playing)
+  equipment: Card[]; // blue cards in play (guns, Mustang, Scope, Jail, Dynamite...)
 }
 
 // Draft state, personalized: `choices` are only ever THIS player's two options.
@@ -122,7 +127,10 @@ export interface PlayerView {
     hp: number;
     maxHp: number;
     hand: Card[];
+    equipment: Card[];
     alive: boolean;
+    turnPhase: TurnPhase | null; // your current turn sub-phase (null if not your turn)
+    range: number; // how far you can Bang! (weapon range, default 1)
   };
   players: PlayerPublic[];
   turnSeat: number | null;
@@ -149,6 +157,8 @@ export interface ClientToServerEvents {
   ) => void;
   startGame: (data: { code: string }) => void;
   pickCharacter: (data: { code: string; characterId: string }) => void;
+  drawCards: (data: { code: string }) => void; // draw phase: draw your 2 cards
+  discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;
   restart: (data: { code: string }) => void;
 }
