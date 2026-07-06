@@ -305,7 +305,7 @@ function Table({
   const overLimit = Math.max(0, you.hand.length - you.hp); // cards to discard before ending
   const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
   const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null); // card awaiting a target
-  const TARGETED = ["bang", "jail"];
+  const TARGETED = ["bang", "jail", "panic", "cat-balou"];
 
   // Click behavior for a hand card: discard excess, aim a targeted card, or play.
   const cardAction = (card: { id: string; defId: string }) => {
@@ -322,6 +322,8 @@ function Table({
     if (!aiming || !p.alive || p.id === you.id) return false;
     if (aiming.defId === "bang") return p.distance != null && p.distance <= you.range;
     if (aiming.defId === "jail") return p.role !== "sheriff" && !p.equipment.some((c) => c.defId === "jail");
+    if (aiming.defId === "panic") return p.distance != null && p.distance <= 1;
+    if (aiming.defId === "cat-balou") return p.handCount > 0 || p.equipment.length > 0;
     return false;
   };
   const fireAt = (targetId: string) => {
@@ -366,8 +368,12 @@ function Table({
         <div className="banner none">
           🎯{" "}
           {aiming.defId === "bang"
-            ? `Chọn mục tiêu cho Bang! (trong tầm ${you.range})`
-            : "Chọn người để bỏ tù (không phải Sheriff)"}{" "}
+            ? `Chọn mục tiêu Bang! (trong tầm ${you.range})`
+            : aiming.defId === "jail"
+            ? "Chọn người để bỏ tù (không phải Sheriff)"
+            : aiming.defId === "panic"
+            ? "Chọn người ở khoảng cách 1 để rút bài"
+            : "Chọn người để ép bỏ 1 lá (Cat Balou)"}{" "}
           ·{" "}
           <button className="ghost" style={{ width: "auto", padding: "4px 10px" }} onClick={() => setAiming(null)}>
             Hủy

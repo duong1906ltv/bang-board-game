@@ -107,10 +107,10 @@ app.prepare().then(() => {
       if (pid && game.drawCards(code, pid)) broadcast(code);
     });
 
-    socket.on("playCard", ({ code, cardId, targetId }) => {
+    socket.on("playCard", ({ code, cardId, targetId, targetCardId }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      const res = game.playCard(code, pid, cardId, targetId);
+      const res = game.playCard(code, pid, cardId, targetId, targetCardId);
       if (res.ok) broadcast(code);
       else if (res.error) socket.emit("errorMsg", res.error);
     });

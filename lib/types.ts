@@ -194,7 +194,7 @@ export interface ClientToServerEvents {
   startGame: (data: { code: string }) => void;
   pickCharacter: (data: { code: string; characterId: string }) => void;
   drawCards: (data: { code: string }) => void; // draw phase: draw your 2 cards
-  playCard: (data: { code: string; cardId: string; targetId?: string }) => void; // play a card
+  playCard: (data: { code: string; cardId: string; targetId?: string; targetCardId?: string }) => void; // play a card
   respond: (data: { code: string; type: "missed" | "beer" | "pass"; cardId?: string }) => void; // reply to a pending
   discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;

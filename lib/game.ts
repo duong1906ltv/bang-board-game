@@ -398,7 +398,8 @@ export function playCard(
   code: string,
   playerId: string,
   cardId: string,
-  _targetId?: string
+  _targetId?: string,
+  targetCardId?: string
 ): { ok: boolean; error?: string } {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
@@ -443,9 +444,75 @@ export function playCard(
   // Brown cards.
   if (card.defId === "bang") return playBang(room, current, idx, _targetId);
   if (card.defId === "beer") return playBeer(room, current, idx);
+  if (card.defId === "stagecoach") return playDraw(room, current, idx, 2);
+  if (card.defId === "wells-fargo") return playDraw(room, current, idx, 3);
+  if (card.defId === "saloon") return playSaloon(room, current, idx);
+  if (card.defId === "panic") return playPanic(room, current, idx, _targetId, targetCardId);
+  if (card.defId === "cat-balou") return playCatBalou(room, current, idx, _targetId, targetCardId);
   // Missed! is only playable as a reaction, not proactively.
   if (card.defId === "missed") return { ok: false, error: "Missed! chỉ dùng để phản ứng Bang!" };
   return { ok: false, error: "Lá này sẽ hỗ trợ ở bước sau" };
+}
+
+// Discard `card` from a player's hand or table.
+function moveToDiscard(room: Room, c: Card) {
+  room.discard.push(c);
+}
+
+// Stagecoach / Wells Fargo: draw N cards.
+function playDraw(room: Room, current: Player, handIdx: number, n: number): { ok: boolean; error?: string } {
+  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  for (let k = 0; k < n; k++) {
+    const c = drawOne(room);
+    if (c) current.hand.push(c);
+  }
+  return { ok: true };
+}
+
+// Saloon: every living player heals 1 (capped at their max).
+function playSaloon(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
+  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  for (const p of room.players) {
+    if (p.alive) p.hp = Math.min(p.maxHp, p.hp + 1);
+  }
+  return { ok: true };
+}
+
+// Pick which card to take/discard from a target: a chosen equipment card, else a
+// random card from their hand (hidden), else a random equipment card.
+function pickTargetCard(target: Player, targetCardId?: string): { from: "hand" | "equipment"; index: number } | null {
+  if (targetCardId) {
+    const ei = target.equipment.findIndex((c) => c.id === targetCardId);
+    if (ei >= 0) return { from: "equipment", index: ei };
+  }
+  if (target.hand.length > 0) return { from: "hand", index: Math.floor(Math.random() * target.hand.length) };
+  if (target.equipment.length > 0) return { from: "equipment", index: Math.floor(Math.random() * target.equipment.length) };
+  return null;
+}
+
+// Panic!: take a card from a player at distance 1 into your hand.
+function playPanic(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): { ok: boolean; error?: string } {
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
+  if (distanceBetween(room, current, target) > 1) return { ok: false, error: "Chỉ lấy được của người ở khoảng cách 1" };
+  const pick = pickTargetCard(target, targetCardId);
+  if (!pick) return { ok: false, error: "Mục tiêu không có bài" };
+  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  const taken = pick.from === "hand" ? target.hand.splice(pick.index, 1)[0] : target.equipment.splice(pick.index, 1)[0];
+  current.hand.push(taken);
+  return { ok: true };
+}
+
+// Cat Balou: force any player to discard a card (any distance).
+function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): { ok: boolean; error?: string } {
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target || !target.alive) return { ok: false, error: "Mục tiêu không hợp lệ" };
+  const pick = pickTargetCard(target, targetCardId);
+  if (!pick) return { ok: false, error: "Mục tiêu không có bài" };
+  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  const gone = pick.from === "hand" ? target.hand.splice(pick.index, 1)[0] : target.equipment.splice(pick.index, 1)[0];
+  moveToDiscard(room, gone);
+  return { ok: true };
 }
 
 // Play Bang! at a target: check the 1-per-turn limit and range, discard the
