@@ -477,8 +477,15 @@ function Table({
       )}
 
       {threeD ? (
-        <div style={{ height: 520, borderRadius: 16, overflow: "hidden", margin: "16px 0" }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 40, background: "#141210" }}>
           <TableScene view={view} />
+          <button
+            className="ghost"
+            style={{ position: "fixed", top: 12, right: 12, zIndex: 60, width: "auto", padding: "8px 14px" }}
+            onClick={() => setThreeD(false)}
+          >
+            {L(locale, "🃏 Thoát 3D", "🃏 Exit 3D")}
+          </button>
         </div>
       ) : (
       <div className="board">
@@ -547,7 +554,14 @@ function Table({
       </div>
       )}
 
-      <div className="you-panel">
+      <div
+        className="you-panel"
+        style={
+          threeD
+            ? { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 50, maxHeight: "46vh", overflowY: "auto", margin: 0, borderRadius: "16px 16px 0 0", background: "rgba(20,18,16,0.94)", backdropFilter: "blur(3px)" }
+            : undefined
+        }
+      >
         <h3>{L(locale, "Thông tin của bạn", "Your info")}</h3>
         {you.role && (
           <>

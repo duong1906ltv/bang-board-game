@@ -10,22 +10,33 @@ import { CardMesh } from "./CardMesh";
 import type { PlayerView, PlayerPublic } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
 
-function Table() {
+// Layout scales with the number of opponents so a 7-player table isn't cramped.
+function layout(nOpp: number) {
+  const ring = 1.5 + 0.14 * nOpp; // radius of the opponent circle
+  const felt = ring + 0.45; // felt top radius
+  const arc = Math.min(1.15, 0.55 + 0.11 * nOpp) * Math.PI; // arc span, widens with count
+  const camY = 1.15 + 0.16 * nOpp;
+  const camZ = ring + 1.35;
+  const handZ = ring - 0.15;
+  return { ring, felt, arc, camY, camZ, handZ };
+}
+
+function Table({ felt }: { felt: number }) {
   return (
     <group>
       {/* felt top */}
       <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[1.75, 64]} />
+        <circleGeometry args={[felt, 64]} />
         <meshStandardMaterial color="#1f6b3a" roughness={0.9} />
       </mesh>
       {/* rim */}
       <mesh position={[0, -0.06, 0]}>
-        <cylinderGeometry args={[1.8, 1.8, 0.12, 64]} />
+        <cylinderGeometry args={[felt + 0.05, felt + 0.05, 0.12, 64]} />
         <meshStandardMaterial color="#5a3312" roughness={0.7} />
       </mesh>
       {/* floor */}
       <mesh position={[0, -0.9, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[30, 30]} />
+        <planeGeometry args={[40, 40]} />
         <meshStandardMaterial color="#2a2622" roughness={1} />
       </mesh>
     </group>
@@ -81,17 +92,16 @@ function OpponentHand({ count }: { count: number }) {
   );
 }
 
-function Opponents({ players, youSeat }: { players: PlayerPublic[]; youSeat: number }) {
+function Opponents({ players, youSeat, ring, arc }: { players: PlayerPublic[]; youSeat: number; ring: number; arc: number }) {
   const others = players.filter((p) => p.seat !== youSeat);
-  const R = 1.35;
   return (
     <>
       {others.map((p, i) => {
-        // Spread across the far arc (behind the table, away from the camera).
+        // Spread across the far arc (centered straight ahead, away from the camera).
         const t = others.length === 1 ? 0.5 : i / (others.length - 1);
-        const ang = Math.PI * (1.15 + 0.7 * t); // ~207° → ~333°
-        const x = R * Math.cos(ang);
-        const z = R * Math.sin(ang);
+        const ang = 1.5 * Math.PI - arc / 2 + arc * t;
+        const x = ring * Math.cos(ang);
+        const z = ring * Math.sin(ang);
         return (
           <group key={p.id} position={[x, 0.05, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
             <OpponentHand count={p.handCount} />
@@ -103,11 +113,11 @@ function Opponents({ players, youSeat }: { players: PlayerPublic[]; youSeat: num
   );
 }
 
-function YourHand({ view }: { view: PlayerView }) {
+function YourHand({ view, handZ }: { view: PlayerView; handZ: number }) {
   const hand = view.you.hand;
   const n = hand.length;
   return (
-    <group position={[0, 0.55, 1.65]} rotation={[-0.75, 0, 0]}>
+    <group position={[0, 0.55, handZ]} rotation={[-0.75, 0, 0]}>
       {hand.map((card, i) => {
         const off = (i - (n - 1) / 2) * 0.42;
         return (
@@ -126,22 +136,24 @@ function YourHand({ view }: { view: PlayerView }) {
 }
 
 function Scene({ view }: { view: PlayerView }) {
+  const nOpp = Math.max(1, view.players.length - 1);
+  const { ring, felt, arc, camY, camZ, handZ } = layout(nOpp);
   return (
     <>
-      <PerspectiveCamera makeDefault position={[0, 1.45, 2.75]} fov={55} />
+      <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={60} />
       <OrbitControls
         target={[0, 0.15, 0]}
         maxPolarAngle={Math.PI / 2.05}
         minDistance={1.5}
-        maxDistance={5}
+        maxDistance={camZ + 4}
         enablePan={false}
       />
       <ambientLight intensity={0.6} />
-      <spotLight position={[0, 4, 1]} angle={0.6} penumbra={0.5} intensity={2.2} castShadow />
+      <spotLight position={[0, felt + 3, 1]} angle={0.7} penumbra={0.5} intensity={2.4} castShadow />
       <Environment preset="warehouse" />
-      <Table />
-      <Opponents players={view.players} youSeat={view.you.seat} />
-      <YourHand view={view} />
+      <Table felt={felt} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} arc={arc} />
+      <YourHand view={view} handZ={handZ} />
     </>
   );
 }
