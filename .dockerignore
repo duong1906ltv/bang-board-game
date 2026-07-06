@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.github
+infra
+scripts
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+README.md
