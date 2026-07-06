@@ -9,6 +9,7 @@ import {
   ROLE_EMOJI,
   ROLE_GOAL,
   ROLE_LABELS,
+  WINNER_LABEL,
 } from "@/lib/types";
 import { SUIT_SYMBOL, rankLabel } from "@/lib/cards";
 
@@ -65,6 +66,8 @@ export default function RoomPage() {
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
   const draw = () => socket.emit("drawCards", { code });
   const play = (cardId: string, targetId?: string) => socket.emit("playCard", { code, cardId, targetId });
+  const respond = (type: "missed" | "beer" | "pass", cardId?: string) =>
+    socket.emit("respond", { code, type, cardId });
   const discard = (cardId: string) => socket.emit("discardCard", { code, cardId });
   const endTurn = () => socket.emit("endTurn", { code });
   const restart = () => socket.emit("restart", { code });
@@ -88,7 +91,81 @@ export default function RoomPage() {
       {(view.phase === "playing" || view.phase === "result") && (
         <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onEndTurn={endTurn} onRestart={restart} />
       )}
+
+      {view.pending && <ReactionPanel view={view} onRespond={respond} />}
     </main>
+  );
+}
+
+// Modal / banner for an in-flight reaction (Bang! -> Missed!, or dying -> Beer).
+function ReactionPanel({
+  view,
+  onRespond,
+}: {
+  view: PlayerView;
+  onRespond: (type: "missed" | "beer" | "pass", cardId?: string) => void;
+}) {
+  const p = view.pending!;
+  const remaining = useCountdown(p.endsAt);
+  const you = view.you;
+
+  if (!p.youAreTarget) {
+    return (
+      <div className="modal-overlay">
+        <div className="modal-card" style={{ color: "var(--accent)" }}>
+          <div className="modal-emoji">⏳</div>
+          <p className="modal-ability">
+            Đang chờ <strong>{p.targetName}</strong> phản ứng…
+          </p>
+          <div className="timer">{remaining}s</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (p.kind === "bang") {
+    const missed = you.hand.find((c) => c.defId === "missed");
+    const need = (p.missedNeeded ?? 1) - (p.missedPlayed ?? 0);
+    return (
+      <div className="modal-overlay">
+        <div className="modal-card" style={{ color: "var(--danger)" }}>
+          <div className="modal-emoji">🔫</div>
+          <h3 className="role-name" style={{ fontSize: "1.4rem" }}>Bạn trúng Bang!</h3>
+          <p className="modal-ability">
+            Từ <strong>{p.sourceName}</strong> · cần {need} Missed! để né · {remaining}s
+          </p>
+          <button
+            disabled={!p.canMissed || !missed}
+            onClick={() => missed && onRespond("missed", missed.id)}
+          >
+            Đánh Missed! {need > 1 ? `(còn ${need})` : ""}
+          </button>
+          <div style={{ height: 8 }} />
+          <button className="ghost" onClick={() => onRespond("pass")}>
+            Chịu 1 máu
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // dying
+  const beer = you.hand.find((c) => c.defId === "beer");
+  return (
+    <div className="modal-overlay">
+      <div className="modal-card" style={{ color: "var(--good)" }}>
+        <div className="modal-emoji">💀</div>
+        <h3 className="role-name" style={{ fontSize: "1.4rem" }}>Bạn sắp gục!</h3>
+        <p className="modal-ability">Uống Beer để sống sót, hoặc chấp nhận · {remaining}s</p>
+        <button disabled={!p.canBeer || !beer} onClick={() => beer && onRespond("beer", beer.id)}>
+          Uống Beer 🍺
+        </button>
+        <div style={{ height: 8 }} />
+        <button className="ghost danger" onClick={() => onRespond("pass")}>
+          Chấp nhận chết
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -218,7 +295,7 @@ function Table({
 }: {
   view: PlayerView;
   onDraw: () => void;
-  onPlay: (cardId: string) => void;
+  onPlay: (cardId: string, targetId?: string) => void;
   onDiscard: (cardId: string) => void;
   onEndTurn: () => void;
   onRestart: () => void;
@@ -227,11 +304,23 @@ function Table({
   const you = view.you;
   const overLimit = Math.max(0, you.hand.length - you.hp); // cards to discard before ending
   const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
-  // While over the hand limit, clicking a card discards it; otherwise it plays it.
-  const cardAction = (cardId: string) => {
+  const [aiming, setAiming] = useState<string | null>(null); // Bang! card id awaiting a target
+
+  // Click behavior for a hand card: discard excess, aim Bang!, or play directly.
+  const cardAction = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
-    if (overLimit > 0) onDiscard(cardId);
-    else onPlay(cardId);
+    if (overLimit > 0) return onDiscard(card.id);
+    if (card.defId === "bang") return setAiming((cur) => (cur === card.id ? null : card.id));
+    onPlay(card.id);
+  };
+
+  // A seat is a valid Bang! target while aiming: alive, not you, within range.
+  const canTarget = (p: (typeof view.players)[number]) =>
+    aiming != null && p.alive && p.id !== you.id && p.distance != null && p.distance <= you.range;
+  const fireAt = (targetId: string) => {
+    if (aiming == null) return;
+    onPlay(aiming, targetId);
+    setAiming(null);
   };
 
   return (
@@ -249,8 +338,25 @@ function Table({
         </div>
       </div>
 
+      {view.phase === "result" && view.winner && (
+        <div className={`banner ${view.winner === "outlaws" ? "werewolf" : view.winner === "sheriff" ? "village" : "none"}`}>
+          {WINNER_LABEL[view.winner]}
+        </div>
+      )}
+
+      {aiming && (
+        <div className="banner none">
+          🎯 Chọn mục tiêu cho Bang! (trong tầm {you.range}) ·{" "}
+          <button className="ghost" style={{ width: "auto", padding: "4px 10px" }} onClick={() => setAiming(null)}>
+            Hủy
+          </button>
+        </div>
+      )}
+
       <div className="seats">
-        {view.players.map((p) => (
+        {view.players.map((p) => {
+          const targetable = canTarget(p);
+          return (
           <div
             key={p.id}
             className={[
@@ -258,7 +364,10 @@ function Table({
               p.isTurn ? "turn" : "",
               p.alive ? "" : "dead",
               p.id === view.you.id ? "me" : "",
+              targetable ? "selectable picked" : "",
             ].join(" ")}
+            onClick={() => targetable && fireAt(p.id)}
+            style={{ cursor: targetable ? "pointer" : "default" }}
           >
             <div className="seat-name">
               <span className={`dot ${p.connected ? "on" : "off"}`} />
@@ -294,7 +403,8 @@ function Table({
             </div>
             <div className="seat-meta">🂠 {p.handCount} lá</div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Your private panel — only you see your own role. */}
@@ -350,10 +460,11 @@ function Table({
                 <span
                   key={c.id}
                   className="card-chip"
-                  onClick={() => cardAction(c.id)}
+                  onClick={() => cardAction(c)}
                   style={{
                     cursor: inPlayPhase ? "pointer" : "default",
-                    borderColor: overLimit > 0 ? "var(--danger)" : undefined,
+                    borderColor:
+                      aiming === c.id ? "var(--accent)" : overLimit > 0 ? "var(--danger)" : undefined,
                   }}
                   title={inPlayPhase ? (overLimit > 0 ? "Bấm để bỏ" : "Bấm để đánh") : undefined}
                 >
