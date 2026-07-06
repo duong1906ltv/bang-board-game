@@ -268,6 +268,30 @@ function Opponents({ players, youSeat, ring, felt, arc }: { players: PlayerPubli
   );
 }
 
+// Draw pile + discard pile in the middle of the table.
+function CenterPiles({ deckCount, discardCount }: { deckCount: number; discardCount: number }) {
+  const stack = Math.min(Math.max(deckCount, 1), 6);
+  const label = (text: string) => (
+    <Html center position={[0, 0.25, 0.55]} distanceFactor={6} style={{ pointerEvents: "none" }}>
+      <div style={{ color: "#f0e2c0", fontWeight: 700, fontSize: 15, textShadow: "0 1px 3px #000", whiteSpace: "nowrap" }}>{text}</div>
+    </Html>
+  );
+  return (
+    <group position={[0, 0.05, 0]}>
+      <group position={[-0.45, 0, 0]}>
+        {Array.from({ length: stack }).map((_, i) => (
+          <CardMesh key={i} faceDown scale={0.72} position={[0, i * 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} />
+        ))}
+        {label(`🂠 ${deckCount}`)}
+      </group>
+      <group position={[0.45, 0, 0]}>
+        {discardCount > 0 && <CardMesh faceDown scale={0.72} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0.25]} />}
+        {label(`🗑️ ${discardCount}`)}
+      </group>
+    </group>
+  );
+}
+
 function Scene({ view }: { view: PlayerView }) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
@@ -288,6 +312,7 @@ function Scene({ view }: { view: PlayerView }) {
       <Environment preset="warehouse" />
       <Saloon felt={felt} />
       <Table felt={felt} />
+      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} />
     </>
   );

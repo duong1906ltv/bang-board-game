@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, ROLE_EMOJI } from "@/lib/types";
-import { SUIT_SYMBOL, rankLabel } from "@/lib/cards";
+import { SUIT_SYMBOL, rankLabel, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import {
   L,
@@ -415,6 +415,18 @@ function Table({
     onPlay(card.id);
   };
 
+  // 3D drag gestures: drag a card UP to play/aim, drag RIGHT to discard.
+  const playGesture = (card: { id: string; defId: string }) => {
+    if (!inPlayPhase) return;
+    if (TARGETED.includes(card.defId)) {
+      return setAiming({ id: card.id, defId: card.defId });
+    }
+    onPlay(card.id);
+  };
+  const discardGesture = (card: { id: string }) => {
+    if (inPlayPhase) onDiscard(card.id);
+  };
+
   const canTarget = (p: (typeof view.players)[number]) => {
     if (!aiming || !p.alive || p.id === you.id) return false;
     if (aiming.defId === "bang") return p.distance != null && p.distance <= you.range;
@@ -569,15 +581,9 @@ function Table({
       </div>
       )}
 
-      <div
-        className="you-panel"
-        style={
-          threeD
-            ? { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 50, maxHeight: "40vh", overflowY: "auto", margin: 0, borderRadius: "16px 16px 0 0", background: "rgba(20,18,16,0.94)", backdropFilter: "blur(3px)" }
-            : undefined
-        }
-      >
-        {!threeD && <h3>{L(locale, "Thông tin của bạn", "Your info")}</h3>}
+      {!threeD && (
+      <div className="you-panel">
+        <h3>{L(locale, "Thông tin của bạn", "Your info")}</h3>
         {you.role && (
           <>
             <div>
@@ -660,6 +666,141 @@ function Table({
           </>
         )}
       </div>
+      )}
+
+      {threeD && (
+        <>
+          {/* compact status */}
+          <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,18,16,0.82)", padding: "8px 12px", borderRadius: 10, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "70vw" }}>
+            {you.role && <span className="role-badge" style={{ fontSize: "0.85rem" }}>{ROLE_EMOJI[you.role]} {roleLabel(locale, you.role)}</span>}
+            <HpPips hp={you.hp} maxHp={you.maxHp} />
+            {you.character && <span className="badge">🎭 {you.character.name}</span>}
+            <span className="badge">🎯 {you.range}</span>
+          </div>
+
+          {/* central actions, just below the deck, on your turn */}
+          {you.alive && isMyTurn && !aiming && (
+            <div style={{ position: "fixed", left: "50%", top: "53%", transform: "translateX(-50%)", zIndex: 55, width: 240, display: "flex", flexDirection: "column", gap: 8 }}>
+              {you.turnPhase === "draw" ? (
+                <DrawControls you={you} onDraw={onDraw} aimJesse={() => setAiming({ id: "", defId: "jesse" })} />
+              ) : (
+                <>
+                  {isSid && you.hp < you.maxHp && you.hand.length >= 2 && (
+                    <button className="ghost" onClick={() => { setSidPicking((v) => !v); setSidPick([]); }}>
+                      {sidPicking ? L(locale, `Chọn 2 lá (${sidPick.length}/2)`, `Pick 2 (${sidPick.length}/2)`) : L(locale, "Sid: bỏ 2 → +1 máu", "Sid: discard 2 → +1")}
+                    </button>
+                  )}
+                  <button onClick={onEndTurn}>{L(locale, "Kết thúc lượt →", "End turn →")}</button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* aiming: choose a target */}
+          {aiming && (
+            <div style={{ position: "fixed", left: "50%", top: "40%", transform: "translateX(-50%)", zIndex: 56, width: 260, background: "rgba(20,18,16,0.95)", padding: 14, borderRadius: 12, color: "#f0e2c0", textAlign: "center", fontFamily: "system-ui, sans-serif" }}>
+              <div style={{ marginBottom: 10 }}>🎯 {L(locale, aimText[aiming.defId]?.[0] ?? "Chọn mục tiêu", aimText[aiming.defId]?.[1] ?? "Choose a target")}</div>
+              {view.players.filter((p) => canTarget(p)).map((p) => (
+                <button key={p.id} onClick={() => fireAt(p.id)} style={{ marginBottom: 6 }}>{ROLE_EMOJI[p.role ?? "outlaw"] } {p.name}{p.distance != null ? ` · ${L(locale, "cách", "dist")} ${p.distance}` : ""}</button>
+              ))}
+              <button className="ghost" onClick={() => setAiming(null)}>{L(locale, "Hủy", "Cancel")}</button>
+            </div>
+          )}
+
+          {/* draggable hand: up = play, right = discard */}
+          {you.alive && (
+            <div style={{ position: "fixed", left: 0, right: 0, bottom: 10, zIndex: 55, display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 4, pointerEvents: "none" }}>
+              {you.hand.map((c) => (
+                <div key={c.id} style={{ pointerEvents: "auto" }}>
+                  <DragCard
+                    card={c}
+                    canInteract={inPlayPhase}
+                    selected={sidPick.includes(c.id) || aiming?.id === c.id}
+                    onPlay={() => (sidPicking ? cardAction(c) : playGesture(c))}
+                    onDiscard={() => discardGesture(c)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          {inPlayPhase && !aiming && you.hand.length > 0 && (
+            <div style={{ position: "fixed", left: "50%", bottom: 176, transform: "translateX(-50%)", zIndex: 55, color: "rgba(240,226,192,0.85)", fontSize: 13, fontFamily: "system-ui, sans-serif", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", pointerEvents: "none" }}>
+              {sidPicking ? L(locale, `Kéo LÊN 2 lá để bỏ (${sidPick.length}/2)`, `Drag UP 2 cards to discard (${sidPick.length}/2)`) : L(locale, "Kéo bài LÊN để đánh · sang PHẢI để bỏ", "Drag UP to play · RIGHT to discard")}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// A hand card you drag: up past a threshold plays it, right past a threshold
+// discards it; anything else snaps back. Used in the 3D view's HUD.
+function DragCard({
+  card,
+  canInteract,
+  selected,
+  onPlay,
+  onDiscard,
+}: {
+  card: Card;
+  canInteract: boolean;
+  selected?: boolean;
+  onPlay: () => void;
+  onDiscard: () => void;
+}) {
+  const [drag, setDrag] = useState<{ dx: number; dy: number } | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const PLAY = 80;
+  const DISC = 90;
+  const zone =
+    drag && (drag.dy < -PLAY && Math.abs(drag.dy) > Math.abs(drag.dx))
+      ? "play"
+      : drag && drag.dx > DISC && Math.abs(drag.dx) >= Math.abs(drag.dy)
+      ? "discard"
+      : null;
+  const down = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!canInteract) return;
+    start.current = { x: e.clientX, y: e.clientY };
+    setDrag({ dx: 0, dy: 0 });
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  };
+  const move = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!start.current) return;
+    setDrag({ dx: e.clientX - start.current.x, dy: e.clientY - start.current.y });
+  };
+  const up = () => {
+    if (!start.current) return;
+    const z = zone;
+    start.current = null;
+    setDrag(null);
+    if (z === "play") onPlay();
+    else if (z === "discard") onDiscard();
+  };
+  return (
+    <div
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={up}
+      style={{
+        touchAction: "none",
+        userSelect: "none",
+        cursor: canInteract ? "grab" : "default",
+        transform: drag ? `translate(${drag.dx}px, ${drag.dy}px) scale(1.06)` : undefined,
+        transition: drag ? "none" : "transform .16s ease",
+        borderRadius: 10,
+        position: "relative",
+        zIndex: drag ? 60 : undefined,
+        boxShadow:
+          zone === "play"
+            ? "0 0 0 3px #2ecc71, 0 10px 24px rgba(0,0,0,.55)"
+            : zone === "discard"
+            ? "0 0 0 3px #e74c3c, 0 10px 24px rgba(0,0,0,.55)"
+            : undefined,
+      }}
+    >
+      <PlayingCard card={card} selected={selected} />
     </div>
   );
 }
