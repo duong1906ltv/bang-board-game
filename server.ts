@@ -103,9 +103,17 @@ app.prepare().then(() => {
       if (pid && game.pickCharacter(code, pid, characterId)) broadcast(code);
     });
 
-    socket.on("drawCards", ({ code }) => {
+    socket.on("drawCards", ({ code, source, targetId }) => {
       const pid = playerIdOf(code, socket.id);
-      if (pid && game.drawCards(code, pid)) broadcast(code);
+      if (pid && game.drawCards(code, pid, source, targetId)) broadcast(code);
+    });
+
+    socket.on("sidHeal", ({ code, cardIds }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (!pid) return;
+      const res = game.sidHeal(code, pid, cardIds);
+      if (res.ok) broadcast(code);
+      else if (res.error) socket.emit("errorMsg", res.error);
     });
 
     socket.on("playCard", ({ code, cardId, targetId, targetCardId }) => {
@@ -127,7 +135,7 @@ app.prepare().then(() => {
     socket.on("choose", ({ code, cardId }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      const res = game.chooseStore(code, pid, cardId);
+      const res = game.choose(code, pid, cardId);
       if (res.ok) broadcast(code);
       else if (res.error) socket.emit("errorMsg", res.error);
     });

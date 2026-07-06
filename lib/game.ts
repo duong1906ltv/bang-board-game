@@ -29,7 +29,8 @@ type Pending =
   | { kind: "dying"; targetId: string; sourceId: string | null; beersNeeded: number; endsAt: number }
   | { kind: "multi"; effect: "indians" | "gatling"; sourceId: string; responders: { id: string; done: boolean; safe: boolean }[]; endsAt: number }
   | { kind: "duel"; aId: string; bId: string; turnId: string; endsAt: number }
-  | { kind: "store"; sourceId: string; cards: Card[]; order: string[]; endsAt: number };
+  | { kind: "store"; sourceId: string; cards: Card[]; order: string[]; endsAt: number }
+  | { kind: "kit"; playerId: string; cards: Card[]; picksLeft: number; endsAt: number };
 
 // Reaction window (ms) for Bang!/dying responses.
 export const REACTION_MS = 15_000;
@@ -63,7 +64,7 @@ export interface Room {
   pending: Pending | null; // unresolved reaction locking the table
   pendingTimer: NodeJS.Timeout | null;
   winner: Winner | null; // set when the game ends
-  deathQueue: { id: string; needed: number }[]; // players awaiting a Beer-save after multi-damage
+  deathQueue: { id: string; needed: number; sourceId: string | null }[]; // players awaiting a Beer-save
   checks: CheckView[]; // recent Draw! reveals (upkeep / Barrel), display-only
   draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
   draftTimer: NodeJS.Timeout | null;
@@ -383,13 +384,54 @@ export function distanceBetween(room: Room, from: Player, to: Player): number {
 // --- turn flow ---
 
 // Draw phase: the active player draws their 2 cards, then may play.
-export function drawCards(code: string, playerId: string): boolean {
+export function drawCards(
+  code: string,
+  playerId: string,
+  source: "deck" | "discard" | "player" = "deck",
+  targetId?: string
+): boolean {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing" || room.turnPhase !== "draw") return false;
   if (room.pending) return false;
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return false;
   room.checks = [];
+
+  // Kit Carlson: reveal the top 3, pick 2 (the third returns to the deck bottom).
+  if (current.character?.id === "kit-carlson") {
+    const cards: Card[] = [];
+    for (let i = 0; i < 3; i++) {
+      const c = drawOne(room);
+      if (c) cards.push(c);
+    }
+    room.pending = { kind: "kit", playerId: current.id, cards, picksLeft: 2, endsAt: Date.now() + REACTION_MS };
+    return true; // stays in draw phase until picks resolve
+  }
+
+  // Jesse Jones: draw the first card from a chosen player's hand.
+  if (current.character?.id === "jesse-jones" && source === "player" && targetId) {
+    const t = room.players.find((p) => p.id === targetId);
+    if (t && t.id !== current.id && t.hand.length > 0) {
+      current.hand.push(t.hand.splice(Math.floor(Math.random() * t.hand.length), 1)[0]);
+    } else {
+      const c = drawOne(room);
+      if (c) current.hand.push(c);
+    }
+    const c2 = drawOne(room);
+    if (c2) current.hand.push(c2);
+    room.turnPhase = "play";
+    return true;
+  }
+
+  // Pedro Ramirez: draw the first card from the discard pile.
+  if (current.character?.id === "pedro-ramirez" && source === "discard" && room.discard.length > 0) {
+    current.hand.push(room.discard.pop()!);
+    const c2 = drawOne(room);
+    if (c2) current.hand.push(c2);
+    room.turnPhase = "play";
+    return true;
+  }
+
   if (current.character?.id === "black-jack") {
     // Draw 1; reveal the 2nd — on Heart/Diamond, draw a bonus card.
     const c1 = drawOne(room);
@@ -854,7 +896,7 @@ export function respond(
     }
     if (type === "pass") {
       clearPending(room);
-      killPlayer(room, target);
+      killPlayer(room, target, pending.sourceId);
       checkWin(room);
       if (room.phase === "playing") processDeathQueue(room);
       return { ok: true };
@@ -910,23 +952,65 @@ export function respond(
   return { ok: false };
 }
 
-// General Store: the current picker chooses a revealed card.
-export function chooseStore(code: string, playerId: string, cardId: string): { ok: boolean; error?: string } {
+// Pick a card: General Store (turn order) or Kit Carlson (top-3 selection).
+export function choose(code: string, playerId: string, cardId: string): { ok: boolean; error?: string } {
   const room = rooms.get(code);
-  if (!room || !room.pending || room.pending.kind !== "store") return { ok: false };
-  const pending = room.pending;
-  if (pending.order[0] !== playerId) return { ok: false, error: "Chưa tới lượt chọn của bạn" };
-  const ci = pending.cards.findIndex((c) => c.id === cardId);
-  if (ci < 0) return { ok: false, error: "Lá không hợp lệ" };
-  const picker = room.players.find((p) => p.id === playerId)!;
-  picker.hand.push(pending.cards.splice(ci, 1)[0]);
-  pending.order.shift();
-  if (pending.order.length === 0) {
-    room.discard.push(...pending.cards); // leftovers (shouldn't occur)
-    clearPending(room);
-  } else {
-    refreshDeadline(room, REACTION_MS);
+  if (!room || !room.pending) return { ok: false };
+
+  if (room.pending.kind === "store") {
+    const pending = room.pending;
+    if (pending.order[0] !== playerId) return { ok: false, error: "Chưa tới lượt chọn của bạn" };
+    const ci = pending.cards.findIndex((c) => c.id === cardId);
+    if (ci < 0) return { ok: false, error: "Lá không hợp lệ" };
+    const picker = room.players.find((p) => p.id === playerId)!;
+    picker.hand.push(pending.cards.splice(ci, 1)[0]);
+    pending.order.shift();
+    if (pending.order.length === 0) {
+      room.discard.push(...pending.cards);
+      clearPending(room);
+    } else {
+      refreshDeadline(room, REACTION_MS);
+    }
+    return { ok: true };
   }
+
+  if (room.pending.kind === "kit") {
+    const pending = room.pending;
+    if (pending.playerId !== playerId) return { ok: false, error: "Không phải lượt của bạn" };
+    const ci = pending.cards.findIndex((c) => c.id === cardId);
+    if (ci < 0) return { ok: false, error: "Lá không hợp lệ" };
+    const kit = room.players.find((p) => p.id === playerId)!;
+    kit.hand.push(pending.cards.splice(ci, 1)[0]);
+    pending.picksLeft -= 1;
+    if (pending.picksLeft <= 0) {
+      room.deck.unshift(...pending.cards); // remaining card(s) to the deck bottom
+      clearPending(room);
+      room.turnPhase = "play";
+    } else {
+      refreshDeadline(room, REACTION_MS);
+    }
+    return { ok: true };
+  }
+
+  return { ok: false };
+}
+
+// Sid Ketchum: discard exactly two cards to regain 1 life.
+export function sidHeal(code: string, playerId: string, cardIds: string[]): { ok: boolean; error?: string } {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "playing" || room.pending) return { ok: false };
+  const current = room.players[room.turnIndex];
+  if (!current || current.id !== playerId || room.turnPhase === "draw") return { ok: false };
+  if (current.character?.id !== "sid-ketchum") return { ok: false, error: "Chỉ Sid Ketchum dùng được" };
+  if (current.hp >= current.maxHp) return { ok: false, error: "Máu đã đầy" };
+  if (cardIds.length !== 2 || cardIds[0] === cardIds[1]) return { ok: false, error: "Chọn đúng 2 lá khác nhau" };
+  const idxs = cardIds.map((id) => current.hand.findIndex((c) => c.id === id));
+  if (idxs.some((i) => i < 0)) return { ok: false, error: "Không có lá đó" };
+  for (const id of cardIds) {
+    const i = current.hand.findIndex((c) => c.id === id);
+    room.discard.push(current.hand.splice(i, 1)[0]);
+  }
+  current.hp = Math.min(current.maxHp, current.hp + 1);
   return { ok: true };
 }
 
@@ -947,9 +1031,10 @@ export function pendingTimeout(code: string): boolean {
   }
   if (p.kind === "dying") {
     const t = room.players.find((x) => x.id === p.targetId);
+    const srcId = p.sourceId;
     clearPending(room);
     if (t) {
-      killPlayer(room, t);
+      killPlayer(room, t, srcId);
       checkWin(room);
       if (room.phase === "playing") processDeathQueue(room);
     }
@@ -970,6 +1055,18 @@ export function pendingTimeout(code: string): boolean {
     }
     return true;
   }
+  if (p.kind === "kit") {
+    // Auto-pick the first available cards; the rest go to the deck bottom.
+    const kit = room.players.find((x) => x.id === p.playerId);
+    while (p.picksLeft > 0 && p.cards.length) {
+      if (kit) kit.hand.push(p.cards.shift()!);
+      p.picksLeft -= 1;
+    }
+    room.deck.unshift(...p.cards);
+    clearPending(room);
+    room.turnPhase = "play";
+    return true;
+  }
   // store: auto-pick the first card for the current picker, then advance.
   const picker = room.players.find((x) => x.id === p.order[0]);
   if (picker && p.cards.length) picker.hand.push(p.cards.shift()!);
@@ -988,6 +1085,7 @@ export function pendingTimeout(code: string): boolean {
 function resolveMulti(room: Room) {
   if (!room.pending || room.pending.kind !== "multi") return;
   const responders = room.pending.responders;
+  const srcId = room.pending.sourceId;
   clearPending(room);
   for (const r of responders) {
     if (r.safe) continue;
@@ -996,8 +1094,8 @@ function resolveMulti(room: Room) {
     t.hp -= 1;
     if (t.hp <= 0) {
       const beers = t.hand.filter((c) => c.defId === "beer").length;
-      if (beers >= 1 - t.hp) room.deathQueue.push({ id: t.id, needed: 1 - t.hp });
-      else killPlayer(room, t);
+      if (beers >= 1 - t.hp) room.deathQueue.push({ id: t.id, needed: 1 - t.hp, sourceId: srcId });
+      else killPlayer(room, t, srcId);
     }
   }
   checkWin(room);
@@ -1014,11 +1112,11 @@ function processDeathQueue(room: Room) {
     if (!t || !t.alive || t.hp > 0) { room.deathQueue.shift(); continue; }
     const beers = t.hand.filter((c) => c.defId === "beer").length;
     if (beers >= entry.needed) {
-      room.pending = { kind: "dying", targetId: t.id, sourceId: null, beersNeeded: entry.needed, endsAt: Date.now() + REACTION_MS };
+      room.pending = { kind: "dying", targetId: t.id, sourceId: entry.sourceId, beersNeeded: entry.needed, endsAt: Date.now() + REACTION_MS };
       room.deathQueue.shift();
       return; // wait for this player's response
     }
-    killPlayer(room, t);
+    killPlayer(room, t, entry.sourceId);
     checkWin(room);
     room.deathQueue.shift();
   }
@@ -1051,12 +1149,12 @@ function applyDamage(room: Room, target: Player, amount: number, sourceId: strin
   if (saveable && beers >= needed) {
     room.pending = { kind: "dying", targetId: target.id, sourceId, beersNeeded: needed, endsAt: Date.now() + REACTION_MS };
   } else {
-    killPlayer(room, target);
+    killPlayer(room, target, sourceId);
     checkWin(room);
   }
 }
 
-function killPlayer(room: Room, target: Player) {
+function killPlayer(room: Room, target: Player, killerId: string | null = null) {
   target.alive = false;
   target.hp = 0;
   const cards = [...target.hand, ...target.equipment];
@@ -1066,8 +1164,21 @@ function killPlayer(room: Room, target: Player) {
   const sam = room.players.find((p) => p.alive && p.id !== target.id && p.character?.id === "vulture-sam");
   if (sam) sam.hand.push(...cards);
   else room.discard.push(...cards);
-  // Death rewards (draw 3 on killing an Outlaw; Sheriff-kills-Deputy penalty)
-  // are handled in Phase 6.
+
+  // Death rewards / penalty for whoever landed the killing blow.
+  const killer = killerId ? room.players.find((p) => p.id === killerId) : null;
+  if (killer && killer.alive && killer.id !== target.id) {
+    if (target.role === "outlaw") {
+      for (let i = 0; i < 3; i++) {
+        const c = drawOne(room);
+        if (c) killer.hand.push(c);
+      }
+    } else if (killer.role === "sheriff" && target.role === "deputy") {
+      room.discard.push(...killer.hand, ...killer.equipment);
+      killer.hand = [];
+      killer.equipment = [];
+    }
+  }
 }
 
 // Suzy Lafayette: any living Suzy left with an empty hand immediately draws one.
@@ -1242,6 +1353,17 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
       info: `Duel: ${name(p.aId)} vs ${name(p.bId)} — tới lượt ${name(p.turnId)} bỏ Bang!`,
       youMustRespond: mine,
       actions: acts(mine, "bang"),
+    };
+  }
+  if (p.kind === "kit") {
+    const mine = meId === p.playerId;
+    return {
+      kind: "kit",
+      endsAt: p.endsAt,
+      info: `${name(p.playerId)} (Kit Carlson) chọn 2 trong 3 lá — còn ${p.picksLeft}`,
+      youMustRespond: mine,
+      actions: [],
+      storeCards: mine ? p.cards : [], // only Kit peeks at the top three
     };
   }
   // store

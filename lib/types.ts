@@ -97,7 +97,7 @@ export const WINNER_LABEL: Record<Winner, string> = {
 //  - multi: Indians!/Gatling — each other player defends or takes 1
 //  - duel:  two players alternate discarding Bang!; first to fail loses 1
 //  - store: General Store — players pick a revealed card in turn order
-export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store";
+export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit";
 export type PendingAction = "missed" | "beer" | "bang" | "pass";
 
 export interface PendingView {
@@ -197,7 +197,8 @@ export interface ClientToServerEvents {
   ) => void;
   startGame: (data: { code: string }) => void;
   pickCharacter: (data: { code: string; characterId: string }) => void;
-  drawCards: (data: { code: string }) => void; // draw phase: draw your 2 cards
+  drawCards: (data: { code: string; source?: "deck" | "discard" | "player"; targetId?: string }) => void; // draw phase
+  sidHeal: (data: { code: string; cardIds: string[] }) => void; // Sid Ketchum: discard 2 to heal 1
   playCard: (data: { code: string; cardId: string; targetId?: string; targetCardId?: string }) => void; // play a card
   respond: (data: { code: string; type: "missed" | "beer" | "bang" | "pass"; cardId?: string }) => void; // reply to a pending
   choose: (data: { code: string; cardId: string }) => void; // pick a card (General Store)

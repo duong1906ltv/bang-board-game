@@ -64,7 +64,9 @@ export default function RoomPage() {
   const socket = getSocket();
   const start = () => socket.emit("startGame", { code });
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
-  const draw = () => socket.emit("drawCards", { code });
+  const draw = (source?: "deck" | "discard" | "player", targetId?: string) =>
+    socket.emit("drawCards", { code, source, targetId });
+  const sidHeal = (cardIds: string[]) => socket.emit("sidHeal", { code, cardIds });
   const play = (cardId: string, targetId?: string) => socket.emit("playCard", { code, cardId, targetId });
   const respond = (type: "missed" | "beer" | "bang" | "pass", cardId?: string) =>
     socket.emit("respond", { code, type, cardId });
@@ -90,7 +92,7 @@ export default function RoomPage() {
       {view.phase === "lobby" && <Lobby view={view} onStart={start} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onEndTurn={endTurn} onRestart={restart} />
+        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onRestart={restart} />
       )}
 
       {view.pending && <ReactionPanel view={view} onRespond={respond} onChoose={choose} />}
@@ -112,6 +114,7 @@ const PENDING_EMOJI: Record<string, string> = {
   multi: "🎯",
   duel: "⚔️",
   store: "🏪",
+  kit: "🎴",
 };
 
 function ReactionPanel({
@@ -146,8 +149,8 @@ function ReactionPanel({
         )}
         <div className="timer">{remaining}s</div>
 
-        {/* General Store: the current picker chooses one of the revealed cards. */}
-        {p.kind === "store" && (
+        {/* General Store / Kit Carlson: pick from the revealed cards. */}
+        {(p.kind === "store" || p.kind === "kit") && (
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(90px,1fr))", marginTop: 10 }}>
             {(p.storeCards ?? []).map((c) => {
               const red = c.suit === "hearts" || c.suit === "diamonds";
@@ -306,13 +309,15 @@ function Table({
   onDraw,
   onPlay,
   onDiscard,
+  onSidHeal,
   onEndTurn,
   onRestart,
 }: {
   view: PlayerView;
-  onDraw: () => void;
+  onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
   onPlay: (cardId: string, targetId?: string) => void;
   onDiscard: (cardId: string) => void;
+  onSidHeal: (cardIds: string[]) => void;
   onEndTurn: () => void;
   onRestart: () => void;
 }) {
@@ -321,11 +326,23 @@ function Table({
   const overLimit = Math.max(0, you.hand.length - you.hp); // cards to discard before ending
   const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
   const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null); // card awaiting a target
+  const [sidPick, setSidPick] = useState<string[]>([]); // Sid Ketchum: cards selected to discard
+  const [sidPicking, setSidPicking] = useState(false); // Sid heal mode active
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
+  const isSid = you.character?.id === "sid-ketchum";
 
-  // Click behavior for a hand card: discard excess, aim a targeted card, or play.
+  // Click behavior for a hand card: Sid selection, discard excess, aim, or play.
   const cardAction = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
+    if (sidPicking) {
+      const next = sidPick.includes(card.id) ? sidPick.filter((x) => x !== card.id) : [...sidPick, card.id];
+      if (next.length === 2) {
+        onSidHeal(next);
+        setSidPick([]);
+        setSidPicking(false);
+      } else setSidPick(next);
+      return;
+    }
     if (overLimit > 0) return onDiscard(card.id);
     if (TARGETED.includes(card.defId)) {
       return setAiming((cur) => (cur?.id === card.id ? null : { id: card.id, defId: card.defId }));
@@ -341,11 +358,13 @@ function Table({
     if (aiming.defId === "panic") return p.distance != null && p.distance <= 1;
     if (aiming.defId === "cat-balou") return p.handCount > 0 || p.equipment.length > 0;
     if (aiming.defId === "duel") return true; // any living opponent
+    if (aiming.defId === "jesse") return p.handCount > 0; // Jesse Jones draws from a hand
     return false;
   };
   const fireAt = (targetId: string) => {
     if (!aiming) return;
-    onPlay(aiming.id, targetId);
+    if (aiming.defId === "jesse") onDraw("player", targetId);
+    else onPlay(aiming.id, targetId);
     setAiming(null);
   };
 
@@ -392,6 +411,8 @@ function Table({
             ? "Chọn người ở khoảng cách 1 để rút bài"
             : aiming.defId === "duel"
             ? "Chọn người để Duel (đấu bỏ Bang!)"
+            : aiming.defId === "jesse"
+            ? "Chọn người để rút 1 lá từ tay họ (Jesse Jones)"
             : "Chọn người để ép bỏ 1 lá (Cat Balou)"}{" "}
           ·{" "}
           <button className="ghost" style={{ width: "auto", padding: "4px 10px" }} onClick={() => setAiming(null)}>
@@ -511,7 +532,11 @@ function Table({
                   style={{
                     cursor: inPlayPhase ? "pointer" : "default",
                     borderColor:
-                      aiming?.id === c.id ? "var(--accent)" : overLimit > 0 ? "var(--danger)" : undefined,
+                      sidPick.includes(c.id) || aiming?.id === c.id
+                        ? "var(--accent)"
+                        : overLimit > 0
+                        ? "var(--danger)"
+                        : undefined,
                   }}
                   title={inPlayPhase ? (overLimit > 0 ? "Bấm để bỏ" : "Bấm để đánh") : undefined}
                 >
@@ -532,15 +557,57 @@ function Table({
         ) : !isMyTurn ? (
           <button disabled>Chưa tới lượt bạn</button>
         ) : you.turnPhase === "draw" ? (
-          <button onClick={onDraw}>Rút 2 lá 🂠</button>
+          <DrawControls you={you} onDraw={onDraw} aimJesse={() => setAiming({ id: "", defId: "jesse" })} />
         ) : (
-          <button onClick={onEndTurn} disabled={overLimit > 0}>
-            {overLimit > 0 ? `Bỏ bớt ${overLimit} lá để kết thúc` : "Kết thúc lượt →"}
-          </button>
+          <>
+            {isSid && you.hp < you.maxHp && you.hand.length >= 2 && (
+              <>
+                <button className="ghost" onClick={() => { setSidPicking((v) => !v); setSidPick([]); }}>
+                  {sidPicking ? `Chọn 2 lá để bỏ… (${sidPick.length}/2)` : "Sid: bỏ 2 lá → +1 máu"}
+                </button>
+                <div style={{ height: 8 }} />
+              </>
+            )}
+            <button onClick={onEndTurn} disabled={overLimit > 0}>
+              {overLimit > 0 ? `Bỏ bớt ${overLimit} lá để kết thúc` : "Kết thúc lượt →"}
+            </button>
+          </>
         )}
       </div>
     </div>
   );
+}
+
+// Draw-phase buttons; Jesse Jones and Pedro Ramirez get their alternate source.
+function DrawControls({
+  you,
+  onDraw,
+  aimJesse,
+}: {
+  you: PlayerView["you"];
+  onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
+  aimJesse: () => void;
+}) {
+  const char = you.character?.id;
+  if (char === "jesse-jones") {
+    return (
+      <>
+        <button onClick={() => onDraw()}>Rút 2 lá thường 🂠</button>
+        <div style={{ height: 8 }} />
+        <button className="ghost" onClick={aimJesse}>Rút 1 lá từ tay người khác</button>
+      </>
+    );
+  }
+  if (char === "pedro-ramirez") {
+    return (
+      <>
+        <button onClick={() => onDraw()}>Rút 2 lá thường 🂠</button>
+        <div style={{ height: 8 }} />
+        <button className="ghost" onClick={() => onDraw("discard")}>Rút lá bỏ trên cùng + 1</button>
+      </>
+    );
+  }
+  return <button onClick={() => onDraw()}>Rút 2 lá 🂠</button>;
 }
 
 function CharacterCard({ c }: { c: Character }) {
