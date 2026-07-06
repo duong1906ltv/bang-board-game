@@ -367,6 +367,53 @@ export function drawCards(code: string, playerId: string): boolean {
   return true;
 }
 
+// Play a card from the active player's hand.
+// Step 2a scope: blue self-equipment (guns, Mustang, Scope, Barrel). Targeted
+// blue cards (Jail/Dynamite) and brown cards are handled in later steps.
+export function playCard(
+  code: string,
+  playerId: string,
+  cardId: string,
+  _targetId?: string
+): { ok: boolean; error?: string } {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "playing") return { ok: false };
+  const current = room.players[room.turnIndex];
+  if (!current || current.id !== playerId) return { ok: false };
+  if (room.turnPhase === "draw") return { ok: false, error: "Bạn phải rút bài trước" };
+  const idx = current.hand.findIndex((c) => c.id === cardId);
+  if (idx < 0) return { ok: false };
+  const card = current.hand[idx];
+  const def = CARD_DEF_BY_ID[card.defId];
+  if (!def) return { ok: false };
+
+  if (def.kind === "gun") {
+    // Equip the new gun, discarding any gun already in play (only one allowed).
+    current.hand.splice(idx, 1);
+    const guns = current.equipment.filter((c) => CARD_DEF_BY_ID[c.defId]?.kind === "gun");
+    current.equipment = current.equipment.filter((c) => CARD_DEF_BY_ID[c.defId]?.kind !== "gun");
+    room.discard.push(...guns);
+    current.equipment.push(card);
+    return { ok: true };
+  }
+
+  if (def.kind === "blue") {
+    if (card.defId === "jail" || card.defId === "dynamite") {
+      return { ok: false, error: "Jail/Dynamite sẽ hỗ trợ ở bước Draw!" };
+    }
+    // Mustang / Scope / Barrel: at most one of each in play.
+    if (hasEquip(current, card.defId)) {
+      return { ok: false, error: `Đã có ${def.name} trên bàn` };
+    }
+    current.hand.splice(idx, 1);
+    current.equipment.push(card);
+    return { ok: true };
+  }
+
+  // Brown cards (Bang!, Missed!, Beer, ...) — added in step 2b.
+  return { ok: false, error: "Lá này sẽ hỗ trợ ở bước sau" };
+}
+
 // Discard a card from the active player's hand to the discard pile.
 export function discardCard(code: string, playerId: string, cardId: string): boolean {
   const room = rooms.get(code);
