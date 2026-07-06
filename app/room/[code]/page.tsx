@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, ROLE_EMOJI } from "@/lib/types";
 import { SUIT_SYMBOL, rankLabel } from "@/lib/cards";
+import { PlayingCard } from "@/components/PlayingCard";
 import {
   L,
   useLocale,
@@ -158,24 +159,16 @@ function ReactionPanel({
         <div className="timer">{remaining}s</div>
 
         {(p.kind === "store" || p.kind === "kit") && (
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(90px,1fr))", marginTop: 10 }}>
-            {(p.storeCards ?? []).map((c) => {
-              const red = c.suit === "hearts" || c.suit === "diamonds";
-              return (
-                <div
-                  key={c.id}
-                  className="selectable"
-                  style={{ cursor: p.youMustRespond ? "pointer" : "default", opacity: p.youMustRespond ? 1 : 0.7 }}
-                  onClick={() => p.youMustRespond && onChoose(c.id)}
-                >
-                  <div style={{ fontSize: "0.85rem", fontWeight: 700 }}>{c.name}</div>
-                  <div style={{ color: red ? "#ff6b6b" : "var(--muted)" }}>
-                    {rankLabel(c.rank)}
-                    {SUIT_SYMBOL[c.suit]}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="card-row" style={{ justifyContent: "center" }}>
+            {(p.storeCards ?? []).map((c) => (
+              <PlayingCard
+                key={c.id}
+                card={c}
+                size="sm"
+                onClick={p.youMustRespond ? () => onChoose(c.id) : undefined}
+                dimmed={!p.youMustRespond}
+              />
+            ))}
           </div>
         )}
 
@@ -499,12 +492,9 @@ function Table({
         {you.equipment.length > 0 && (
           <>
             <label style={{ marginTop: 12 }}>{L(locale, "Bài xanh trên bàn", "In play")}</label>
-            <div className="hand">
+            <div className="card-row">
               {you.equipment.map((c) => (
-                <span key={c.id} className="card-chip">
-                  {c.name} {rankLabel(c.rank)}
-                  {SUIT_SYMBOL[c.suit]}
-                </span>
+                <PlayingCard key={c.id} card={c} size="sm" />
               ))}
             </div>
           </>
@@ -514,30 +504,18 @@ function Table({
           {L(locale, "Bài trên tay", "Hand")} ({you.hand.length})
           {inPlayPhase && (overLimit > 0 ? L(locale, ` · bấm để bỏ ${overLimit} lá dư`, ` · click to discard ${overLimit}`) : L(locale, " · bấm để đánh", " · click to play"))}
         </label>
-        <div className="hand">
+        <div className="card-row">
           {you.hand.length === 0 ? (
             <span className="muted">{L(locale, "Chưa có lá nào.", "No cards.")}</span>
           ) : (
-            you.hand.map((c) => {
-              const red = c.suit === "hearts" || c.suit === "diamonds";
-              return (
-                <span
-                  key={c.id}
-                  className="card-chip"
-                  onClick={() => cardAction(c)}
-                  style={{
-                    cursor: inPlayPhase ? "pointer" : "default",
-                    borderColor: sidPick.includes(c.id) || aiming?.id === c.id ? "var(--accent)" : overLimit > 0 ? "var(--danger)" : undefined,
-                  }}
-                >
-                  {c.name}{" "}
-                  <span style={{ color: red ? "#ff6b6b" : "var(--muted)" }}>
-                    {rankLabel(c.rank)}
-                    {SUIT_SYMBOL[c.suit]}
-                  </span>
-                </span>
-              );
-            })
+            you.hand.map((c) => (
+              <PlayingCard
+                key={c.id}
+                card={c}
+                onClick={inPlayPhase ? () => cardAction(c) : undefined}
+                selected={sidPick.includes(c.id) || aiming?.id === c.id}
+              />
+            ))
           )}
         </div>
 

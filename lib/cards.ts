@@ -125,6 +125,36 @@ export const CARD_DEF_BY_ID: Record<string, CardDef> = Object.fromEntries(
   CARD_DEFS.map((d) => [d.id, d])
 );
 
+// A representative icon per card (used on the CSS card face).
+export const CARD_ICON: Record<string, string> = {
+  bang: "💥",
+  missed: "🛡️",
+  beer: "🍺",
+  "cat-balou": "✋",
+  panic: "🤏",
+  duel: "⚔️",
+  "general-store": "🏪",
+  indians: "🏹",
+  stagecoach: "🚚",
+  "wells-fargo": "💰",
+  gatling: "🔥",
+  saloon: "🍻",
+  mustang: "🐎",
+  scope: "🔭",
+  barrel: "🛢️",
+  jail: "⛓️",
+  dynamite: "🧨",
+  volcanic: "🔫",
+  schofield: "🔫",
+  remington: "🔫",
+  "rev-carabine": "🔫",
+  winchester: "🔫",
+};
+
+// Optional per-card artwork (data URI or path). Empty by default — drop entries
+// here (e.g. AI-generated Wild-West art) and the card face will use them.
+export const CARD_IMAGE: Record<string, string> = {};
+
 // --- spec parsing ---
 
 function parseCardToken(tok: string): { suit: Suit; rank: number } {
