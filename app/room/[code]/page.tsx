@@ -63,6 +63,8 @@ export default function RoomPage() {
   const socket = getSocket();
   const start = () => socket.emit("startGame", { code });
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
+  const draw = () => socket.emit("drawCards", { code });
+  const discard = (cardId: string) => socket.emit("discardCard", { code, cardId });
   const endTurn = () => socket.emit("endTurn", { code });
   const restart = () => socket.emit("restart", { code });
 
@@ -83,7 +85,7 @@ export default function RoomPage() {
       {view.phase === "lobby" && <Lobby view={view} onStart={start} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onEndTurn={endTurn} onRestart={restart} />
+        <Table view={view} onDraw={draw} onDiscard={discard} onEndTurn={endTurn} onRestart={restart} />
       )}
     </main>
   );
@@ -207,15 +209,21 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
 
 function Table({
   view,
+  onDraw,
+  onDiscard,
   onEndTurn,
   onRestart,
 }: {
   view: PlayerView;
+  onDraw: () => void;
+  onDiscard: (cardId: string) => void;
   onEndTurn: () => void;
   onRestart: () => void;
 }) {
   const isMyTurn = view.turnSeat != null && view.turnSeat === view.you.seat && view.you.alive;
   const you = view.you;
+  const overLimit = Math.max(0, you.hand.length - you.hp); // cards to discard before ending
+  const canDiscard = isMyTurn && you.turnPhase !== "draw";
 
   return (
     <div className="card wide" style={{ marginTop: 16 }}>
@@ -250,6 +258,7 @@ function Table({
             </div>
             <div className="seat-meta">
               Ghế #{p.seat + 1}
+              {p.distance != null && ` · cách ${p.distance}`}
               {p.isTurn && " · đang tới lượt"}
               {!p.alive && " · đã chết"}
             </div>
@@ -294,17 +303,45 @@ function Table({
             <CharacterCard c={you.character} />
           </div>
         )}
-        <HpPips hp={you.hp} maxHp={you.maxHp} />
+        <div className="row" style={{ alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+          <HpPips hp={you.hp} maxHp={you.maxHp} />
+          <span className="badge">🎯 Tầm bắn {you.range}</span>
+        </div>
 
-        <label style={{ marginTop: 12 }}>Bài trên tay ({you.hand.length})</label>
+        {you.equipment.length > 0 && (
+          <>
+            <label style={{ marginTop: 12 }}>Bài xanh trên bàn</label>
+            <div className="hand">
+              {you.equipment.map((c) => (
+                <span key={c.id} className="card-chip">
+                  {c.name} {rankLabel(c.rank)}
+                  {SUIT_SYMBOL[c.suit]}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+
+        <label style={{ marginTop: 12 }}>
+          Bài trên tay ({you.hand.length}){overLimit > 0 && ` · bấm để bỏ ${overLimit} lá`}
+        </label>
         <div className="hand">
           {you.hand.length === 0 ? (
-            <span className="muted">Chưa có lá bài nào (lớp bài sẽ thêm sau).</span>
+            <span className="muted">Chưa có lá nào.</span>
           ) : (
             you.hand.map((c) => {
               const red = c.suit === "hearts" || c.suit === "diamonds";
               return (
-                <span key={c.id} className="card-chip">
+                <span
+                  key={c.id}
+                  className="card-chip"
+                  onClick={() => canDiscard && onDiscard(c.id)}
+                  style={{
+                    cursor: canDiscard ? "pointer" : "default",
+                    borderColor: overLimit > 0 ? "var(--danger)" : undefined,
+                  }}
+                  title={canDiscard ? "Bấm để bỏ lá này" : undefined}
+                >
                   {c.name}{" "}
                   <span style={{ color: red ? "#ff6b6b" : "var(--muted)" }}>
                     {rankLabel(c.rank)}
@@ -317,12 +354,16 @@ function Table({
         </div>
 
         <div style={{ height: 14 }} />
-        {you.alive ? (
-          <button onClick={onEndTurn} disabled={!isMyTurn}>
-            {isMyTurn ? "Kết thúc lượt →" : "Chưa tới lượt bạn"}
-          </button>
-        ) : (
+        {!you.alive ? (
           <p className="muted">Bạn đã bị loại — theo dõi ván đấu tiếp diễn.</p>
+        ) : !isMyTurn ? (
+          <button disabled>Chưa tới lượt bạn</button>
+        ) : you.turnPhase === "draw" ? (
+          <button onClick={onDraw}>Rút 2 lá 🂠</button>
+        ) : (
+          <button onClick={onEndTurn} disabled={overLimit > 0}>
+            {overLimit > 0 ? `Bỏ bớt ${overLimit} lá để kết thúc` : "Kết thúc lượt →"}
+          </button>
         )}
       </div>
     </div>
