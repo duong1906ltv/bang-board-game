@@ -691,64 +691,85 @@ button.danger {
 }
 
 /* ─── Playing card face ───────────────────────────────────────────────────── */
+/* Name on top (large), art in the middle, description below, and a single
+   suit+rank corner at the bottom-left. The full border takes the card's kind
+   colour (brown / blue / grey gun). */
 .pcard {
   position: relative;
   background: linear-gradient(160deg, #fdf6e3, #f0e2c0);
   color: #2a2114;
   border-radius: 9px;
-  border: 1px solid #cbb583;
-  border-top: 5px solid var(--pc-accent, #a0672f);
+  border: 2.5px solid var(--pc-accent, #a0672f);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
   overflow: hidden;
   user-select: none;
   flex: 0 0 auto;
+  padding: 3px;
 }
-.pcard-md { width: 72px; height: 100px; }
-.pcard-sm { width: 52px; height: 74px; }
-.pc-brown { --pc-accent: #b5701f; }
+.pcard-md { width: 104px; height: 150px; }
+.pcard-sm { width: 72px; height: 104px; }
+.pc-brown { --pc-accent: #a06a2c; }
 .pc-blue { --pc-accent: #3b82f6; }
 .pc-gun { --pc-accent: #8a8f98; }
 .pc-red .pc-corner { color: #d12f2f; }
 .pc-black .pc-corner { color: #222; }
 
-.pc-corner {
-  position: absolute;
+/* Card name — big, at the top */
+.pc-name {
   font-weight: 800;
-  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  text-align: center;
   line-height: 1;
+  padding: 2px 2px 3px;
+  color: #3a2a15;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
-.pcard-sm .pc-corner { font-size: 0.68rem; }
-.pc-tl { top: 4px; left: 5px; }
-.pc-br { bottom: 4px; right: 5px; transform: rotate(180deg); }
+.pcard-md .pc-name { font-size: 0.78rem; }
+.pcard-sm .pc-name { font-size: 0.6rem; -webkit-line-clamp: 1; }
 
 .pc-center {
   flex: 1;
   width: 100%;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 4px;
   background-size: cover;
   background-position: center;
 }
-.pc-icon { font-size: 1.9rem; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2)); }
-.pcard-sm .pc-icon { font-size: 1.4rem; }
+.pc-icon { font-size: 2.1rem; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2)); }
+.pcard-sm .pc-icon { font-size: 1.5rem; }
 
-.pc-name {
-  font-size: 0.62rem;
-  font-weight: 700;
+/* Description — smaller text below the art */
+.pc-desc {
   text-align: center;
-  padding: 2px 3px 4px;
-  line-height: 1.05;
-  max-width: 100%;
+  line-height: 1.12;
+  padding: 3px 2px 2px;
+  color: #5a4426;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
 }
-.pcard-sm .pc-name { font-size: 0.54rem; }
+.pcard-md .pc-desc { font-size: 0.5rem; -webkit-line-clamp: 3; }
+.pcard-sm .pc-desc { display: none; }
+
+/* Suit + rank — only at the bottom-left */
+.pc-corner {
+  align-self: flex-start;
+  font-weight: 800;
+  line-height: 1;
+  padding: 1px 2px 2px 3px;
+}
+.pcard-md .pc-corner { font-size: 0.82rem; }
+.pcard-sm .pc-corner { font-size: 0.72rem; }
 
 .pc-click { cursor: pointer; transition: transform 0.1s ease, box-shadow 0.1s ease; }
 .pc-click:hover { transform: translateY(-6px) scale(1.04); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45); z-index: 5; }

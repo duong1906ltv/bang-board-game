@@ -44,12 +44,12 @@ export function PlayingCard({
 
   return (
     <div className={cls} onClick={onClick} title={title ?? def?.name}>
-      <span className="pc-corner pc-tl">{corner}</span>
+      <div className="pc-name">{card.name}</div>
       <div className="pc-center" style={img ? { backgroundImage: `url(${img})` } : undefined}>
         {!img && <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>}
       </div>
-      <span className="pc-name">{card.name}</span>
-      <span className="pc-corner pc-br">{corner}</span>
+      {def?.effect && <div className="pc-desc">{def.effect}</div>}
+      <span className="pc-corner">{corner}</span>
     </div>
   );
 }
