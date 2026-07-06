@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# One-time bootstrap of the Terraform S3 state backend + DynamoDB lock table.
+# Run ONCE per AWS account, BEFORE the first `terraform init`.
+# Idempotent: re-running skips resources that already exist.
+#
+# Values must match infra/backend.tf.
+set -euo pipefail
+
+PROFILE=${AWS_PROFILE:-default}
+REGION=${AWS_REGION:-ap-southeast-1}
+BUCKET=${TF_STATE_BUCKET:-bang-board-game-tfstate-mml}
+TABLE=${TF_LOCK_TABLE:-bang-tf-lock}
+
+ACCOUNT=$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)
+echo "▶ Account $ACCOUNT / region $REGION / profile $PROFILE"
+echo "  bucket=$BUCKET  lock-table=$TABLE"
+echo
+
+# ─── S3 state bucket ─────────────────────────────────────────────────────────
+if aws s3api head-bucket --bucket "$BUCKET" --profile "$PROFILE" 2>/dev/null; then
+  echo "  ✓ bucket $BUCKET already exists"
+else
+  echo "  + creating bucket $BUCKET"
+  aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" \
+    --create-bucket-configuration LocationConstraint="$REGION" --profile "$PROFILE"
+  aws s3api put-bucket-versioning --bucket "$BUCKET" \
+    --versioning-configuration Status=Enabled --profile "$PROFILE"
+  aws s3api put-bucket-encryption --bucket "$BUCKET" --profile "$PROFILE" \
+    --server-side-encryption-configuration \
+    '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+  aws s3api put-public-access-block --bucket "$BUCKET" --profile "$PROFILE" \
+    --public-access-block-configuration \
+    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+fi
+
+# ─── DynamoDB lock table ─────────────────────────────────────────────────────
+if aws dynamodb describe-table --table-name "$TABLE" --region "$REGION" --profile "$PROFILE" >/dev/null 2>&1; then
+  echo "  ✓ table $TABLE already exists"
+else
+  echo "  + creating table $TABLE"
+  aws dynamodb create-table --table-name "$TABLE" \
+    --attribute-definitions AttributeName=LockID,AttributeType=S \
+    --key-schema AttributeName=LockID,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST --region "$REGION" --profile "$PROFILE"
+fi
+
+echo
+echo "✓ Backend ready. Next:  cd infra && terraform init && terraform apply"

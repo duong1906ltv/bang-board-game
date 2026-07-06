@@ -1,0 +1,18 @@
+# Rendered by Terraform (domain = <eip>.sslip.io).
+# Caddy auto-provisions a Let's Encrypt certificate for this hostname and
+# transparently proxies WebSocket upgrades to the Node app. Needs :80 (ACME
+# HTTP challenge + HTTP→HTTPS redirect) and :443 open in the security group.
+
+${domain} {
+    encode gzip
+
+    reverse_proxy app:3000 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-For {remote_host}
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
