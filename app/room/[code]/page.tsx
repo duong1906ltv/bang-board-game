@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, ROLE_EMOJI } from "@/lib/types";
@@ -23,6 +24,9 @@ import {
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 7;
+
+// 3D table (react-three-fiber). Loaded client-only: Three.js needs the browser.
+const TableScene = dynamic(() => import("@/components/three/TableScene"), { ssr: false });
 
 function LangToggle() {
   const locale = useLocale();
@@ -332,6 +336,7 @@ function Table({
   const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null);
   const [sidPick, setSidPick] = useState<string[]>([]);
   const [sidPicking, setSidPicking] = useState(false);
+  const [threeD, setThreeD] = useState(false);
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
   const isSid = you.character?.id === "sid-ketchum";
 
@@ -395,6 +400,14 @@ function Table({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h2 className="section-title">{L(locale, "Bàn chơi", "Table")}</h2>
         <div className="row" style={{ alignItems: "center" }}>
+          <button
+            className="ghost"
+            style={{ width: "auto", padding: "8px 12px" }}
+            onClick={() => setThreeD((v) => !v)}
+            title={L(locale, "Đổi giao diện bàn 2D/3D", "Toggle 2D/3D table")}
+          >
+            {threeD ? "🃏 2D" : "🎲 3D"}
+          </button>
           {view.you.isHost && (
             <button className="ghost" style={{ width: "auto", padding: "8px 12px" }} onClick={onRestart}>
               {L(locale, "Về phòng chờ", "To lobby")}
@@ -432,6 +445,11 @@ function Table({
         </div>
       )}
 
+      {threeD ? (
+        <div style={{ height: 520, borderRadius: 16, overflow: "hidden", margin: "16px 0" }}>
+          <TableScene view={view} />
+        </div>
+      ) : (
       <div className="board">
         {opponents.map((p, i) => {
           const targetable = canTarget(p);
@@ -496,6 +514,7 @@ function Table({
           </div>
         </div>
       </div>
+      )}
 
       <div className="you-panel">
         <h3>{L(locale, "Thông tin của bạn", "Your info")}</h3>
