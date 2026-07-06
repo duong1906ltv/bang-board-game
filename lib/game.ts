@@ -440,7 +440,7 @@ export function drawCards(
     if (c2) {
       current.hand.push(c2);
       const bonus = c2.suit === "hearts" || c2.suit === "diamonds";
-      room.checks = [{ name: current.name, card: c2, kind: "blackjack", outcome: bonus ? "Rút thêm 1!" : "Không thêm" }];
+      room.checks = [{ name: current.name, card: c2, kind: "blackjack", outcome: bonus ? "bonus" : "nobonus" }];
       if (bonus) {
         const c3 = drawOne(room);
         if (c3) current.hand.push(c3);
@@ -541,7 +541,7 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
       if (hasEquip(p, "barrel")) {
         const card = drawCheck(room, p, goodBarrel);
         const heart = !!card && card.suit === "hearts";
-        room.checks.push({ name: p.name, card, kind: "barrel", outcome: heart ? "Barrel né!" : "Barrel trượt" });
+        room.checks.push({ name: p.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" });
         if (heart) { r.done = true; r.safe = true; }
       }
     }
@@ -667,7 +667,7 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   if (hasEquip(target, "barrel")) {
     const card = drawCheck(room, target, goodBarrel);
     const heart = !!card && card.suit === "hearts";
-    room.checks = [{ name: target.name, card, kind: "barrel", outcome: heart ? "Barrel né được!" : "Barrel trượt" }];
+    room.checks = [{ name: target.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" }];
     if (heart) {
       pending.missedPlayed += 1;
       if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // fully dodged
@@ -777,7 +777,7 @@ function beginTurn(room: Room) {
     if (dyn) {
       const card = drawCheck(room, cur, goodDynamite);
       const exploded = !!card && card.suit === "spades" && card.rank >= 2 && card.rank <= 9;
-      room.checks.push({ name: cur.name, card, kind: "dynamite", outcome: exploded ? "Nổ! −3 máu" : "An toàn" });
+      room.checks.push({ name: cur.name, card, kind: "dynamite", outcome: exploded ? "blast" : "safe" });
       cur.equipment = cur.equipment.filter((c) => c.id !== dyn.id);
       if (exploded) {
         room.discard.push(dyn);
@@ -800,7 +800,7 @@ function beginTurn(room: Room) {
     if (jail) {
       const card = drawCheck(room, cur, goodJail);
       const released = !!card && card.suit === "hearts";
-      room.checks.push({ name: cur.name, card, kind: "jail", outcome: released ? "Thoát tù" : "Bỏ lượt" });
+      room.checks.push({ name: cur.name, card, kind: "jail", outcome: released ? "free" : "skip" });
       cur.equipment = cur.equipment.filter((c) => c.id !== jail.id);
       room.discard.push(jail);
       if (!released) {
@@ -1314,68 +1314,43 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
     return {
       kind: "bang",
       endsAt: p.endsAt,
-      info: `${name(p.sourceId)} bắn Bang! vào ${name(p.targetId)}`,
       youMustRespond: mine,
       actions: acts(mine, "missed"),
       missedNeeded: p.missedNeeded,
       missedPlayed: p.missedPlayed,
+      actorName: name(p.sourceId),
+      targetName: name(p.targetId),
     };
   }
   if (p.kind === "dying") {
     const mine = meId === p.targetId;
-    return {
-      kind: "dying",
-      endsAt: p.endsAt,
-      info: `${name(p.targetId)} sắp gục — cần Beer để sống`,
-      youMustRespond: mine,
-      actions: acts(mine, "beer"),
-    };
+    return { kind: "dying", endsAt: p.endsAt, youMustRespond: mine, actions: acts(mine, "beer"), actorName: name(p.targetId) };
   }
   if (p.kind === "multi") {
     const r = p.responders.find((x) => x.id === meId);
     const mine = !!r && !r.done;
     const need = p.effect === "indians" ? "bang" : "missed";
-    return {
-      kind: "multi",
-      endsAt: p.endsAt,
-      info: p.effect === "indians"
-        ? `${name(p.sourceId)} dùng Indians! — bỏ 1 Bang! hoặc mất 1 máu`
-        : `${name(p.sourceId)} dùng Gatling — đánh Missed! hoặc mất 1 máu`,
-      youMustRespond: mine,
-      actions: acts(mine, need),
-    };
+    return { kind: "multi", endsAt: p.endsAt, youMustRespond: mine, actions: acts(mine, need), actorName: name(p.sourceId), effect: p.effect };
   }
   if (p.kind === "duel") {
     const mine = meId === p.turnId;
     return {
       kind: "duel",
       endsAt: p.endsAt,
-      info: `Duel: ${name(p.aId)} vs ${name(p.bId)} — tới lượt ${name(p.turnId)} bỏ Bang!`,
       youMustRespond: mine,
       actions: acts(mine, "bang"),
+      actorName: name(p.aId),
+      targetName: name(p.bId),
+      turnName: name(p.turnId),
     };
   }
   if (p.kind === "kit") {
     const mine = meId === p.playerId;
-    return {
-      kind: "kit",
-      endsAt: p.endsAt,
-      info: `${name(p.playerId)} (Kit Carlson) chọn 2 trong 3 lá — còn ${p.picksLeft}`,
-      youMustRespond: mine,
-      actions: [],
-      storeCards: mine ? p.cards : [], // only Kit peeks at the top three
-    };
+    return { kind: "kit", endsAt: p.endsAt, youMustRespond: mine, actions: [], storeCards: mine ? p.cards : [], actorName: name(p.playerId) };
   }
   // store
   const mine = meId === p.order[0];
-  return {
-    kind: "store",
-    endsAt: p.endsAt,
-    info: `General Store — ${name(p.order[0])} đang chọn bài`,
-    youMustRespond: mine,
-    actions: [],
-    storeCards: p.cards, // revealed cards are public
-  };
+  return { kind: "store", endsAt: p.endsAt, youMustRespond: mine, actions: [], storeCards: p.cards, actorName: name(p.order[0]) };
 }
 
 // Build the personalized view for one player: they always see their OWN role,

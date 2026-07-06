@@ -103,12 +103,16 @@ export type PendingAction = "missed" | "beer" | "bang" | "pass";
 export interface PendingView {
   kind: PendingKind;
   endsAt: number; // epoch ms deadline (reaction window)
-  info: string; // description shown to everyone
   youMustRespond: boolean; // is it your turn to act right now
   actions: PendingAction[]; // response buttons to show you
   storeCards?: Card[]; // store: revealed cards to pick from
   missedNeeded?: number; // bang: Missed! required (2 vs Slab)
   missedPlayed?: number; // bang: Missed! played so far
+  // Names/params for the client to build a localized description:
+  actorName: string; // main actor (shooter / source / duel A / picker / Kit)
+  targetName?: string; // secondary (bang target / duel B / dying player)
+  turnName?: string; // duel: whose turn to discard now
+  effect?: "indians" | "gatling"; // multi effect
 }
 
 // ─── Views sent to clients ───────────────────────────────────────────────────
