@@ -40,6 +40,7 @@ export interface Player {
   name: string;
   socketId: string | null;
   isHost: boolean;
+  isBot: boolean; // server-controlled AI (fills seats for testing)
   connected: boolean;
   seat: number; // fixed clockwise seat index, assigned on join
   role: Role | null; // dealt at game start
@@ -68,6 +69,7 @@ export interface Room {
   checks: CheckView[]; // recent Draw! reveals (upkeep / Barrel), display-only
   draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
   draftTimer: NodeJS.Timeout | null;
+  botTimer: NodeJS.Timeout | null; // paces bot actions so humans can watch
   deck: Card[]; // draw pile (top = end of array)
   discard: Card[]; // discard pile
 }
@@ -137,6 +139,7 @@ function newPlayer(name: string, socketId: string, isHost: boolean, seat: number
     name: name.trim().slice(0, 20) || "Người chơi",
     socketId,
     isHost,
+    isBot: false,
     connected: true,
     seat,
     role: null,
@@ -169,11 +172,40 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     checks: [],
     draftEndsAt: null,
     draftTimer: null,
+    botTimer: null,
     deck: [],
     discard: [],
   };
   rooms.set(code, room);
   return { room, player };
+}
+
+// Host adds an AI-controlled player to the lobby (for testing / filling seats).
+export function addBot(code: string): { ok: boolean; error?: string } {
+  const room = rooms.get(code);
+  if (!room) return { ok: false, error: "Phòng không tồn tại" };
+  if (room.phase !== "lobby") return { ok: false, error: "Ván đang diễn ra" };
+  if (room.players.length >= MAX_PLAYERS) return { ok: false, error: `Phòng đã đầy (tối đa ${MAX_PLAYERS})` };
+  const botNum = room.players.filter((p) => p.isBot).length + 1;
+  const bot = newPlayer(`🤖 Bot ${botNum}`, "", false, room.players.length);
+  bot.socketId = null;
+  bot.isBot = true;
+  room.players.push(bot);
+  return { ok: true };
+}
+
+// Host removes the most recently added bot (lobby only).
+export function removeBot(code: string): boolean {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "lobby") return false;
+  let idx = -1;
+  for (let i = room.players.length - 1; i >= 0; i--) {
+    if (room.players[i].isBot) { idx = i; break; }
+  }
+  if (idx < 0) return false;
+  room.players.splice(idx, 1);
+  room.players.forEach((p, i) => (p.seat = i));
+  return true;
 }
 
 export function addPlayer(
@@ -212,12 +244,21 @@ export function disconnect(socketId: string): Room | null {
       room.players.forEach((p, i) => (p.seat = i));
       if (room.players.length === 0) {
         clearDraftTimer(room);
+        clearBotTimer(room);
         rooms.delete(room.code);
         return null;
       }
       if (player.isHost) {
-        room.players[0].isHost = true;
-        room.hostId = room.players[0].id;
+        const nextHost = room.players.find((p) => !p.isBot);
+        if (!nextHost) {
+          // Only bots remain — tear the lobby down.
+          clearDraftTimer(room);
+          clearBotTimer(room);
+          rooms.delete(room.code);
+          return null;
+        }
+        room.players.forEach((p) => (p.isHost = p.id === nextHost.id));
+        room.hostId = nextHost.id;
       }
     }
     return room;
@@ -229,6 +270,13 @@ function clearDraftTimer(room: Room) {
   if (room.draftTimer) {
     clearTimeout(room.draftTimer);
     room.draftTimer = null;
+  }
+}
+
+function clearBotTimer(room: Room) {
+  if (room.botTimer) {
+    clearTimeout(room.botTimer);
+    room.botTimer = null;
   }
 }
 
@@ -1230,6 +1278,7 @@ export function restart(code: string): boolean {
   const room = rooms.get(code);
   if (!room) return false;
   clearDraftTimer(room);
+  clearBotTimer(room);
   clearPending(room);
   room.phase = "lobby";
   room.turnIndex = 0;
@@ -1279,6 +1328,7 @@ function toPublic(p: Player, room: Room, viewer: Player | undefined, turnId: str
     name: p.name,
     seat: p.seat,
     isHost: p.isHost,
+    isBot: p.isBot,
     connected: p.connected,
     alive: p.alive,
     hp: p.hp,

@@ -91,6 +91,8 @@ export default function RoomPage() {
 
   const socket = getSocket();
   const start = () => socket.emit("startGame", { code });
+  const addBot = () => socket.emit("addBot", { code });
+  const removeBot = () => socket.emit("removeBot", { code });
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
   const draw = (source?: "deck" | "discard" | "player", targetId?: string) =>
     socket.emit("drawCards", { code, source, targetId });
@@ -117,7 +119,7 @@ export default function RoomPage() {
       <Header code={code} copied={copied} onCopy={copyCode} />
       {error && <p className="err">{tError(locale, error)}</p>}
 
-      {view.phase === "lobby" && <Lobby view={view} onStart={start} />}
+      {view.phase === "lobby" && <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
         <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onRestart={restart} />
@@ -210,9 +212,20 @@ function Header({ code, copied, onCopy }: { code: string; copied: boolean; onCop
   );
 }
 
-function Lobby({ view, onStart }: { view: PlayerView; onStart: () => void }) {
+function Lobby({
+  view,
+  onStart,
+  onAddBot,
+  onRemoveBot,
+}: {
+  view: PlayerView;
+  onStart: () => void;
+  onAddBot: () => void;
+  onRemoveBot: () => void;
+}) {
   const locale = useLocale();
   const n = view.players.length;
+  const botCount = view.players.filter((p) => p.isBot).length;
   const canStart = view.you.isHost && n >= MIN_PLAYERS && n <= MAX_PLAYERS;
 
   return (
@@ -230,7 +243,11 @@ function Lobby({ view, onStart }: { view: PlayerView; onStart: () => void }) {
               {p.name}
               {p.id === view.you.id && <span className="muted"> {L(locale, "(bạn)", "(you)")}</span>}
             </span>
-            {p.isHost && <span className="badge">{L(locale, "Chủ phòng ⭐", "Host ⭐")}</span>}
+            {p.isBot ? (
+              <span className="badge">{L(locale, "AI 🤖", "AI 🤖")}</span>
+            ) : (
+              p.isHost && <span className="badge">{L(locale, "Chủ phòng ⭐", "Host ⭐")}</span>
+            )}
           </li>
         ))}
       </ul>
@@ -244,6 +261,20 @@ function Lobby({ view, onStart }: { view: PlayerView; onStart: () => void }) {
                 {ROLE_EMOJI[r.role]} {roleLabel(locale, r.role)} ×{r.count}
               </span>
             ))}
+          </div>
+        </>
+      )}
+
+      {view.you.isHost && (
+        <>
+          <label style={{ marginTop: 12 }}>{L(locale, "Thêm AI để test", "Add AI for testing")}</label>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="ghost" onClick={onAddBot} disabled={n >= MAX_PLAYERS}>
+              {L(locale, "+ Thêm bot 🤖", "+ Add bot 🤖")}
+            </button>
+            <button className="ghost" onClick={onRemoveBot} disabled={botCount === 0}>
+              {L(locale, "− Bớt bot", "− Remove bot")}
+            </button>
           </div>
         </>
       )}

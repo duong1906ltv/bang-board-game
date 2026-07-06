@@ -22,11 +22,11 @@ const card = (id: string, defId: string, name: string, suit: Card["suit"], rank:
 const char = (id: string): Character | null => CHARACTERS.find((c) => c.id === id) ?? null;
 
 const players: PlayerPublic[] = [
-  { id: "you", name: "Bạn", seat: 0, isHost: true, connected: true, alive: true, hp: 4, maxHp: 4, handCount: 5, character: char("bart-cassidy"), hasPicked: true, role: null, isTurn: true, distance: null, equipment: [] },
-  { id: "p1", name: "Marshal Joe", seat: 1, isHost: false, connected: true, alive: true, hp: 5, maxHp: 5, handCount: 3, character: char("slab-the-killer"), hasPicked: true, role: "sheriff", isTurn: false, distance: 1, equipment: [] },
-  { id: "p2", name: "Kid", seat: 2, isHost: false, connected: true, alive: true, hp: 2, maxHp: 4, handCount: 4, character: char("willy-the-kid"), hasPicked: true, role: null, isTurn: false, distance: 2, equipment: [] },
-  { id: "p3", name: "Rose", seat: 3, isHost: false, connected: true, alive: true, hp: 4, maxHp: 4, handCount: 2, character: char("rose-doolan"), hasPicked: true, role: null, isTurn: false, distance: 2, equipment: [] },
-  { id: "p4", name: "Lucky", seat: 4, isHost: false, connected: true, alive: true, hp: 3, maxHp: 4, handCount: 6, character: char("lucky-duke"), hasPicked: true, role: null, isTurn: false, distance: 1, equipment: [] },
+  { id: "you", name: "Bạn", seat: 0, isHost: true, isBot: false, connected: true, alive: true, hp: 4, maxHp: 4, handCount: 5, character: char("bart-cassidy"), hasPicked: true, role: null, isTurn: true, distance: null, equipment: [] },
+  { id: "p1", name: "Marshal Joe", seat: 1, isHost: false, isBot: false, connected: true, alive: true, hp: 5, maxHp: 5, handCount: 3, character: char("slab-the-killer"), hasPicked: true, role: "sheriff", isTurn: false, distance: 1, equipment: [] },
+  { id: "p2", name: "Kid", seat: 2, isHost: false, isBot: false, connected: true, alive: true, hp: 2, maxHp: 4, handCount: 4, character: char("willy-the-kid"), hasPicked: true, role: null, isTurn: false, distance: 2, equipment: [] },
+  { id: "p3", name: "Rose", seat: 3, isHost: false, isBot: false, connected: true, alive: true, hp: 4, maxHp: 4, handCount: 2, character: char("rose-doolan"), hasPicked: true, role: null, isTurn: false, distance: 2, equipment: [] },
+  { id: "p4", name: "Lucky", seat: 4, isHost: false, isBot: false, connected: true, alive: true, hp: 3, maxHp: 4, handCount: 6, character: char("lucky-duke"), hasPicked: true, role: null, isTurn: false, distance: 1, equipment: [] },
 ];
 
 const view: PlayerView = {

@@ -6,6 +6,10 @@ import next from "next";
 import { Server } from "socket.io";
 import { ClientToServerEvents, ServerToClientEvents } from "./lib/types";
 import * as game from "./lib/game";
+import * as bot from "./lib/bot";
+
+// How long between successive bot actions, so a human can follow along.
+const BOT_TICK_MS = 850;
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOST || "0.0.0.0";
@@ -33,6 +37,17 @@ app.prepare().then(() => {
         io.to(p.socketId).emit("view", game.buildView(room, p.id));
       }
     }
+    scheduleBots(room, code);
+  }
+
+  // If a bot is due to act, run one action after a short delay, then broadcast
+  // again (which re-checks for the next bot action). One timer per room.
+  function scheduleBots(room: game.Room, code: string) {
+    if (room.botTimer || !bot.hasBotToAct(code)) return;
+    room.botTimer = setTimeout(() => {
+      room.botTimer = null;
+      if (bot.step(code)) broadcast(code);
+    }, BOT_TICK_MS);
   }
 
   // Schedule the 30s draft deadline once, when the draft phase begins. When it
@@ -96,6 +111,22 @@ app.prepare().then(() => {
       const res = game.startGame(code);
       if (!res.ok) return socket.emit("errorMsg", res.error || "Không thể bắt đầu");
       broadcast(code);
+    });
+
+    socket.on("addBot", ({ code }) => {
+      const pid = playerIdOf(code, socket.id);
+      const room = game.getRoom(code);
+      if (!room || pid !== room.hostId) return; // host only
+      const res = game.addBot(code);
+      if (!res.ok) return socket.emit("errorMsg", res.error || "Không thêm được bot");
+      broadcast(code);
+    });
+
+    socket.on("removeBot", ({ code }) => {
+      const pid = playerIdOf(code, socket.id);
+      const room = game.getRoom(code);
+      if (!room || pid !== room.hostId) return; // host only
+      if (game.removeBot(code)) broadcast(code);
     });
 
     socket.on("pickCharacter", ({ code, characterId }) => {

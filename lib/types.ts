@@ -122,6 +122,7 @@ export interface PlayerPublic {
   name: string;
   seat: number;
   isHost: boolean;
+  isBot: boolean; // server-controlled AI player (for testing / filling seats)
   connected: boolean;
   alive: boolean;
   hp: number;
@@ -200,6 +201,8 @@ export interface ClientToServerEvents {
     cb: (res: { ok: boolean; error?: string }) => void
   ) => void;
   startGame: (data: { code: string }) => void;
+  addBot: (data: { code: string }) => void; // host: add an AI player (testing)
+  removeBot: (data: { code: string }) => void; // host: remove the last AI player
   pickCharacter: (data: { code: string; characterId: string }) => void;
   drawCards: (data: { code: string; source?: "deck" | "discard" | "player"; targetId?: string }) => void; // draw phase
   sidHeal: (data: { code: string; cardIds: string[] }) => void; // Sid Ketchum: discard 2 to heal 1
