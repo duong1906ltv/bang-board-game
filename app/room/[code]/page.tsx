@@ -573,7 +573,7 @@ function Table({
         className="you-panel"
         style={
           threeD
-            ? { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 50, maxHeight: "46vh", overflowY: "auto", margin: 0, borderRadius: "16px 16px 0 0", background: "rgba(20,18,16,0.94)", backdropFilter: "blur(3px)" }
+            ? { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 50, maxHeight: "40vh", overflowY: "auto", margin: 0, borderRadius: "16px 16px 0 0", background: "rgba(20,18,16,0.94)", backdropFilter: "blur(3px)" }
             : undefined
         }
       >

@@ -12,34 +12,55 @@ import { ROLE_EMOJI } from "@/lib/types";
 
 // Layout scales with the number of opponents so a 7-player table isn't cramped.
 function layout(nOpp: number) {
-  const ring = 1.5 + 0.14 * nOpp; // radius of the opponent circle
-  const felt = ring + 0.55; // felt top radius
+  const ring = 1.4 + 0.13 * nOpp; // radius of the opponent circle
+  const felt = ring + 0.5; // felt top radius
   const arc = Math.min(1.15, 0.55 + 0.11 * nOpp) * Math.PI; // arc span, widens with count
-  // Raised camera angled down so the felt fills the frame (no empty background),
-  // while staying close enough to span the width.
-  const camY = 2.3 + 0.14 * nOpp;
-  const camZ = ring + 0.6;
-  const fov = 62;
+  // Frame the camera relative to the table size so the whole table reads the same
+  // way for any player count: a 3/4 "seated" view, table filling the width.
+  const d = felt * 1.95;
+  const camY = d * 0.6; // ~37° above horizon
+  const camZ = d * 0.8;
+  const fov = 55;
   return { ring, felt, arc, camY, camZ, fov };
 }
 
 function Table({ felt }: { felt: number }) {
+  const bodyR = felt + 0.12;
+  const legR = bodyR * 0.72;
+  const legs: [number, number][] = [
+    [legR, legR],
+    [legR, -legR],
+    [-legR, legR],
+    [-legR, -legR],
+  ];
   return (
     <group>
-      {/* felt top */}
-      <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[felt, 64]} />
-        <meshStandardMaterial color="#1f6b3a" roughness={0.9} />
+      {/* wooden table body — top surface at y=0 */}
+      <mesh position={[0, -0.2, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[bodyR, bodyR * 0.94, 0.4, 64]} />
+        <meshStandardMaterial color="#5a3312" roughness={0.75} />
       </mesh>
-      {/* rim */}
-      <mesh position={[0, -0.06, 0]}>
-        <cylinderGeometry args={[felt + 0.05, felt + 0.05, 0.12, 64]} />
-        <meshStandardMaterial color="#5a3312" roughness={0.7} />
+      {/* green felt, lifted just above the body top to avoid z-fighting */}
+      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <circleGeometry args={[felt, 72]} />
+        <meshStandardMaterial color="#1f6b3a" roughness={0.95} />
       </mesh>
-      {/* floor */}
-      <mesh position={[0, -0.9, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[40, 40]} />
-        <meshStandardMaterial color="#2a2622" roughness={1} />
+      {/* darker felt inner ring for depth */}
+      <mesh position={[0, 0.031, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[felt * 0.62, felt * 0.66, 72]} />
+        <meshStandardMaterial color="#185c31" roughness={1} />
+      </mesh>
+      {/* legs */}
+      {legs.map(([x, z], i) => (
+        <mesh key={i} position={[x, -0.95, z]} castShadow>
+          <cylinderGeometry args={[0.1, 0.08, 1.3, 16]} />
+          <meshStandardMaterial color="#3f2410" roughness={0.85} />
+        </mesh>
+      ))}
+      {/* wooden floor */}
+      <mesh position={[0, -1.55, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[80, 80]} />
+        <meshStandardMaterial color="#241d18" roughness={1} />
       </mesh>
     </group>
   );
@@ -120,16 +141,18 @@ function Scene({ view }: { view: PlayerView }) {
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
     <>
+      <color attach="background" args={["#17120f"]} />
+      <fog attach="fog" args={["#17120f", felt * 2.2, felt * 5.5]} />
       <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={fov} />
       <OrbitControls
-        target={[0, 0.1, 0]}
-        maxPolarAngle={Math.PI / 2.05}
-        minDistance={1.5}
-        maxDistance={camZ + 5}
+        target={[0, 0, -felt * 0.12]}
+        maxPolarAngle={Math.PI / 2.15}
+        minDistance={felt}
+        maxDistance={camZ + 6}
         enablePan={false}
       />
-      <ambientLight intensity={0.6} />
-      <spotLight position={[0, felt + 3, 1]} angle={0.7} penumbra={0.5} intensity={2.4} castShadow />
+      <ambientLight intensity={0.55} />
+      <spotLight position={[0, felt + 3.5, 0.5]} angle={0.8} penumbra={0.6} intensity={2.6} castShadow />
       <Environment preset="warehouse" />
       <Table felt={felt} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} arc={arc} />
