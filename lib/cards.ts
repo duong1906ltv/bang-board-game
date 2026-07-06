@@ -79,7 +79,7 @@ export const CARD_DEFS: CardDef[] = [
     notes: ["Rule 5"] },
   { id: "general-store", it: "Emporio", name: "General Store", kind: "brown", count: 2, spec: "9C QS",
     effect: "Lật số lá bằng số người chơi. Mỗi người lần lượt rút 1 lá." },
-  { id: "indians", it: "Indiani!", name: "Indians!", kind: "brown", count: 2, spec: "KC AD",
+  { id: "indians", it: "Indiani!", name: "Indians!", kind: "brown", count: 2, spec: "KD AD",
     effect: "Tất cả người chơi khác phải bỏ 1 Bang! hoặc mất 1 máu." },
   { id: "stagecoach", it: "Diligenza", name: "Stagecoach", kind: "brown", count: 2, spec: "9S 9S",
     effect: "Rút 2 lá bài." },
