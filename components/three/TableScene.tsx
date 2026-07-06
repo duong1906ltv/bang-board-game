@@ -4,11 +4,106 @@
 // so the game logic / socket layer is untouched — this is purely a render layer.
 // The camera sits at "your" seat looking across a round table; your hand is
 // fanned in front of you, opponents are arranged around the far arc.
+import { useMemo } from "react";
+import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
 import type { PlayerView, PlayerPublic } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
+
+// Repeating wooden-plank texture drawn on a canvas (no external asset needed).
+function plankTexture() {
+  const c = document.createElement("canvas");
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#3a2817";
+  ctx.fillRect(0, 0, 128, 128);
+  const ph = 32;
+  for (let y = 0; y < 128; y += ph) {
+    const alt = (y / ph) % 2 === 0;
+    ctx.fillStyle = alt ? "#402c19" : "#341f10";
+    ctx.fillRect(0, y, 128, ph - 2);
+    ctx.strokeStyle = "rgba(0,0,0,0.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, y + ph - 1);
+    ctx.lineTo(128, y + ph - 1);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(6, 6);
+  return tex;
+}
+
+// A rustic barrel: body + darker metal hoops. Placed as background props.
+function Barrel({ position }: { position: [number, number, number] }) {
+  return (
+    <group position={position}>
+      <mesh castShadow>
+        <cylinderGeometry args={[0.32, 0.28, 0.9, 20]} />
+        <meshStandardMaterial color="#5a3a1c" roughness={0.9} />
+      </mesh>
+      {[-0.28, 0, 0.28].map((y, i) => (
+        <mesh key={i} position={[0, y, 0]}>
+          <cylinderGeometry args={[0.335, 0.335, 0.06, 20]} />
+          <meshStandardMaterial color="#2c1c0e" roughness={0.8} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// Western saloon shell: plank floor, warm wood walls, a hanging lamp over the
+// table, and a few barrels in the background. Sizes scale with the table.
+function Saloon({ felt }: { felt: number }) {
+  const floorTex = useMemo(plankTexture, []);
+  const roomW = felt * 6.5;
+  const roomH = 7;
+  const floorY = -1.55;
+  const barrelR = felt * 2.3;
+  const barrels: [number, number, number][] = [
+    [Math.cos(2.1) * barrelR, floorY + 0.45, Math.sin(2.1) * barrelR],
+    [Math.cos(3.5) * barrelR, floorY + 0.45, Math.sin(3.5) * barrelR],
+    [Math.cos(4.2) * barrelR, floorY + 0.45, Math.sin(4.2) * barrelR],
+    [Math.cos(5.4) * barrelR, floorY + 0.45, Math.sin(5.4) * barrelR],
+  ];
+  return (
+    <group>
+      {/* room walls + ceiling (we're inside the box) */}
+      <mesh position={[0, floorY + roomH / 2, 0]}>
+        <boxGeometry args={[roomW, roomH, roomW]} />
+        <meshStandardMaterial color="#2a1c11" side={THREE.BackSide} roughness={1} />
+      </mesh>
+      {/* plank floor just above the box bottom */}
+      <mesh position={[0, floorY + 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[roomW, roomW]} />
+        <meshStandardMaterial map={floorTex} roughness={1} />
+      </mesh>
+      {/* hanging lamp over the table */}
+      <group position={[0, 2.7, 0]}>
+        <mesh position={[0, 0.75, 0]}>
+          <cylinderGeometry args={[0.015, 0.015, 1.5, 8]} />
+          <meshStandardMaterial color="#1a1a1a" />
+        </mesh>
+        <mesh castShadow>
+          <coneGeometry args={[0.5, 0.42, 24, 1, true]} />
+          <meshStandardMaterial color="#3a2a15" side={THREE.DoubleSide} emissive="#ffcf8f" emissiveIntensity={0.35} roughness={0.7} />
+        </mesh>
+        <mesh position={[0, -0.16, 0]}>
+          <sphereGeometry args={[0.09, 16, 16]} />
+          <meshStandardMaterial color="#fff2d0" emissive="#ffe6b0" emissiveIntensity={2.2} />
+        </mesh>
+        <pointLight position={[0, -0.15, 0]} color="#ffd9a0" intensity={18} distance={felt * 5} decay={2} castShadow />
+      </group>
+      {barrels.map((p, i) => (
+        <Barrel key={i} position={p} />
+      ))}
+    </group>
+  );
+}
 
 // Layout scales with the number of opponents so a 7-player table isn't cramped.
 function layout(nOpp: number) {
@@ -178,8 +273,8 @@ function Scene({ view }: { view: PlayerView }) {
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
     <>
-      <color attach="background" args={["#17120f"]} />
-      <fog attach="fog" args={["#17120f", felt * 2.2, felt * 5.5]} />
+      <color attach="background" args={["#1c130c"]} />
+      <fog attach="fog" args={["#1c130c", felt * 2.6, felt * 6]} />
       <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={fov} />
       {/* Fixed camera: keep it aimed at the table, no free orbit/zoom/pan. */}
       <OrbitControls
@@ -188,9 +283,10 @@ function Scene({ view }: { view: PlayerView }) {
         enableZoom={false}
         enablePan={false}
       />
-      <ambientLight intensity={0.55} />
-      <spotLight position={[0, felt + 3.5, 0.5]} angle={0.8} penumbra={0.6} intensity={2.6} castShadow />
+      {/* Dim warm ambient; the hanging lamp is the main light. */}
+      <ambientLight intensity={0.35} color="#ffe8c8" />
       <Environment preset="warehouse" />
+      <Saloon felt={felt} />
       <Table felt={felt} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} />
     </>
