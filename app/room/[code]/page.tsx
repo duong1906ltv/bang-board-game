@@ -64,6 +64,7 @@ export default function RoomPage() {
   const start = () => socket.emit("startGame", { code });
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
   const draw = () => socket.emit("drawCards", { code });
+  const play = (cardId: string, targetId?: string) => socket.emit("playCard", { code, cardId, targetId });
   const discard = (cardId: string) => socket.emit("discardCard", { code, cardId });
   const endTurn = () => socket.emit("endTurn", { code });
   const restart = () => socket.emit("restart", { code });
@@ -85,7 +86,7 @@ export default function RoomPage() {
       {view.phase === "lobby" && <Lobby view={view} onStart={start} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onDiscard={discard} onEndTurn={endTurn} onRestart={restart} />
+        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onEndTurn={endTurn} onRestart={restart} />
       )}
     </main>
   );
@@ -210,12 +211,14 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
 function Table({
   view,
   onDraw,
+  onPlay,
   onDiscard,
   onEndTurn,
   onRestart,
 }: {
   view: PlayerView;
   onDraw: () => void;
+  onPlay: (cardId: string) => void;
   onDiscard: (cardId: string) => void;
   onEndTurn: () => void;
   onRestart: () => void;
@@ -223,7 +226,13 @@ function Table({
   const isMyTurn = view.turnSeat != null && view.turnSeat === view.you.seat && view.you.alive;
   const you = view.you;
   const overLimit = Math.max(0, you.hand.length - you.hp); // cards to discard before ending
-  const canDiscard = isMyTurn && you.turnPhase !== "draw";
+  const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
+  // While over the hand limit, clicking a card discards it; otherwise it plays it.
+  const cardAction = (cardId: string) => {
+    if (!inPlayPhase) return;
+    if (overLimit > 0) onDiscard(cardId);
+    else onPlay(cardId);
+  };
 
   return (
     <div className="card wide" style={{ marginTop: 16 }}>
@@ -269,6 +278,11 @@ function Table({
               </div>
             )}
             <HpPips hp={p.hp} maxHp={p.maxHp} />
+            {p.equipment.length > 0 && (
+              <div className="seat-meta" style={{ marginTop: 4 }}>
+                🔵 {p.equipment.map((c) => `${c.name}${SUIT_SYMBOL[c.suit]}`).join(", ")}
+              </div>
+            )}
             <div>
               {p.role ? (
                 <span className="role-badge">
@@ -323,7 +337,8 @@ function Table({
         )}
 
         <label style={{ marginTop: 12 }}>
-          Bài trên tay ({you.hand.length}){overLimit > 0 && ` · bấm để bỏ ${overLimit} lá`}
+          Bài trên tay ({you.hand.length})
+          {inPlayPhase && (overLimit > 0 ? ` · bấm để bỏ ${overLimit} lá dư` : " · bấm để đánh")}
         </label>
         <div className="hand">
           {you.hand.length === 0 ? (
@@ -335,12 +350,12 @@ function Table({
                 <span
                   key={c.id}
                   className="card-chip"
-                  onClick={() => canDiscard && onDiscard(c.id)}
+                  onClick={() => cardAction(c.id)}
                   style={{
-                    cursor: canDiscard ? "pointer" : "default",
+                    cursor: inPlayPhase ? "pointer" : "default",
                     borderColor: overLimit > 0 ? "var(--danger)" : undefined,
                   }}
-                  title={canDiscard ? "Bấm để bỏ lá này" : undefined}
+                  title={inPlayPhase ? (overLimit > 0 ? "Bấm để bỏ" : "Bấm để đánh") : undefined}
                 >
                   {c.name}{" "}
                   <span style={{ color: red ? "#ff6b6b" : "var(--muted)" }}>
