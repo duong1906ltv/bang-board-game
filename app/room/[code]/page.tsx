@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
-import { PlayerView, ROLE_EMOJI, ROLE_GOAL, ROLE_LABELS } from "@/lib/types";
+import {
+  Character,
+  PlayerView,
+  ROLE_EMOJI,
+  ROLE_GOAL,
+  ROLE_LABELS,
+} from "@/lib/types";
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 7;
@@ -21,10 +27,8 @@ export default function RoomPage() {
     const socket = getSocket();
     const playerId = loadIdentity(code);
 
-    // Reconnect / rejoin using the identity saved for this room.
     function attemptRejoin() {
       if (!playerId) {
-        // No identity for this room — bounce to the lobby to join properly.
         router.replace("/");
         return;
       }
@@ -57,6 +61,7 @@ export default function RoomPage() {
 
   const socket = getSocket();
   const start = () => socket.emit("startGame", { code });
+  const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
   const endTurn = () => socket.emit("endTurn", { code });
   const restart = () => socket.emit("restart", { code });
 
@@ -71,29 +76,19 @@ export default function RoomPage() {
 
   return (
     <main className="wrap">
-      <Header code={code} copied={copied} onCopy={copyCode} phase={view.phase} />
+      <Header code={code} copied={copied} onCopy={copyCode} />
       {error && <p className="err">{error}</p>}
 
       {view.phase === "lobby" && <Lobby view={view} onStart={start} />}
-      {view.phase === "playing" && (
+      {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
+      {(view.phase === "playing" || view.phase === "result") && (
         <Table view={view} onEndTurn={endTurn} onRestart={restart} />
       )}
-      {view.phase === "result" && <Table view={view} onEndTurn={endTurn} onRestart={restart} />}
     </main>
   );
 }
 
-function Header({
-  code,
-  copied,
-  onCopy,
-  phase,
-}: {
-  code: string;
-  copied: boolean;
-  onCopy: () => void;
-  phase: string;
-}) {
+function Header({ code, copied, onCopy }: { code: string; copied: boolean; onCopy: () => void }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
       <h1 style={{ fontSize: "1.8rem" }}>🤠 Bang!</h1>
@@ -159,6 +154,56 @@ function Lobby({ view, onStart }: { view: PlayerView; onStart: () => void }) {
   );
 }
 
+function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => void }) {
+  const draft = view.draft!;
+  const remaining = useCountdown(draft.endsAt);
+
+  return (
+    <div className="card wide" style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <h2 className="section-title">Chọn nhân vật</h2>
+        <span className="timer" style={{ fontSize: "1.8rem" }}>{remaining}s</span>
+      </div>
+      <p className="muted">
+        Chọn 1 trong 2 nhân vật trong {remaining}s. Hết giờ sẽ tự chọn theo hạng (rank) — cùng hạng thì ngẫu nhiên.
+      </p>
+
+      {view.you.role && (
+        <p className="muted" style={{ marginTop: 4 }}>
+          Vai của bạn: <strong>{ROLE_EMOJI[view.you.role]} {ROLE_LABELS[view.you.role]}</strong>
+        </p>
+      )}
+
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginTop: 12 }}>
+        {draft.choices.map((c) => {
+          const picked = draft.yourPick?.id === c.id;
+          const locked = draft.youPicked;
+          return (
+            <div
+              key={c.id}
+              className={`selectable ${picked ? "picked" : ""}`}
+              style={{ textAlign: "left", cursor: locked ? "default" : "pointer", opacity: locked && !picked ? 0.45 : 1 }}
+              onClick={() => !locked && onPick(c.id)}
+            >
+              <CharacterCard c={c} />
+              {picked && <div className="badge" style={{ marginTop: 8 }}>Đã chọn ✓</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ height: 14 }} />
+      <p className="muted">
+        {draft.youPicked
+          ? `Đã khóa nhân vật. Đang chờ ${draft.waitingFor.length} người: ${draft.waitingFor.join(", ") || "—"}`
+          : "Hãy chọn nhanh!"}
+        {" · "}
+        {draft.pickedCount}/{draft.totalCount} đã chọn
+      </p>
+    </div>
+  );
+}
+
 function Table({
   view,
   onEndTurn,
@@ -203,6 +248,12 @@ function Table({
               {p.isTurn && " · đang tới lượt"}
               {!p.alive && " · đã chết"}
             </div>
+            {p.character && (
+              <div className="seat-meta" style={{ color: "var(--accent)", marginTop: 4 }}>
+                🎭 {p.character.name}
+                {p.character.rank ? ` (${p.character.rank})` : ""}
+              </div>
+            )}
             <HpPips hp={p.hp} maxHp={p.maxHp} />
             <div>
               {p.role ? (
@@ -218,7 +269,7 @@ function Table({
         ))}
       </div>
 
-      {/* Your private panel — only you see your own role + hand. */}
+      {/* Your private panel — only you see your own role. */}
       <div className="you-panel">
         <h3>Thông tin của bạn</h3>
         {you.role && (
@@ -233,10 +284,12 @@ function Table({
             </p>
           </>
         )}
+        {you.character && (
+          <div style={{ marginTop: 10 }}>
+            <CharacterCard c={you.character} />
+          </div>
+        )}
         <HpPips hp={you.hp} maxHp={you.maxHp} />
-        <div className="muted" style={{ marginTop: 4 }}>
-          Nhân vật: {you.characterName ?? "— (chờ bộ nhân vật)"}
-        </div>
 
         <label style={{ marginTop: 12 }}>Bài trên tay ({you.hand.length})</label>
         <div className="hand">
@@ -264,6 +317,21 @@ function Table({
   );
 }
 
+function CharacterCard({ c }: { c: Character }) {
+  return (
+    <div>
+      <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+        🎭 {c.name}
+        {c.rank && <span className="badge" style={{ fontSize: "0.7rem" }}>Hạng {c.rank}</span>}
+        <span className="badge" style={{ fontSize: "0.7rem" }}>❤️ {c.maxHp}</span>
+      </div>
+      <p className="muted" style={{ marginTop: 6, fontSize: "0.85rem", lineHeight: 1.4 }}>
+        {c.ability}
+      </p>
+    </div>
+  );
+}
+
 function HpPips({ hp, maxHp }: { hp: number; maxHp: number }) {
   const pips = useMemo(() => {
     const arr: boolean[] = [];
@@ -278,4 +346,15 @@ function HpPips({ hp, maxHp }: { hp: number; maxHp: number }) {
       ))}
     </div>
   );
+}
+
+// Ticking countdown (seconds) to an epoch-ms deadline.
+function useCountdown(endsAt: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+  if (!endsAt) return 0;
+  return Math.max(0, Math.ceil((endsAt - now) / 1000));
 }
