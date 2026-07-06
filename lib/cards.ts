@@ -65,7 +65,7 @@ export const CARD_DEFS: CardDef[] = [
       "Rule 3: có thể dùng Beer để tự cứu khỏi sát thương chí mạng, kể cả khi mất hơn 1 máu.",
     ] },
   { id: "cat-balou", it: "Cat Balou", name: "Cat Balou", kind: "brown", count: 4, spec: "KH 9D-JD",
-    effect: "Buộc 1 người chơi trong tầm 1 phải bỏ 1 lá bài.",
+    effect: "Buộc 1 người chơi bất kỳ (mọi khoảng cách) phải bỏ 1 lá bài.",
     notes: [
       "Có thể dùng lên chính mình để bỏ 1 lá cụ thể trên tay hoặc trên bàn.",
       "Bạn quyết định bỏ từ tay hay trên bàn, nhưng không chỉ định lá cụ thể của người khác.",
