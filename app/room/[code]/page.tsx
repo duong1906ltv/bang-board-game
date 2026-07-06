@@ -10,6 +10,7 @@ import {
   ROLE_GOAL,
   ROLE_LABELS,
 } from "@/lib/types";
+import { SUIT_SYMBOL } from "@/lib/cards";
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 7;
@@ -220,11 +221,15 @@ function Table({
     <div className="card wide" style={{ marginTop: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h2 className="section-title">Bàn chơi</h2>
-        {view.you.isHost && (
-          <button className="ghost" style={{ width: "auto", padding: "8px 12px" }} onClick={onRestart}>
-            Về phòng chờ
-          </button>
-        )}
+        <div className="row" style={{ alignItems: "center" }}>
+          <span className="badge">🂠 Bộ bài: {view.deckCount}</span>
+          <span className="badge">🗑️ Bỏ: {view.discardCount}</span>
+          {view.you.isHost && (
+            <button className="ghost" style={{ width: "auto", padding: "8px 12px" }} onClick={onRestart}>
+              Về phòng chờ
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="seats">
@@ -296,11 +301,18 @@ function Table({
           {you.hand.length === 0 ? (
             <span className="muted">Chưa có lá bài nào (lớp bài sẽ thêm sau).</span>
           ) : (
-            you.hand.map((c) => (
-              <span key={c.id} className="card-chip">
-                {c.name}
-              </span>
-            ))
+            you.hand.map((c) => {
+              const red = c.suit === "hearts" || c.suit === "diamonds";
+              return (
+                <span key={c.id} className="card-chip">
+                  {c.name}{" "}
+                  <span style={{ color: red ? "#ff6b6b" : "var(--muted)" }}>
+                    {SUIT_SYMBOL[c.suit]}
+                    {c.rank ?? ""}
+                  </span>
+                </span>
+              );
+            })
           )}
         </div>
 
