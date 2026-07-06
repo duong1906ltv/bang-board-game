@@ -25,10 +25,23 @@ app.prepare().then(() => {
   function broadcast(code: string) {
     const room = game.getRoom(code);
     if (!room) return;
+    ensureDraftTimer(room, code);
     for (const p of room.players) {
       if (p.socketId && p.connected) {
         io.to(p.socketId).emit("view", game.buildView(room, p.id));
       }
+    }
+  }
+
+  // Schedule the 30s draft deadline once, when the draft phase begins. When it
+  // fires, unpicked players are auto-resolved by rank and the game starts.
+  function ensureDraftTimer(room: game.Room, code: string) {
+    if (room.phase === "drafting" && room.draftEndsAt && !room.draftTimer) {
+      const ms = Math.max(0, room.draftEndsAt - Date.now());
+      room.draftTimer = setTimeout(() => {
+        room.draftTimer = null;
+        if (game.draftTimeout(code)) broadcast(code);
+      }, ms);
     }
   }
 
@@ -69,6 +82,11 @@ app.prepare().then(() => {
       const res = game.startGame(code);
       if (!res.ok) return socket.emit("errorMsg", res.error || "Không thể bắt đầu");
       broadcast(code);
+    });
+
+    socket.on("pickCharacter", ({ code, characterId }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (pid && game.pickCharacter(code, pid, characterId)) broadcast(code);
     });
 
     socket.on("endTurn", ({ code }) => {
