@@ -501,9 +501,12 @@ button.danger {
 /* Felt board: opponents arranged around the top arc, piles in the centre. */
 .board {
   position: relative;
-  margin: 18px 0;
-  min-height: 520px;
-  border-radius: 999px / 46%;
+  /* Full-bleed: escape the 760px .wrap so the felt spans the whole viewport width. */
+  width: 100vw;
+  left: 50%;
+  margin: 18px 0 18px -50vw;
+  min-height: 72vh;
+  border-radius: 999px / 30%;
   border: 3px solid #6b4a24;
   background:
     radial-gradient(120% 90% at 50% 30%, #2f6b3a 0%, #244f2c 55%, #1c3d22 100%);
@@ -584,6 +587,10 @@ button.danger {
 /* On narrow screens the arc can't breathe — fall back to a wrapping grid. */
 @media (max-width: 680px) {
   .board {
+    /* undo the desktop full-bleed to avoid horizontal overflow */
+    width: auto;
+    left: auto;
+    margin: 18px 0;
     border-radius: 20px;
     min-height: 0;
     padding: 14px;
