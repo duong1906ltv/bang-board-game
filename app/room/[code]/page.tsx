@@ -368,6 +368,19 @@ function Table({
   const [sidPick, setSidPick] = useState<string[]>([]);
   const [sidPicking, setSidPicking] = useState(false);
   const [threeD, setThreeD] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+
+  // End-of-turn discard mode: once trimmed to the hand limit, end the turn.
+  useEffect(() => {
+    if (discarding && overLimit === 0) {
+      onEndTurn();
+      setDiscarding(false);
+    }
+  }, [discarding, overLimit, onEndTurn]);
+  // Leaving your turn cancels any pending discard mode.
+  useEffect(() => {
+    if (!inPlayPhase && discarding) setDiscarding(false);
+  }, [inPlayPhase, discarding]);
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
   const isSid = you.character?.id === "sid-ketchum";
 
@@ -393,7 +406,9 @@ function Table({
       } else setSidPick(next);
       return;
     }
-    if (overLimit > 0) return onDiscard(card.id);
+    // A click discards only in explicit end-of-turn discard mode; otherwise it
+    // always plays (or starts aiming), even while over the hand limit.
+    if (discarding) return onDiscard(card.id);
     if (TARGETED.includes(card.defId)) {
       return setAiming((cur) => (cur?.id === card.id ? null : { id: card.id, defId: card.defId }));
     }
@@ -594,7 +609,7 @@ function Table({
 
         <label style={{ marginTop: 12 }}>
           {L(locale, "Bài trên tay", "Hand")} ({you.hand.length})
-          {inPlayPhase && (overLimit > 0 ? L(locale, ` · bấm để bỏ ${overLimit} lá dư`, ` · click to discard ${overLimit}`) : L(locale, " · bấm để đánh", " · click to play"))}
+          {inPlayPhase && (discarding ? L(locale, ` · bấm lá để bỏ (còn ${overLimit})`, ` · click a card to discard (${overLimit} left)`) : L(locale, " · bấm để đánh", " · click to play"))}
         </label>
         <div className="card-row">
           {you.hand.length === 0 ? (
@@ -628,9 +643,17 @@ function Table({
                 <div style={{ height: 8 }} />
               </>
             )}
-            <button onClick={onEndTurn} disabled={overLimit > 0}>
-              {overLimit > 0 ? L(locale, `Bỏ bớt ${overLimit} lá để kết thúc`, `Discard ${overLimit} to end`) : L(locale, "Kết thúc lượt →", "End turn →")}
-            </button>
+            {discarding ? (
+              <button className="ghost" onClick={() => setDiscarding(false)}>
+                {L(locale, `Đang bỏ bài (còn ${overLimit}) · Hủy`, `Discarding (${overLimit} left) · Cancel`)}
+              </button>
+            ) : overLimit > 0 ? (
+              <button onClick={() => setDiscarding(true)}>
+                {L(locale, `Bỏ ${overLimit} lá để kết thúc →`, `Discard ${overLimit} to end →`)}
+              </button>
+            ) : (
+              <button onClick={onEndTurn}>{L(locale, "Kết thúc lượt →", "End turn →")}</button>
+            )}
           </>
         )}
       </div>
