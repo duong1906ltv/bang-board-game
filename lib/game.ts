@@ -361,6 +361,12 @@ function hasEquip(p: Player, defId: string): boolean {
   return p.equipment.some((c) => c.defId === defId);
 }
 
+// How many Barrel-style Draw!s a player gets when hit by a Bang!: one per Barrel
+// in play, plus one innate for Jourdonnais.
+function barrelAttempts(p: Player): number {
+  return (hasEquip(p, "barrel") ? 1 : 0) + (p.character?.id === "jourdonnais" ? 1 : 0);
+}
+
 // Distance the viewer `from` sees to player `to`, counting only living players
 // around the circle. Mustang/Paul Regret add +1 to how far others see the
 // target; Scope/Rose Doolan subtract 1 from what the viewer sees. Minimum 1.
@@ -534,11 +540,12 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
     .filter((p) => p.alive && p.id !== current.id)
     .map((p) => ({ id: p.id, done: false, safe: false }));
   room.checks = [];
-  // Gatling: auto-Barrel each defender up front.
+  // Gatling: auto-Barrel each defender up front (Jourdonnais included).
   if (effect === "gatling") {
     for (const r of responders) {
       const p = room.players.find((x) => x.id === r.id)!;
-      if (hasEquip(p, "barrel")) {
+      const attempts = barrelAttempts(p);
+      for (let i = 0; i < attempts && !r.safe; i++) {
         const card = drawCheck(room, p, goodBarrel);
         const heart = !!card && card.suit === "hearts";
         room.checks.push({ name: p.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" });
@@ -663,15 +670,18 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   room.pending = pending;
   room.checks = [];
 
-  // Barrel: auto Draw! — a Heart counts as one Missed!.
-  if (hasEquip(target, "barrel")) {
-    const card = drawCheck(room, target, goodBarrel);
-    const heart = !!card && card.suit === "hearts";
-    room.checks = [{ name: target.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" }];
-    if (heart) {
-      pending.missedPlayed += 1;
-      if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // fully dodged
+  // Barrel: auto Draw! per Barrel (plus Jourdonnais' innate one). Each Heart
+  // counts as one Missed!.
+  const attempts = barrelAttempts(target);
+  if (attempts > 0) {
+    room.checks = [];
+    for (let i = 0; i < attempts; i++) {
+      const card = drawCheck(room, target, goodBarrel);
+      const heart = !!card && card.suit === "hearts";
+      room.checks.push({ name: target.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" });
+      if (heart) pending.missedPlayed += 1;
     }
+    if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // fully dodged
   }
   return { ok: true };
 }
