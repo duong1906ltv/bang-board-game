@@ -1,8 +1,6 @@
 // Shared types between the server (game engine) and the client (React).
-// SCOPE: this file currently covers the ROOM layer only (lobby, seating, roles,
-// turn order). Card decks, character abilities and combat are intentionally left
-// as placeholders — they'll be filled in once the concrete rules/characters are
-// provided.
+// SCOPE: room layer + character draft. Card decks and combat are still
+// placeholders — filled in once the concrete card rules are provided.
 
 // ─── Roles (hidden identity, Bang! base game) ────────────────────────────────
 
@@ -33,47 +31,85 @@ export const ROLE_GOAL: Record<Role, string> = {
 // death (or the end of the game).
 export const PUBLIC_ROLES: Role[] = ["sheriff"];
 
-// ─── Placeholders for the card/character layer (filled in later) ─────────────
+// ─── Characters ──────────────────────────────────────────────────────────────
 
-// A card in hand or on the table. Only the shape is fixed for now.
-export interface Card {
-  id: string;
-  name: string; // e.g. "bang", "missed", "beer" — concrete set added later
+// Tier rank used only to auto-resolve the draft when a player runs out of time
+// (higher tier wins; A > B > C > D > unranked).
+export type CharRank = "A" | "B" | "C" | "D" | null;
+
+export interface Character {
+  id: string; // stable slug
+  name: string;
+  rank: CharRank;
+  maxHp: number; // "bullets" / life points (Sheriff gets +1 on top)
+  ability: string;
 }
 
-// A character with a special ability. Abilities are added with the real rules.
-export interface Character {
+export const CHARACTERS: Character[] = [
+  { id: "kit-carlson", name: "Kit Carlson", rank: "A", maxHp: 4, ability: "Xem 3 lá trên cùng bộ bài, chọn 2 lá để rút và trả lá còn lại xuống dưới." },
+  { id: "suzy-lafayette", name: "Suzy Lafayette", rank: "A", maxHp: 4, ability: "Ngay khi hết bài trên tay, rút 1 lá." },
+  { id: "willy-the-kid", name: "Willy the Kid", rank: null, maxHp: 4, ability: "Có thể chơi bao nhiêu lá Bang! tùy thích mỗi lượt (như súng Volcanic)." },
+  { id: "jesse-jones", name: "Jesse Jones", rank: null, maxHp: 4, ability: "Lá rút đầu tiên có thể lấy từ tay một người chơi khác." },
+  { id: "el-gringo", name: "El Gringo", rank: null, maxHp: 3, ability: "Mỗi khi bị một người chơi gây sát thương, rút 1 lá từ tay người đó." },
+  { id: "paul-regret", name: "Paul Regret", rank: "B", maxHp: 3, ability: "Mọi người thấy anh ta ở khoảng cách +1." },
+  { id: "slab-the-killer", name: "Slab the Killer", rank: "A", maxHp: 4, ability: "Đối thủ cần 2 lá Missed! mới né được Bang! của anh ta." },
+  { id: "jourdonnais", name: "Jourdonnais", rank: "A", maxHp: 4, ability: "Khi là mục tiêu của Bang!, có thể Draw!; ra lá Cơ (Heart) thì coi như Missed!." },
+  { id: "lucky-duke", name: "Lucky Duke", rank: "A", maxHp: 4, ability: "Mỗi khi Draw!, lật 2 lá trên cùng và chọn 1." },
+  { id: "calamity-janet", name: "Calamity Janet", rank: null, maxHp: 4, ability: "Có thể dùng Bang! làm Missed! và ngược lại." },
+  { id: "rose-doolan", name: "Rose Doolan", rank: null, maxHp: 4, ability: "Thấy mọi người ở khoảng cách −1." },
+  { id: "vulture-sam", name: "Vulture Sam", rank: "D", maxHp: 4, ability: "Mỗi khi một người chơi bị loại, lấy toàn bộ bài của người đó vào tay." },
+  { id: "pedro-ramirez", name: "Pedro Ramirez", rank: "B", maxHp: 4, ability: "Lá rút đầu tiên có thể lấy từ chồng bài bỏ (discard)." },
+  { id: "bart-cassidy", name: "Bart Cassidy", rank: "C", maxHp: 4, ability: "Mỗi khi bị mất máu, rút 1 lá." },
+  { id: "black-jack", name: "Black Jack", rank: "B", maxHp: 4, ability: "Lá rút thứ hai được lật ngửa; nếu là Cơ/Rô (Heart/Diamond) thì rút thêm 1 lá." },
+  { id: "sid-ketchum", name: "Sid Ketchum", rank: null, maxHp: 4, ability: "Có thể bỏ 2 lá để hồi 1 máu." },
+];
+
+// Auto-resolve priority for a timed-out draft pick: A > B > C > D > unranked.
+export const RANK_PRIORITY: Record<string, number> = { A: 4, B: 3, C: 2, D: 1 };
+export function rankPriority(rank: CharRank): number {
+  return rank ? RANK_PRIORITY[rank] ?? 0 : 0;
+}
+
+// ─── Cards (placeholder — the card layer is added later) ─────────────────────
+
+export interface Card {
   id: string;
   name: string;
-  maxHp: number; // "bullets" / life points
-  ability: string;
 }
 
 // ─── Game phases ─────────────────────────────────────────────────────────────
 
-export type Phase = "lobby" | "playing" | "result";
+export type Phase = "lobby" | "drafting" | "playing" | "result";
 
 // ─── Views sent to clients ───────────────────────────────────────────────────
 
-// What everyone at the table can see about a player. Secret info (exact role
-// while alive, cards in hand) is NOT included here.
 export interface PlayerPublic {
   id: string;
   name: string;
-  seat: number; // fixed clockwise seat index around the table
+  seat: number;
   isHost: boolean;
   connected: boolean;
   alive: boolean;
   hp: number;
   maxHp: number;
-  handCount: number; // how many cards they hold — count only, never contents
-  characterName: string | null;
+  handCount: number;
+  character: Character | null; // face-up once the game starts (public in Bang!)
+  hasPicked: boolean; // draft progress (whether they've locked a character)
   role: Role | null; // visible only for public roles (Sheriff) or dead players
   isTurn: boolean;
 }
 
-// Personalized view sent to ONE player — the only place secret info appears,
-// and only for the receiving player.
+// Draft state, personalized: `choices` are only ever THIS player's two options.
+export interface DraftView {
+  endsAt: number | null; // epoch ms deadline for the 30s pick window
+  choices: Character[]; // your two candidate characters
+  youPicked: boolean;
+  yourPick: Character | null;
+  pickedCount: number;
+  totalCount: number;
+  waitingFor: string[]; // names still choosing
+}
+
 export interface PlayerView {
   code: string;
   phase: Phase;
@@ -83,16 +119,17 @@ export interface PlayerView {
     name: string;
     seat: number;
     isHost: boolean;
-    role: Role | null; // your own role (you always see it once dealt)
-    characterName: string | null;
+    role: Role | null;
+    character: Character | null;
     hp: number;
     maxHp: number;
-    hand: Card[]; // your own hand (empty until the card layer lands)
+    hand: Card[];
     alive: boolean;
   };
-  players: PlayerPublic[]; // everyone, in seat order (including you)
-  turnSeat: number | null; // whose turn it is (seat index), null in lobby/result
-  roleSetup: { role: Role; count: number }[]; // role distribution for this count
+  players: PlayerPublic[];
+  turnSeat: number | null;
+  roleSetup: { role: Role; count: number }[];
+  draft: DraftView | null; // present only during the drafting phase
 }
 
 // ─── Socket.IO event payloads ────────────────────────────────────────────────
@@ -111,7 +148,8 @@ export interface ClientToServerEvents {
     cb: (res: { ok: boolean; error?: string }) => void
   ) => void;
   startGame: (data: { code: string }) => void;
-  endTurn: (data: { code: string }) => void; // placeholder turn advance (no cards yet)
+  pickCharacter: (data: { code: string; characterId: string }) => void;
+  endTurn: (data: { code: string }) => void;
   restart: (data: { code: string }) => void;
 }
 

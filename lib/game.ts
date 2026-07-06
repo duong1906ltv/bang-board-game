@@ -1,16 +1,20 @@
-// In-memory game engine for Bang! — ROOM layer.
+// In-memory game engine for Bang! — room + character draft.
 // Rooms live in a Map for the lifetime of the server process (no DB).
 //
-// SCOPE: room lifecycle + seating + role dealing + turn order for up to 7
-// players. The card deck, character abilities and combat resolution are stubbed
-// and will be implemented once the concrete rules/characters are provided.
+// SCOPE: room lifecycle, role dealing, and the character draft (deal 2 per
+// player, 30s to pick 1, auto-pick by tier rank on timeout). The card deck and
+// combat resolution are stubbed and will be implemented with the card rules.
 
 import {
   Card,
+  Character,
+  CHARACTERS,
+  DraftView,
   Phase,
   PlayerPublic,
   PlayerView,
   PUBLIC_ROLES,
+  rankPriority,
   Role,
 } from "./types";
 
@@ -22,7 +26,9 @@ export interface Player {
   connected: boolean;
   seat: number; // fixed clockwise seat index, assigned on join
   role: Role | null; // dealt at game start
-  characterName: string | null; // assigned once characters are provided
+  character: Character | null; // locked in after the draft
+  draftChoices: Character[]; // the two candidates offered during the draft
+  hasPicked: boolean; // draft: has locked a character
   hp: number;
   maxHp: number;
   alive: boolean;
@@ -35,6 +41,8 @@ export interface Room {
   players: Player[]; // kept in seat order
   hostId: string;
   turnIndex: number; // index into players[] whose turn it is (playing phase)
+  draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
+  draftTimer: NodeJS.Timeout | null;
 }
 
 const rooms = new Map<string, Room>();
@@ -43,9 +51,9 @@ const rooms = new Map<string, Room>();
 export const MIN_PLAYERS = 4;
 export const MAX_PLAYERS = 7;
 
-// Placeholder base life until characters (which set real HP) are provided.
-// The Sheriff always gets +1 life point in Bang!.
-const BASE_HP = 4;
+// Each player is offered 2 characters to choose from, and has 30s to pick.
+export const DRAFT_PER_PLAYER = 2;
+export const DRAFT_MS = 30_000;
 
 // Role distribution by player count (classic Bang! base game).
 const ROLE_SETUP: Record<number, Role[]> = {
@@ -90,11 +98,8 @@ export function roleSetupFor(n: number): { role: Role; count: number }[] {
   if (!setup) return [];
   const counts = new Map<Role, number>();
   for (const r of setup) counts.set(r, (counts.get(r) || 0) + 1);
-  // Stable, meaningful order.
   const order: Role[] = ["sheriff", "deputy", "outlaw", "renegade"];
-  return order
-    .filter((r) => counts.has(r))
-    .map((role) => ({ role, count: counts.get(role)! }));
+  return order.filter((r) => counts.has(r)).map((role) => ({ role, count: counts.get(role)! }));
 }
 
 // --- room lifecycle ---
@@ -108,7 +113,9 @@ function newPlayer(name: string, socketId: string, isHost: boolean, seat: number
     connected: true,
     seat,
     role: null,
-    characterName: null,
+    character: null,
+    draftChoices: [],
+    hasPicked: false,
     hp: 0,
     maxHp: 0,
     alive: true,
@@ -125,6 +132,8 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     players: [player],
     hostId: player.id,
     turnIndex: 0,
+    draftEndsAt: null,
+    draftTimer: null,
   };
   rooms.set(code, room);
   return { room, player };
@@ -139,7 +148,7 @@ export function addPlayer(
   if (!room) return { ok: false, error: "Phòng không tồn tại" };
   if (room.phase !== "lobby") return { ok: false, error: "Ván đang diễn ra, không thể vào" };
   if (room.players.length >= MAX_PLAYERS) return { ok: false, error: `Phòng đã đầy (tối đa ${MAX_PLAYERS})` };
-  const seat = room.players.length; // next open seat
+  const seat = room.players.length;
   const player = newPlayer(name, socketId, false, seat);
   room.players.push(player);
   return { ok: true, player };
@@ -161,12 +170,11 @@ export function disconnect(socketId: string): Room | null {
     if (!player) continue;
     player.connected = false;
     player.socketId = null;
-    // Only remove players (and reseat) while still in the lobby; mid-game we keep
-    // the seat so they can rejoin.
     if (room.phase === "lobby") {
       room.players = room.players.filter((p) => p.id !== player.id);
-      room.players.forEach((p, i) => (p.seat = i)); // re-pack seats
+      room.players.forEach((p, i) => (p.seat = i));
       if (room.players.length === 0) {
+        clearDraftTimer(room);
         rooms.delete(room.code);
         return null;
       }
@@ -180,7 +188,14 @@ export function disconnect(socketId: string): Room | null {
   return null;
 }
 
-// --- game start / turn flow ---
+function clearDraftTimer(room: Room) {
+  if (room.draftTimer) {
+    clearTimeout(room.draftTimer);
+    room.draftTimer = null;
+  }
+}
+
+// --- game start / character draft ---
 
 export function startGame(code: string): { ok: boolean; error?: string } {
   const room = rooms.get(code);
@@ -194,30 +209,88 @@ export function startGame(code: string): { ok: boolean; error?: string } {
 
   // Deal roles randomly to the seated players.
   const roles = shuffle(setup);
+  // Draw n*2 characters from the pool and hand each player 2 to choose from.
+  const pool = shuffle(CHARACTERS).slice(0, n * DRAFT_PER_PLAYER);
   room.players.forEach((p, i) => {
     p.role = roles[i];
-    // Placeholder HP until characters are provided; Sheriff gets +1.
-    p.maxHp = BASE_HP + (roles[i] === "sheriff" ? 1 : 0);
-    p.hp = p.maxHp;
+    p.character = null;
+    p.draftChoices = pool.slice(i * DRAFT_PER_PLAYER, (i + 1) * DRAFT_PER_PLAYER);
+    p.hasPicked = false;
+    p.hp = 0;
+    p.maxHp = 0;
     p.alive = true;
-    p.characterName = null; // set when characters land
-    p.hand = []; // dealt when the card layer lands
+    p.hand = [];
   });
 
-  // The Sheriff always takes the first turn.
-  const sheriffIdx = room.players.findIndex((p) => p.role === "sheriff");
-  room.turnIndex = sheriffIdx >= 0 ? sheriffIdx : 0;
-  room.phase = "playing";
+  room.phase = "drafting";
+  room.draftEndsAt = Date.now() + DRAFT_MS;
   return { ok: true };
 }
 
+// A player locks in one of their two offered characters.
+export function pickCharacter(code: string, playerId: string, characterId: string): boolean {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "drafting") return false;
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player || player.hasPicked) return false;
+  const choice = player.draftChoices.find((c) => c.id === characterId);
+  if (!choice) return false;
+  player.character = choice;
+  player.hasPicked = true;
+  // End the draft early once everyone has locked in.
+  if (room.players.every((p) => p.hasPicked)) finalizeDraft(room);
+  return true;
+}
+
+// Auto-resolve a single player's pick by tier rank (A > B > C > D > unranked);
+// ties are broken randomly.
+function autoPick(choices: Character[]): Character {
+  const max = Math.max(...choices.map((c) => rankPriority(c.rank)));
+  const top = choices.filter((c) => rankPriority(c.rank) === max);
+  return top[Math.floor(Math.random() * top.length)];
+}
+
+// Called by the server timer when the 30s window expires: auto-pick for anyone
+// who didn't choose, then start the game.
+export function draftTimeout(code: string): boolean {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "drafting") return false;
+  for (const p of room.players) {
+    if (!p.hasPicked) {
+      p.character = autoPick(p.draftChoices);
+      p.hasPicked = true;
+    }
+  }
+  finalizeDraft(room);
+  return true;
+}
+
+// Transition drafting -> playing: set HP from characters (Sheriff +1) and give
+// the first turn to the Sheriff.
+function finalizeDraft(room: Room) {
+  clearDraftTimer(room);
+  room.draftEndsAt = null;
+  room.players.forEach((p) => {
+    if (!p.character) p.character = autoPick(p.draftChoices); // safety net
+    const bonus = p.role === "sheriff" ? 1 : 0;
+    p.maxHp = p.character.maxHp + bonus;
+    p.hp = p.maxHp;
+    p.alive = true;
+    p.hand = []; // dealt when the card layer lands
+  });
+  const sheriffIdx = room.players.findIndex((p) => p.role === "sheriff");
+  room.turnIndex = sheriffIdx >= 0 ? sheriffIdx : 0;
+  room.phase = "playing";
+}
+
+// --- turn flow ---
+
 // Placeholder turn advance — hands the turn to the next living player.
-// Real turn structure (draw/play/discard) arrives with the card layer.
 export function endTurn(code: string, playerId: string): boolean {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return false;
   const current = room.players[room.turnIndex];
-  if (!current || current.id !== playerId) return false; // only the active player may end their turn
+  if (!current || current.id !== playerId) return false;
   const n = room.players.length;
   for (let step = 1; step <= n; step++) {
     const idx = (room.turnIndex + step) % n;
@@ -232,11 +305,15 @@ export function endTurn(code: string, playerId: string): boolean {
 export function restart(code: string): boolean {
   const room = rooms.get(code);
   if (!room) return false;
+  clearDraftTimer(room);
   room.phase = "lobby";
   room.turnIndex = 0;
+  room.draftEndsAt = null;
   room.players.forEach((p) => {
     p.role = null;
-    p.characterName = null;
+    p.character = null;
+    p.draftChoices = [];
+    p.hasPicked = false;
     p.hp = 0;
     p.maxHp = 0;
     p.alive = true;
@@ -247,8 +324,6 @@ export function restart(code: string): boolean {
 
 // --- view building (hidden-info filtering) ---
 
-// A role is visible to others only when it's a public role (Sheriff) or the
-// player is dead.
 function visibleRole(p: Player): Role | null {
   if (!p.role) return null;
   if (PUBLIC_ROLES.includes(p.role)) return p.role;
@@ -256,7 +331,10 @@ function visibleRole(p: Player): Role | null {
   return null;
 }
 
-function toPublic(p: Player, turnId: string | null): PlayerPublic {
+function toPublic(p: Player, room: Room, turnId: string | null): PlayerPublic {
+  // Characters are public once the game is underway; during the draft, nobody
+  // sees anyone else's options or pick.
+  const characterPublic = room.phase === "playing" || room.phase === "result" ? p.character : null;
   return {
     id: p.id,
     name: p.name,
@@ -267,14 +345,27 @@ function toPublic(p: Player, turnId: string | null): PlayerPublic {
     hp: p.hp,
     maxHp: p.maxHp,
     handCount: p.hand.length,
-    characterName: p.characterName,
+    character: characterPublic,
+    hasPicked: p.hasPicked,
     role: visibleRole(p),
     isTurn: turnId != null && p.id === turnId,
   };
 }
 
-// Build the personalized view for one player: they always see their OWN role and
-// hand; for everyone else only public info is exposed.
+function buildDraft(room: Room, me: Player | undefined): DraftView {
+  return {
+    endsAt: room.draftEndsAt,
+    choices: me?.draftChoices ?? [],
+    youPicked: me?.hasPicked ?? false,
+    yourPick: me?.character ?? null,
+    pickedCount: room.players.filter((p) => p.hasPicked).length,
+    totalCount: room.players.length,
+    waitingFor: room.players.filter((p) => !p.hasPicked).map((p) => p.name),
+  };
+}
+
+// Build the personalized view for one player: they always see their OWN role,
+// character and hand; for everyone else only public info is exposed.
 export function buildView(room: Room, playerId: string): PlayerView {
   const me = room.players.find((p) => p.id === playerId);
   const turnPlayer = room.phase === "playing" ? room.players[room.turnIndex] : null;
@@ -291,14 +382,15 @@ export function buildView(room: Room, playerId: string): PlayerView {
       seat: me?.seat ?? 0,
       isHost: me?.isHost ?? false,
       role: me?.role ?? null,
-      characterName: me?.characterName ?? null,
+      character: me?.character ?? null,
       hp: me?.hp ?? 0,
       maxHp: me?.maxHp ?? 0,
       hand: me?.hand ?? [],
       alive: me?.alive ?? true,
     },
-    players: bySeat.map((p) => toPublic(p, turnId)),
+    players: bySeat.map((p) => toPublic(p, room, turnId)),
     turnSeat: turnPlayer ? turnPlayer.seat : null,
     roleSetup: roleSetupFor(room.players.length),
+    draft: room.phase === "drafting" ? buildDraft(room, me) : null,
   };
 }
