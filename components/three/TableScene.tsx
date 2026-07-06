@@ -13,12 +13,14 @@ import { ROLE_EMOJI } from "@/lib/types";
 // Layout scales with the number of opponents so a 7-player table isn't cramped.
 function layout(nOpp: number) {
   const ring = 1.5 + 0.14 * nOpp; // radius of the opponent circle
-  const felt = ring + 0.45; // felt top radius
+  const felt = ring + 0.55; // felt top radius
   const arc = Math.min(1.15, 0.55 + 0.11 * nOpp) * Math.PI; // arc span, widens with count
-  const camY = 1.15 + 0.16 * nOpp;
-  const camZ = ring + 1.35;
-  const handZ = ring - 0.15;
-  return { ring, felt, arc, camY, camZ, handZ };
+  // Low, close camera so the felt fills the full width of the screen (first-person feel).
+  const camY = 0.85 + 0.09 * nOpp;
+  const camZ = ring + 0.85;
+  const handZ = ring - 0.1;
+  const fov = 74;
+  return { ring, felt, arc, camY, camZ, handZ, fov };
 }
 
 function Table({ felt }: { felt: number }) {
@@ -137,10 +139,10 @@ function YourHand({ view, handZ }: { view: PlayerView; handZ: number }) {
 
 function Scene({ view }: { view: PlayerView }) {
   const nOpp = Math.max(1, view.players.length - 1);
-  const { ring, felt, arc, camY, camZ, handZ } = layout(nOpp);
+  const { ring, felt, arc, camY, camZ, handZ, fov } = layout(nOpp);
   return (
     <>
-      <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={60} />
+      <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={fov} />
       <OrbitControls
         target={[0, 0.15, 0]}
         maxPolarAngle={Math.PI / 2.05}
