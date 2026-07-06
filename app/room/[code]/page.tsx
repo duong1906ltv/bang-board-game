@@ -304,22 +304,29 @@ function Table({
   const you = view.you;
   const overLimit = Math.max(0, you.hand.length - you.hp); // cards to discard before ending
   const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
-  const [aiming, setAiming] = useState<string | null>(null); // Bang! card id awaiting a target
+  const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null); // card awaiting a target
+  const TARGETED = ["bang", "jail"];
 
-  // Click behavior for a hand card: discard excess, aim Bang!, or play directly.
+  // Click behavior for a hand card: discard excess, aim a targeted card, or play.
   const cardAction = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
     if (overLimit > 0) return onDiscard(card.id);
-    if (card.defId === "bang") return setAiming((cur) => (cur === card.id ? null : card.id));
+    if (TARGETED.includes(card.defId)) {
+      return setAiming((cur) => (cur?.id === card.id ? null : { id: card.id, defId: card.defId }));
+    }
     onPlay(card.id);
   };
 
-  // A seat is a valid Bang! target while aiming: alive, not you, within range.
-  const canTarget = (p: (typeof view.players)[number]) =>
-    aiming != null && p.alive && p.id !== you.id && p.distance != null && p.distance <= you.range;
+  // Which seats are valid targets while aiming (rules differ per card).
+  const canTarget = (p: (typeof view.players)[number]) => {
+    if (!aiming || !p.alive || p.id === you.id) return false;
+    if (aiming.defId === "bang") return p.distance != null && p.distance <= you.range;
+    if (aiming.defId === "jail") return p.role !== "sheriff" && !p.equipment.some((c) => c.defId === "jail");
+    return false;
+  };
   const fireAt = (targetId: string) => {
-    if (aiming == null) return;
-    onPlay(aiming, targetId);
+    if (!aiming) return;
+    onPlay(aiming.id, targetId);
     setAiming(null);
   };
 
@@ -344,9 +351,24 @@ function Table({
         </div>
       )}
 
+      {view.checks.length > 0 && (
+        <div className="banner none">
+          {view.checks.map((ck, i) => (
+            <div key={i}>
+              🎲 {ck.name} — {ck.kind === "dynamite" ? "Dynamite" : ck.kind === "jail" ? "Jail" : "Barrel"}:{" "}
+              {ck.card ? `${rankLabel(ck.card.rank)}${SUIT_SYMBOL[ck.card.suit]}` : "?"} → {ck.outcome}
+            </div>
+          ))}
+        </div>
+      )}
+
       {aiming && (
         <div className="banner none">
-          🎯 Chọn mục tiêu cho Bang! (trong tầm {you.range}) ·{" "}
+          🎯{" "}
+          {aiming.defId === "bang"
+            ? `Chọn mục tiêu cho Bang! (trong tầm ${you.range})`
+            : "Chọn người để bỏ tù (không phải Sheriff)"}{" "}
+          ·{" "}
           <button className="ghost" style={{ width: "auto", padding: "4px 10px" }} onClick={() => setAiming(null)}>
             Hủy
           </button>
@@ -464,7 +486,7 @@ function Table({
                   style={{
                     cursor: inPlayPhase ? "pointer" : "default",
                     borderColor:
-                      aiming === c.id ? "var(--accent)" : overLimit > 0 ? "var(--danger)" : undefined,
+                      aiming?.id === c.id ? "var(--accent)" : overLimit > 0 ? "var(--danger)" : undefined,
                   }}
                   title={inPlayPhase ? (overLimit > 0 ? "Bấm để bỏ" : "Bấm để đánh") : undefined}
                 >
