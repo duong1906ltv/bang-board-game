@@ -115,8 +115,38 @@ function OpponentHand({ count }: { count: number }) {
   );
 }
 
-function Opponents({ players, youSeat, ring, arc }: { players: PlayerPublic[]; youSeat: number; ring: number; arc: number }) {
+// Distinct shirt colors so seated players read apart.
+const AVATAR_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#c39bd3"];
+
+// A low-poly seated cowboy: torso + head + hat. Radially symmetric, so no facing
+// needed. Shoulders/head poke above the table so it reads as "someone sitting".
+function Avatar({ position, color, dead }: { position: [number, number, number]; color: string; dead?: boolean }) {
+  return (
+    <group position={position}>
+      <mesh position={[0, 0.28, 0]} castShadow>
+        <cylinderGeometry args={[0.16, 0.26, 0.62, 20]} />
+        <meshStandardMaterial color={dead ? "#4a4a4a" : color} roughness={0.75} />
+      </mesh>
+      <mesh position={[0, 0.7, 0]} castShadow>
+        <sphereGeometry args={[0.15, 24, 24]} />
+        <meshStandardMaterial color={dead ? "#7a7a7a" : "#e8c39a"} roughness={0.6} />
+      </mesh>
+      {/* cowboy hat: brim + crown */}
+      <mesh position={[0, 0.8, 0]} castShadow>
+        <cylinderGeometry args={[0.27, 0.27, 0.02, 24]} />
+        <meshStandardMaterial color="#6b4a24" roughness={0.85} />
+      </mesh>
+      <mesh position={[0, 0.86, 0]} castShadow>
+        <cylinderGeometry args={[0.13, 0.16, 0.14, 24]} />
+        <meshStandardMaterial color="#5a3a1c" roughness={0.85} />
+      </mesh>
+    </group>
+  );
+}
+
+function Opponents({ players, youSeat, ring, felt, arc }: { players: PlayerPublic[]; youSeat: number; ring: number; felt: number; arc: number }) {
   const others = players.filter((p) => p.seat !== youSeat);
+  const seatR = felt + 0.2; // avatars just beyond the felt edge
   return (
     <>
       {others.map((p, i) => {
@@ -126,9 +156,16 @@ function Opponents({ players, youSeat, ring, arc }: { players: PlayerPublic[]; y
         const x = ring * Math.cos(ang);
         const z = ring * Math.sin(ang);
         return (
-          <group key={p.id} position={[x, 0.05, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
-            <OpponentHand count={p.handCount} />
-            <Nameplate p={p} />
+          <group key={p.id}>
+            <group position={[x, 0.05, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
+              <OpponentHand count={p.handCount} />
+              <Nameplate p={p} />
+            </group>
+            <Avatar
+              position={[seatR * Math.cos(ang), 0, seatR * Math.sin(ang)]}
+              color={AVATAR_COLORS[i % AVATAR_COLORS.length]}
+              dead={!p.alive}
+            />
           </group>
         );
       })}
@@ -144,18 +181,18 @@ function Scene({ view }: { view: PlayerView }) {
       <color attach="background" args={["#17120f"]} />
       <fog attach="fog" args={["#17120f", felt * 2.2, felt * 5.5]} />
       <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={fov} />
+      {/* Fixed camera: keep it aimed at the table, no free orbit/zoom/pan. */}
       <OrbitControls
         target={[0, 0, -felt * 0.12]}
-        maxPolarAngle={Math.PI / 2.15}
-        minDistance={felt}
-        maxDistance={camZ + 6}
+        enableRotate={false}
+        enableZoom={false}
         enablePan={false}
       />
       <ambientLight intensity={0.55} />
       <spotLight position={[0, felt + 3.5, 0.5]} angle={0.8} penumbra={0.6} intensity={2.6} castShadow />
       <Environment preset="warehouse" />
       <Table felt={felt} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} arc={arc} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} />
     </>
   );
 }

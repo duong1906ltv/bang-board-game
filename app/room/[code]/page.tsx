@@ -577,16 +577,19 @@ function Table({
             : undefined
         }
       >
-        <h3>{L(locale, "Thông tin của bạn", "Your info")}</h3>
+        {!threeD && <h3>{L(locale, "Thông tin của bạn", "Your info")}</h3>}
         {you.role && (
           <>
             <div>
               <span className="role-badge" style={{ fontSize: "0.9rem" }}>{ROLE_EMOJI[you.role]} {roleLabel(locale, you.role)}</span>
+              {threeD && you.character && (
+                <span className="badge" style={{ marginLeft: 8 }}>🎭 {you.character.name}</span>
+              )}
             </div>
-            <p className="muted" style={{ marginTop: 6 }}>🎯 {roleGoal(locale, you.role)}</p>
+            {!threeD && <p className="muted" style={{ marginTop: 6 }}>🎯 {roleGoal(locale, you.role)}</p>}
           </>
         )}
-        {you.character && (
+        {!threeD && you.character && (
           <div style={{ marginTop: 10 }}>
             <CharacterCard c={you.character} />
           </div>
@@ -596,7 +599,7 @@ function Table({
           <span className="badge">🎯 {L(locale, "Tầm bắn", "Range")} {you.range}</span>
         </div>
 
-        {you.equipment.length > 0 && (
+        {!threeD && you.equipment.length > 0 && (
           <>
             <label style={{ marginTop: 12 }}>{L(locale, "Bài xanh trên bàn", "In play")}</label>
             <div className="card-row">
