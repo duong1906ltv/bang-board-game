@@ -94,6 +94,14 @@ app.prepare().then(() => {
       if (pid && game.drawCards(code, pid)) broadcast(code);
     });
 
+    socket.on("playCard", ({ code, cardId, targetId }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (!pid) return;
+      const res = game.playCard(code, pid, cardId, targetId);
+      if (res.ok) broadcast(code);
+      else if (res.error) socket.emit("errorMsg", res.error);
+    });
+
     socket.on("discardCard", ({ code, cardId }) => {
       const pid = playerIdOf(code, socket.id);
       if (pid && game.discardCard(code, pid, cardId)) broadcast(code);
