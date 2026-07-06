@@ -145,8 +145,8 @@ export interface DraftView {
 // One resolved "Draw!" reveal (upkeep Dynamite/Jail, or Barrel), shown briefly.
 export interface CheckView {
   name: string; // whose card was checked
-  card: Card | null; // the flipped card
-  kind: "dynamite" | "jail" | "barrel";
+  card: Card | null; // the flipped/revealed card
+  kind: string; // "dynamite" | "jail" | "barrel" | "blackjack" | "lucky-duke" ...
   outcome: string; // human-readable result
 }
 

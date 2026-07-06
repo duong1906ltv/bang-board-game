@@ -389,9 +389,26 @@ export function drawCards(code: string, playerId: string): boolean {
   if (room.pending) return false;
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return false;
-  for (let k = 0; k < 2; k++) {
-    const c = drawOne(room);
-    if (c) current.hand.push(c);
+  room.checks = [];
+  if (current.character?.id === "black-jack") {
+    // Draw 1; reveal the 2nd — on Heart/Diamond, draw a bonus card.
+    const c1 = drawOne(room);
+    if (c1) current.hand.push(c1);
+    const c2 = drawOne(room);
+    if (c2) {
+      current.hand.push(c2);
+      const bonus = c2.suit === "hearts" || c2.suit === "diamonds";
+      room.checks = [{ name: current.name, card: c2, kind: "blackjack", outcome: bonus ? "Rút thêm 1!" : "Không thêm" }];
+      if (bonus) {
+        const c3 = drawOne(room);
+        if (c3) current.hand.push(c3);
+      }
+    }
+  } else {
+    for (let k = 0; k < 2; k++) {
+      const c = drawOne(room);
+      if (c) current.hand.push(c);
+    }
   }
   room.turnPhase = "play";
   return true;
@@ -459,8 +476,11 @@ export function playCard(
   if (card.defId === "gatling") return playMulti(room, current, idx, "gatling");
   if (card.defId === "duel") return playDuel(room, current, idx, _targetId);
   if (card.defId === "general-store") return playGeneralStore(room, current, idx);
-  // Missed! is only playable as a reaction, not proactively.
-  if (card.defId === "missed") return { ok: false, error: "Missed! chỉ dùng để phản ứng Bang!" };
+  // Missed! is only playable as a reaction — except Calamity Janet may fire it as a Bang!.
+  if (card.defId === "missed") {
+    if (current.character?.id === "calamity-janet" && _targetId) return playBang(room, current, idx, _targetId);
+    return { ok: false, error: "Missed! chỉ dùng để phản ứng Bang!" };
+  }
   return { ok: false, error: "Lá này sẽ hỗ trợ ở bước sau" };
 }
 
@@ -477,7 +497,7 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
     for (const r of responders) {
       const p = room.players.find((x) => x.id === r.id)!;
       if (hasEquip(p, "barrel")) {
-        const card = drawCheck(room);
+        const card = drawCheck(room, p, goodBarrel);
         const heart = !!card && card.suit === "hearts";
         room.checks.push({ name: p.name, card, kind: "barrel", outcome: heart ? "Barrel né!" : "Barrel trượt" });
         if (heart) { r.done = true; r.safe = true; }
@@ -603,7 +623,7 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
 
   // Barrel: auto Draw! — a Heart counts as one Missed!.
   if (hasEquip(target, "barrel")) {
-    const card = drawCheck(room);
+    const card = drawCheck(room, target, goodBarrel);
     const heart = !!card && card.suit === "hearts";
     room.checks = [{ name: target.name, card, kind: "barrel", outcome: heart ? "Barrel né được!" : "Barrel trượt" }];
     if (heart) {
@@ -675,12 +695,29 @@ function leftNeighbor(room: Room, p: Player): Player | null {
   return alive[(i + 1) % alive.length];
 }
 
-// A Draw!: flip the top card to the discard pile and return it.
-function drawCheck(room: Room): Card | null {
-  const c = drawOne(room);
-  if (c) room.discard.push(c);
-  return c;
+// A Draw!: flip the top card to discard and return it. Lucky Duke flips two and
+// keeps the more favorable (per the `isGood` predicate for this check).
+function drawCheck(room: Room, drawer?: Player, isGood?: (c: Card) => boolean): Card | null {
+  const first = drawOne(room);
+  if (!first) return null;
+  if (drawer?.character?.id === "lucky-duke") {
+    const second = drawOne(room);
+    room.discard.push(first);
+    if (second) room.discard.push(second);
+    if (second && isGood) {
+      if (isGood(first)) return first;
+      if (isGood(second)) return second;
+    }
+    return first;
+  }
+  room.discard.push(first);
+  return first;
 }
+
+// Predicates: what makes a Draw! favorable for the drawer.
+const goodJail = (c: Card) => c.suit === "hearts"; // released
+const goodDynamite = (c: Card) => !(c.suit === "spades" && c.rank >= 2 && c.rank <= 9); // no blast
+const goodBarrel = (c: Card) => c.suit === "hearts"; // counts as Missed!
 
 // Start-of-turn upkeep: resolve Dynamite then Jail for the active player (and any
 // players skipped by Jail), then leave them in the draw phase — unless Jail makes
@@ -696,7 +733,7 @@ function beginTurn(room: Room) {
     // --- Dynamite ---
     const dyn = cur.equipment.find((c) => c.defId === "dynamite");
     if (dyn) {
-      const card = drawCheck(room);
+      const card = drawCheck(room, cur, goodDynamite);
       const exploded = !!card && card.suit === "spades" && card.rank >= 2 && card.rank <= 9;
       room.checks.push({ name: cur.name, card, kind: "dynamite", outcome: exploded ? "Nổ! −3 máu" : "An toàn" });
       cur.equipment = cur.equipment.filter((c) => c.id !== dyn.id);
@@ -719,7 +756,7 @@ function beginTurn(room: Room) {
     // --- Jail ---
     const jail = cur.equipment.find((c) => c.defId === "jail");
     if (jail) {
-      const card = drawCheck(room);
+      const card = drawCheck(room, cur, goodJail);
       const released = !!card && card.suit === "hearts";
       room.checks.push({ name: cur.name, card, kind: "jail", outcome: released ? "Thoát tù" : "Bỏ lượt" });
       cur.equipment = cur.equipment.filter((c) => c.id !== jail.id);
@@ -757,6 +794,16 @@ function refreshDeadline(room: Room, ms: number) {
 const hasHandCard = (p: Player, defId: string, cardId?: string) =>
   p.hand.findIndex((c) => c.defId === defId && (cardId ? c.id === cardId : true));
 
+// Whether `card` may be used as `asDefId`. Calamity Janet may swap Bang!/Missed!.
+function canUseAs(player: Player, card: Card, asDefId: string): boolean {
+  if (card.defId === asDefId) return true;
+  if (player.character?.id === "calamity-janet") {
+    if (asDefId === "missed" && card.defId === "bang") return true;
+    if (asDefId === "bang" && card.defId === "missed") return true;
+  }
+  return false;
+}
+
 // A player replies to the active pending. `type` meaning depends on the pending.
 export function respond(
   code: string,
@@ -773,8 +820,8 @@ export function respond(
     if (playerId !== pending.targetId) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
     const target = room.players.find((p) => p.id === pending.targetId)!;
     if (type === "missed") {
-      const idx = hasHandCard(target, "missed", cardId);
-      if (idx < 0) return { ok: false, error: "Không có Missed! đó" };
+      const idx = target.hand.findIndex((c) => c.id === cardId && canUseAs(target, c, "missed"));
+      if (idx < 0) return { ok: false, error: "Không có lá né hợp lệ" };
       room.discard.push(target.hand.splice(idx, 1)[0]);
       pending.missedPlayed += 1;
       if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // dodged
@@ -822,8 +869,8 @@ export function respond(
     const me = room.players.find((p) => p.id === playerId)!;
     const need = pending.effect === "indians" ? "bang" : "missed";
     if (type === need) {
-      const idx = hasHandCard(me, need, cardId);
-      if (idx < 0) return { ok: false, error: `Không có ${need === "bang" ? "Bang!" : "Missed!"} đó` };
+      const idx = me.hand.findIndex((c) => c.id === cardId && canUseAs(me, c, need));
+      if (idx < 0) return { ok: false, error: `Không có ${need === "bang" ? "Bang!" : "Missed!"} hợp lệ` };
       room.discard.push(me.hand.splice(idx, 1)[0]);
       r.done = true;
       r.safe = true;
@@ -842,8 +889,8 @@ export function respond(
     if (playerId !== pending.turnId) return { ok: false, error: "Chưa tới lượt bạn trong Duel" };
     const me = room.players.find((p) => p.id === playerId)!;
     if (type === "bang") {
-      const idx = hasHandCard(me, "bang", cardId);
-      if (idx < 0) return { ok: false, error: "Không có Bang! đó" };
+      const idx = me.hand.findIndex((c) => c.id === cardId && canUseAs(me, c, "bang"));
+      if (idx < 0) return { ok: false, error: "Không có Bang! hợp lệ" };
       room.discard.push(me.hand.splice(idx, 1)[0]);
       pending.turnId = pending.turnId === pending.aId ? pending.bId : pending.aId; // pass back
       refreshDeadline(room, REACTION_MS);
@@ -981,6 +1028,22 @@ function processDeathQueue(room: Room) {
 // can still be saved by Beer, otherwise kill them.
 function applyDamage(room: Room, target: Player, amount: number, sourceId: string | null, saveable = true) {
   target.hp -= amount;
+  // Bart Cassidy: draw a card for each life point lost.
+  if (target.character?.id === "bart-cassidy") {
+    for (let i = 0; i < amount; i++) {
+      const c = drawOne(room);
+      if (c) target.hand.push(c);
+    }
+  }
+  // El Gringo: steal a card from the attacker for each life point lost.
+  if (target.character?.id === "el-gringo" && sourceId) {
+    const src = room.players.find((p) => p.id === sourceId);
+    if (src) {
+      for (let i = 0; i < amount && src.hand.length > 0; i++) {
+        target.hand.push(src.hand.splice(Math.floor(Math.random() * src.hand.length), 1)[0]);
+      }
+    }
+  }
   if (target.hp > 0) return;
   const needed = 1 - target.hp; // Beers required to reach 1 HP
   const beers = target.hand.filter((c) => c.defId === "beer").length;
@@ -996,11 +1059,27 @@ function applyDamage(room: Room, target: Player, amount: number, sourceId: strin
 function killPlayer(room: Room, target: Player) {
   target.alive = false;
   target.hp = 0;
-  room.discard.push(...target.hand, ...target.equipment);
+  const cards = [...target.hand, ...target.equipment];
   target.hand = [];
   target.equipment = [];
+  // Vulture Sam: a living Sam takes all the dead player's cards instead of discard.
+  const sam = room.players.find((p) => p.alive && p.id !== target.id && p.character?.id === "vulture-sam");
+  if (sam) sam.hand.push(...cards);
+  else room.discard.push(...cards);
   // Death rewards (draw 3 on killing an Outlaw; Sheriff-kills-Deputy penalty)
-  // and character death triggers are handled in a later step.
+  // are handled in Phase 6.
+}
+
+// Suzy Lafayette: any living Suzy left with an empty hand immediately draws one.
+// Called after every resolved action (from the server broadcast).
+export function refillEmptyHands(room: Room) {
+  if (room.phase !== "playing" || room.pending) return;
+  for (const p of room.players) {
+    if (p.alive && p.character?.id === "suzy-lafayette" && p.hand.length === 0) {
+      const c = drawOne(room);
+      if (c) p.hand.push(c);
+    }
+  }
 }
 
 // Evaluate win conditions; if met, set the winner and end the game.

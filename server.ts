@@ -25,6 +25,7 @@ app.prepare().then(() => {
   function broadcast(code: string) {
     const room = game.getRoom(code);
     if (!room) return;
+    game.refillEmptyHands(room); // Suzy Lafayette
     ensureDraftTimer(room, code);
     ensurePendingTimer(room, code);
     for (const p of room.players) {
