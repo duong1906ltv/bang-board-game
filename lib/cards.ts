@@ -5,6 +5,8 @@
 // like "2D-AD" mirrors the source and expands over the rank order
 // 2,3,…,10,J,Q,K,A (Ace high within ranges; stored as rank 1).
 
+import { CARD_ART } from "./cardArt";
+
 export type Suit = "spades" | "hearts" | "diamonds" | "clubs";
 
 export const SUIT_SYMBOL: Record<Suit, string> = {
@@ -151,9 +153,9 @@ export const CARD_ICON: Record<string, string> = {
   winchester: "🔫",
 };
 
-// Optional per-card artwork (data URI or path). Empty by default — drop entries
-// here (e.g. AI-generated Wild-West art) and the card face will use them.
-export const CARD_IMAGE: Record<string, string> = {};
+// Optional per-card artwork (data URI or path). Original SVG art lives in
+// cardArt.ts; add more entries there (or your own images) to illustrate cards.
+export const CARD_IMAGE: Record<string, string> = CARD_ART;
 
 // --- spec parsing ---
 
