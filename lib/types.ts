@@ -82,6 +82,31 @@ export type Phase = "lobby" | "drafting" | "playing" | "result";
 // Sub-phases within a single player's turn.
 export type TurnPhase = "draw" | "play" | "discard";
 
+// Who won, once the game ends.
+export type Winner = "sheriff" | "outlaws" | "renegade";
+
+export const WINNER_LABEL: Record<Winner, string> = {
+  sheriff: "Phe Cảnh Sát thắng! ⭐",
+  outlaws: "Phe Ngoài Vòng Pháp Luật thắng! 🤠",
+  renegade: "Kẻ Phản Bội thắng! 🐍",
+};
+
+// An unresolved action waiting on one player's response (whole table is locked).
+//  - bang:  the target may play Missed!(s) to dodge, or take the hit
+//  - dying: the target dropped to 0 HP and may play Beer(s) to survive
+export interface PendingView {
+  kind: "bang" | "dying";
+  targetId: string;
+  targetName: string;
+  sourceName: string;
+  endsAt: number; // epoch ms deadline (reaction window)
+  youAreTarget: boolean;
+  missedNeeded?: number; // bang: how many Missed! required (2 vs Slab)
+  missedPlayed?: number; // bang: how many played so far
+  canMissed?: boolean; // you (the target) hold a Missed!
+  canBeer?: boolean; // you (the target) hold a Beer
+}
+
 // ─── Views sent to clients ───────────────────────────────────────────────────
 
 export interface PlayerPublic {
@@ -136,6 +161,8 @@ export interface PlayerView {
   turnSeat: number | null;
   roleSetup: { role: Role; count: number }[];
   draft: DraftView | null; // present only during the drafting phase
+  pending: PendingView | null; // an unresolved reaction locking the table
+  winner: Winner | null; // set in the result phase
   deckCount: number; // cards left in the draw pile
   discardCount: number; // cards in the discard pile
 }
@@ -159,6 +186,7 @@ export interface ClientToServerEvents {
   pickCharacter: (data: { code: string; characterId: string }) => void;
   drawCards: (data: { code: string }) => void; // draw phase: draw your 2 cards
   playCard: (data: { code: string; cardId: string; targetId?: string }) => void; // play a card
+  respond: (data: { code: string; type: "missed" | "beer" | "pass"; cardId?: string }) => void; // reply to a pending
   discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;
   restart: (data: { code: string }) => void;

@@ -9,6 +9,7 @@ import {
   Character,
   CHARACTERS,
   DraftView,
+  PendingView,
   Phase,
   PlayerPublic,
   PlayerView,
@@ -16,8 +17,17 @@ import {
   rankPriority,
   Role,
   TurnPhase,
+  Winner,
 } from "./types";
 import { buildDeck, Card, CARD_DEF_BY_ID } from "./cards";
+
+// An unresolved reaction that locks the table until the target responds.
+type Pending =
+  | { kind: "bang"; targetId: string; sourceId: string; missedNeeded: number; missedPlayed: number; endsAt: number }
+  | { kind: "dying"; targetId: string; sourceId: string | null; beersNeeded: number; endsAt: number };
+
+// Reaction window (ms) for Bang!/dying responses.
+export const REACTION_MS = 15_000;
 
 export interface Player {
   id: string;
@@ -44,6 +54,10 @@ export interface Room {
   hostId: string;
   turnIndex: number; // index into players[] whose turn it is (playing phase)
   turnPhase: TurnPhase; // sub-phase of the current player's turn
+  bangsThisTurn: number; // Bang!s played by the active player this turn
+  pending: Pending | null; // unresolved reaction locking the table
+  pendingTimer: NodeJS.Timeout | null;
+  winner: Winner | null; // set when the game ends
   draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
   draftTimer: NodeJS.Timeout | null;
   deck: Card[]; // draw pile (top = end of array)
@@ -139,6 +153,10 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     hostId: player.id,
     turnIndex: 0,
     turnPhase: "draw",
+    bangsThisTurn: 0,
+    pending: null,
+    pendingTimer: null,
+    winner: null,
     draftEndsAt: null,
     draftTimer: null,
     deck: [],
@@ -299,6 +317,9 @@ function finalizeDraft(room: Room) {
   const sheriffIdx = room.players.findIndex((p) => p.role === "sheriff");
   room.turnIndex = sheriffIdx >= 0 ? sheriffIdx : 0;
   room.turnPhase = "draw"; // Sheriff begins by drawing
+  room.bangsThisTurn = 0;
+  room.winner = null;
+  room.pending = null;
   room.phase = "playing";
 }
 
@@ -357,6 +378,7 @@ export function distanceBetween(room: Room, from: Player, to: Player): number {
 export function drawCards(code: string, playerId: string): boolean {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing" || room.turnPhase !== "draw") return false;
+  if (room.pending) return false;
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return false;
   for (let k = 0; k < 2; k++) {
@@ -378,6 +400,7 @@ export function playCard(
 ): { ok: boolean; error?: string } {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
+  if (room.pending) return { ok: false, error: "Đang chờ phản ứng" };
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return { ok: false };
   if (room.turnPhase === "draw") return { ok: false, error: "Bạn phải rút bài trước" };
@@ -410,14 +433,54 @@ export function playCard(
     return { ok: true };
   }
 
-  // Brown cards (Bang!, Missed!, Beer, ...) — added in step 2b.
+  // Brown cards.
+  if (card.defId === "bang") return playBang(room, current, idx, _targetId);
+  if (card.defId === "beer") return playBeer(room, current, idx);
+  // Missed! is only playable as a reaction, not proactively.
+  if (card.defId === "missed") return { ok: false, error: "Missed! chỉ dùng để phản ứng Bang!" };
   return { ok: false, error: "Lá này sẽ hỗ trợ ở bước sau" };
+}
+
+// Play Bang! at a target: check the 1-per-turn limit and range, discard the
+// card, then open a reaction window for the target.
+function playBang(room: Room, current: Player, handIdx: number, targetId?: string): { ok: boolean; error?: string } {
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
+  const unlimited = hasEquip(current, "volcanic") || current.character?.id === "willy-the-kid";
+  if (!unlimited && room.bangsThisTurn >= 1) {
+    return { ok: false, error: "Chỉ 1 Bang!/lượt (trừ Volcanic/Willy)" };
+  }
+  if (distanceBetween(room, current, target) > rangeOf(current)) {
+    return { ok: false, error: "Mục tiêu ngoài tầm bắn" };
+  }
+  const [c] = current.hand.splice(handIdx, 1);
+  room.discard.push(c);
+  room.bangsThisTurn += 1;
+  const missedNeeded = current.character?.id === "slab-the-killer" ? 2 : 1;
+  room.pending = {
+    kind: "bang",
+    targetId: target.id,
+    sourceId: current.id,
+    missedNeeded,
+    missedPlayed: 0,
+    endsAt: Date.now() + REACTION_MS,
+  };
+  return { ok: true };
+}
+
+// Play Beer proactively (only on your own turn) to heal 1, capped at max HP.
+function playBeer(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
+  if (current.hp >= current.maxHp) return { ok: false, error: "Máu đã đầy" };
+  const [c] = current.hand.splice(handIdx, 1);
+  room.discard.push(c);
+  current.hp = Math.min(current.maxHp, current.hp + 1);
+  return { ok: true };
 }
 
 // Discard a card from the active player's hand to the discard pile.
 export function discardCard(code: string, playerId: string, cardId: string): boolean {
   const room = rooms.get(code);
-  if (!room || room.phase !== "playing") return false;
+  if (!room || room.phase !== "playing" || room.pending) return false;
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId || room.turnPhase === "draw") return false;
   const idx = current.hand.findIndex((c) => c.id === cardId);
@@ -432,6 +495,7 @@ export function discardCard(code: string, playerId: string, cardId: string): boo
 export function endTurn(code: string, playerId: string): { ok: boolean; error?: string } {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
+  if (room.pending) return { ok: false, error: "Đang chờ phản ứng" };
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return { ok: false };
   if (room.turnPhase === "draw") return { ok: false, error: "Bạn phải rút bài trước" };
@@ -444,19 +508,150 @@ export function endTurn(code: string, playerId: string): { ok: boolean; error?: 
     if (room.players[idx].alive) {
       room.turnIndex = idx;
       room.turnPhase = "draw";
+      room.bangsThisTurn = 0;
       return { ok: true };
     }
   }
   return { ok: false };
 }
 
+// --- reactions, damage, death, win ---
+
+function clearPending(room: Room) {
+  room.pending = null;
+  if (room.pendingTimer) {
+    clearTimeout(room.pendingTimer);
+    room.pendingTimer = null;
+  }
+}
+
+// The target of a pending replies: play a Missed! / Beer, or pass (take it).
+export function respond(
+  code: string,
+  playerId: string,
+  type: "missed" | "beer" | "pass",
+  cardId?: string
+): { ok: boolean; error?: string } {
+  const room = rooms.get(code);
+  if (!room || !room.pending) return { ok: false };
+  const pending = room.pending;
+  if (playerId !== pending.targetId) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
+  const target = room.players.find((p) => p.id === pending.targetId);
+  if (!target) return { ok: false };
+
+  if (pending.kind === "bang") {
+    if (type === "missed") {
+      const idx = target.hand.findIndex((c) => c.id === cardId && c.defId === "missed");
+      if (idx < 0) return { ok: false, error: "Không có Missed! đó" };
+      const [c] = target.hand.splice(idx, 1);
+      room.discard.push(c);
+      pending.missedPlayed += 1;
+      if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // dodged
+      return { ok: true };
+    }
+    if (type === "pass") {
+      clearPending(room);
+      applyDamage(room, target, 1, pending.sourceId);
+      return { ok: true };
+    }
+    return { ok: false };
+  }
+
+  // dying: play Beer(s) to climb back to 1 HP, or pass to accept death.
+  if (type === "beer") {
+    const idx = target.hand.findIndex((c) => c.id === cardId && c.defId === "beer");
+    if (idx < 0) return { ok: false, error: "Không có Beer đó" };
+    const [c] = target.hand.splice(idx, 1);
+    room.discard.push(c);
+    target.hp += 1;
+    pending.beersNeeded -= 1;
+    if (pending.beersNeeded <= 0) clearPending(room); // survived
+    return { ok: true };
+  }
+  if (type === "pass") {
+    clearPending(room);
+    killPlayer(room, target);
+    checkWin(room);
+    return { ok: true };
+  }
+  return { ok: false };
+}
+
+// Timer callback when a reaction window expires (take the hit / accept death).
+export function pendingTimeout(code: string): boolean {
+  const room = rooms.get(code);
+  if (!room || !room.pending) return false;
+  const pending = room.pending;
+  const target = room.players.find((p) => p.id === pending.targetId);
+  clearPending(room);
+  if (!target) return true;
+  if (pending.kind === "bang") {
+    applyDamage(room, target, 1, pending.sourceId);
+  } else {
+    killPlayer(room, target);
+    checkWin(room);
+  }
+  return true;
+}
+
+// Apply damage; if it drops the target to <=0 HP, open a dying window if they
+// can still be saved by Beer, otherwise kill them.
+function applyDamage(room: Room, target: Player, amount: number, sourceId: string | null) {
+  target.hp -= amount;
+  if (target.hp > 0) return;
+  const needed = 1 - target.hp; // Beers required to reach 1 HP
+  const beers = target.hand.filter((c) => c.defId === "beer").length;
+  if (beers >= needed) {
+    room.pending = { kind: "dying", targetId: target.id, sourceId, beersNeeded: needed, endsAt: Date.now() + REACTION_MS };
+  } else {
+    killPlayer(room, target);
+    checkWin(room);
+  }
+}
+
+function killPlayer(room: Room, target: Player) {
+  target.alive = false;
+  target.hp = 0;
+  room.discard.push(...target.hand, ...target.equipment);
+  target.hand = [];
+  target.equipment = [];
+  // Death rewards (draw 3 on killing an Outlaw; Sheriff-kills-Deputy penalty)
+  // and character death triggers are handled in a later step.
+}
+
+// Evaluate win conditions; if met, set the winner and end the game.
+function checkWin(room: Room) {
+  const players = room.players;
+  const sheriffAlive = players.some((p) => p.role === "sheriff" && p.alive);
+  const alive = players.filter((p) => p.alive);
+
+  let winner: Winner | null = null;
+  if (!sheriffAlive) {
+    // Renegade wins only if he is the sole survivor; otherwise the Outlaws win.
+    winner = alive.length === 1 && alive[0].role === "renegade" ? "renegade" : "outlaws";
+  } else {
+    const outlawsDead = players.filter((p) => p.role === "outlaw").every((p) => !p.alive);
+    const renegadesDead = players.filter((p) => p.role === "renegade").every((p) => !p.alive);
+    if (outlawsDead && renegadesDead) winner = "sheriff";
+  }
+
+  if (winner) {
+    clearPending(room);
+    room.winner = winner;
+    room.phase = "result";
+  }
+}
+
 export function restart(code: string): boolean {
   const room = rooms.get(code);
   if (!room) return false;
   clearDraftTimer(room);
+  clearPending(room);
   room.phase = "lobby";
   room.turnIndex = 0;
   room.turnPhase = "draw";
+  room.bangsThisTurn = 0;
+  room.winner = null;
   room.draftEndsAt = null;
   room.deck = [];
   room.discard = [];
@@ -476,8 +671,9 @@ export function restart(code: string): boolean {
 
 // --- view building (hidden-info filtering) ---
 
-function visibleRole(p: Player): Role | null {
+function visibleRole(p: Player, room: Room): Role | null {
   if (!p.role) return null;
+  if (room.phase === "result") return p.role; // all roles revealed at the end
   if (PUBLIC_ROLES.includes(p.role)) return p.role;
   if (!p.alive) return p.role;
   return null;
@@ -504,7 +700,7 @@ function toPublic(p: Player, room: Room, viewer: Player | undefined, turnId: str
     handCount: p.hand.length,
     character: characterPublic,
     hasPicked: p.hasPicked,
-    role: visibleRole(p),
+    role: visibleRole(p, room),
     isTurn: turnId != null && p.id === turnId,
     distance,
     equipment: inGame ? p.equipment : [],
@@ -521,6 +717,31 @@ function buildDraft(room: Room, me: Player | undefined): DraftView {
     totalCount: room.players.length,
     waitingFor: room.players.filter((p) => !p.hasPicked).map((p) => p.name),
   };
+}
+
+function buildPending(room: Room, me: Player | undefined): PendingView | null {
+  const p = room.pending;
+  if (!p) return null;
+  const target = room.players.find((x) => x.id === p.targetId);
+  const source = p.kind === "bang" ? room.players.find((x) => x.id === p.sourceId) : undefined;
+  const youAreTarget = !!me && me.id === p.targetId;
+  const base = {
+    kind: p.kind,
+    targetId: p.targetId,
+    targetName: target?.name ?? "",
+    sourceName: source?.name ?? "",
+    endsAt: p.endsAt,
+    youAreTarget,
+  };
+  if (p.kind === "bang") {
+    return {
+      ...base,
+      missedNeeded: p.missedNeeded,
+      missedPlayed: p.missedPlayed,
+      canMissed: youAreTarget && !!me?.hand.some((c) => c.defId === "missed"),
+    };
+  }
+  return { ...base, canBeer: youAreTarget && !!me?.hand.some((c) => c.defId === "beer") };
 }
 
 // Build the personalized view for one player: they always see their OWN role,
@@ -555,6 +776,8 @@ export function buildView(room: Room, playerId: string): PlayerView {
     turnSeat: turnPlayer ? turnPlayer.seat : null,
     roleSetup: roleSetupFor(room.players.length),
     draft: room.phase === "drafting" ? buildDraft(room, me) : null,
+    pending: buildPending(room, me),
+    winner: room.winner,
     deckCount: room.deck.length,
     discardCount: room.discard.length,
   };
