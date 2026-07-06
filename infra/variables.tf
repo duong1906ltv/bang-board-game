@@ -32,3 +32,27 @@ variable "instance_type" {
   type        = string
   default     = "t3.micro"
 }
+
+# ─── Namecheap Dynamic DNS ─────────────────────────────────────────────────────
+# Không dùng Elastic IP (để `terraform destroy` về $0). Thay vào đó domain được trỏ
+# về public IP hiện tại qua Namecheap DDNS, cập nhật mỗi lần boot. Bật Dynamic DNS ở
+# tab Advanced DNS của domain và thêm 1 host "A + Dynamic DNS Record" để lấy password.
+# Domain dùng CHUNG với project khác được — chỉ cần khác `ddns_host` (subdomain).
+
+variable "ddns_host" {
+  description = "Namecheap DDNS host record (subdomain). '@' cho domain gốc."
+  type        = string
+  default     = "bang"
+}
+
+variable "ddns_domain" {
+  description = "Root domain quản lý trên Namecheap"
+  type        = string
+  default     = "boardgamehocbai.website"
+}
+
+variable "ddns_password" {
+  description = "Namecheap Dynamic DNS password. Truyền qua TF_VAR_ddns_password; không commit."
+  type        = string
+  sensitive   = true
+}

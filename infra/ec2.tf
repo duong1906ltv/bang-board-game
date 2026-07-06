@@ -38,6 +38,10 @@ resource "aws_instance" "app" {
     compose_file = file("${path.module}/ec2/docker-compose.prod.yml")
     # Render the Caddyfile with the public domain so Caddy can auto-provision TLS.
     caddyfile = templatefile("${path.module}/ec2/Caddyfile", { domain = local.ec2_domain })
+    # Namecheap DDNS: keep the domain pointing at this instance's public IP.
+    ddns_host     = var.ddns_host
+    ddns_domain   = var.ddns_domain
+    ddns_password = var.ddns_password
   })
 
   user_data_replace_on_change = true
@@ -47,20 +51,12 @@ resource "aws_instance" "app" {
   }
 }
 
-# ─── Elastic IP (stable public IP) ───────────────────────────────────────────
-# sslip.io is free wildcard DNS: 1-2-3-4.sslip.io → 1.2.3.4, giving Caddy a real
-# hostname to obtain a Let's Encrypt certificate for (no domain purchase needed).
-
-resource "aws_eip" "app" {
-  domain = "vpc"
-  tags   = { Name = "${var.project_name}-app" }
-}
+# ─── Public domain (Namecheap DDNS, no Elastic IP) ────────────────────────────
+# Không dùng EIP: subnet tự gán public IP (map_public_ip_on_launch), và instance tự
+# cập nhật record Namecheap DDNS về IP đó mỗi lần boot (xem ec2/user-data.sh). Nhờ vậy
+# `terraform destroy` về $0 mà domain vẫn cố định. Caddy xin cert Let's Encrypt cho host này.
+# Domain dùng chung với project khác được — chỉ khác `ddns_host` (subdomain).
 
 locals {
-  ec2_domain = "${replace(aws_eip.app.public_ip, ".", "-")}.sslip.io"
-}
-
-resource "aws_eip_association" "app" {
-  instance_id   = aws_instance.app.id
-  allocation_id = aws_eip.app.id
+  ec2_domain = var.ddns_host == "@" ? var.ddns_domain : "${var.ddns_host}.${var.ddns_domain}"
 }

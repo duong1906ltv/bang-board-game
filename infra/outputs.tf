@@ -8,12 +8,12 @@ output "ecr_repository_url" {
 }
 
 output "ec2_public_ip" {
-  description = "Elastic IP of the game server"
-  value       = aws_eip.app.public_ip
+  description = "Current public IP of the game server (changes on destroy/apply; DDNS tracks it)"
+  value       = aws_instance.app.public_ip
 }
 
 output "game_url" {
-  description = "Open this to play — Caddy HTTPS via sslip.io"
+  description = "Open this to play — Caddy HTTPS on the Namecheap domain"
   value       = "https://${local.ec2_domain}"
 }
 
