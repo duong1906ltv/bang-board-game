@@ -26,6 +26,7 @@ app.prepare().then(() => {
     const room = game.getRoom(code);
     if (!room) return;
     ensureDraftTimer(room, code);
+    ensurePendingTimer(room, code);
     for (const p of room.players) {
       if (p.socketId && p.connected) {
         io.to(p.socketId).emit("view", game.buildView(room, p.id));
@@ -41,6 +42,18 @@ app.prepare().then(() => {
       room.draftTimer = setTimeout(() => {
         room.draftTimer = null;
         if (game.draftTimeout(code)) broadcast(code);
+      }, ms);
+    }
+  }
+
+  // Schedule the reaction deadline; on expiry the pending resolves (take the
+  // hit / accept death).
+  function ensurePendingTimer(room: game.Room, code: string) {
+    if (room.pending && !room.pendingTimer) {
+      const ms = Math.max(0, room.pending.endsAt - Date.now());
+      room.pendingTimer = setTimeout(() => {
+        room.pendingTimer = null;
+        if (game.pendingTimeout(code)) broadcast(code);
       }, ms);
     }
   }
@@ -98,6 +111,14 @@ app.prepare().then(() => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
       const res = game.playCard(code, pid, cardId, targetId);
+      if (res.ok) broadcast(code);
+      else if (res.error) socket.emit("errorMsg", res.error);
+    });
+
+    socket.on("respond", ({ code, type, cardId }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (!pid) return;
+      const res = game.respond(code, pid, type, cardId);
       if (res.ok) broadcast(code);
       else if (res.error) socket.emit("errorMsg", res.error);
     });
