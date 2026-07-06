@@ -15,12 +15,12 @@ function layout(nOpp: number) {
   const ring = 1.5 + 0.14 * nOpp; // radius of the opponent circle
   const felt = ring + 0.55; // felt top radius
   const arc = Math.min(1.15, 0.55 + 0.11 * nOpp) * Math.PI; // arc span, widens with count
-  // Low, close camera so the felt fills the full width of the screen (first-person feel).
-  const camY = 0.85 + 0.09 * nOpp;
-  const camZ = ring + 0.85;
-  const handZ = ring - 0.1;
-  const fov = 74;
-  return { ring, felt, arc, camY, camZ, handZ, fov };
+  // Raised camera angled down so the felt fills the frame (no empty background),
+  // while staying close enough to span the width.
+  const camY = 2.3 + 0.14 * nOpp;
+  const camZ = ring + 0.6;
+  const fov = 62;
+  return { ring, felt, arc, camY, camZ, fov };
 }
 
 function Table({ felt }: { felt: number }) {
@@ -115,39 +115,17 @@ function Opponents({ players, youSeat, ring, arc }: { players: PlayerPublic[]; y
   );
 }
 
-function YourHand({ view, handZ }: { view: PlayerView; handZ: number }) {
-  const hand = view.you.hand;
-  const n = hand.length;
-  return (
-    <group position={[0, 0.55, handZ]} rotation={[-0.75, 0, 0]}>
-      {hand.map((card, i) => {
-        const off = (i - (n - 1) / 2) * 0.42;
-        return (
-          <CardMesh
-            key={card.id}
-            card={card}
-            scale={0.8}
-            position={[off, -Math.abs(off) * 0.12, i * 0.01]}
-            rotation={[0, 0, -off * 0.12]}
-            onClick={() => console.log("clicked", card.name)}
-          />
-        );
-      })}
-    </group>
-  );
-}
-
 function Scene({ view }: { view: PlayerView }) {
   const nOpp = Math.max(1, view.players.length - 1);
-  const { ring, felt, arc, camY, camZ, handZ, fov } = layout(nOpp);
+  const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
     <>
       <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={fov} />
       <OrbitControls
-        target={[0, 0.15, 0]}
+        target={[0, 0.1, 0]}
         maxPolarAngle={Math.PI / 2.05}
         minDistance={1.5}
-        maxDistance={camZ + 4}
+        maxDistance={camZ + 5}
         enablePan={false}
       />
       <ambientLight intensity={0.6} />
@@ -155,7 +133,6 @@ function Scene({ view }: { view: PlayerView }) {
       <Environment preset="warehouse" />
       <Table felt={felt} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} arc={arc} />
-      <YourHand view={view} handZ={handZ} />
     </>
   );
 }
