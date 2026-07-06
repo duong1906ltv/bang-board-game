@@ -70,12 +70,10 @@ export function rankPriority(rank: CharRank): number {
   return rank ? RANK_PRIORITY[rank] ?? 0 : 0;
 }
 
-// ─── Cards (placeholder — the card layer is added later) ─────────────────────
+// ─── Cards ───────────────────────────────────────────────────────────────────
 
-export interface Card {
-  id: string;
-  name: string;
-}
+import type { Card } from "./cards";
+export type { Card };
 
 // ─── Game phases ─────────────────────────────────────────────────────────────
 
@@ -130,6 +128,8 @@ export interface PlayerView {
   turnSeat: number | null;
   roleSetup: { role: Role; count: number }[];
   draft: DraftView | null; // present only during the drafting phase
+  deckCount: number; // cards left in the draw pile
+  discardCount: number; // cards in the discard pile
 }
 
 // ─── Socket.IO event payloads ────────────────────────────────────────────────
