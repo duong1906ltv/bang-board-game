@@ -1440,6 +1440,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
       alive: me?.alive ?? true,
       turnPhase: isMyTurn ? room.turnPhase : null,
       range: me ? rangeOf(me) : 1,
+      canBang: !!(me && (hasEquip(me, "volcanic") || me.character?.id === "willy-the-kid" || room.bangsThisTurn < 1)),
     },
     players: bySeat.map((p) => toPublic(p, room, me, turnId)),
     turnSeat: turnPlayer ? turnPlayer.seat : null,
@@ -1450,5 +1451,6 @@ export function buildView(room: Room, playerId: string): PlayerView {
     checks: room.checks,
     deckCount: room.deck.length,
     discardCount: room.discard.length,
+    topDiscard: room.discard.length > 0 ? room.discard[room.discard.length - 1] : null,
   };
 }

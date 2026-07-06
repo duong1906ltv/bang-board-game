@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
+import type { Card } from "@/lib/cards";
 import type { PlayerView, PlayerPublic } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
 
@@ -268,8 +269,9 @@ function Opponents({ players, youSeat, ring, felt, arc }: { players: PlayerPubli
   );
 }
 
-// Draw pile + discard pile in the middle of the table.
-function CenterPiles({ deckCount, discardCount }: { deckCount: number; discardCount: number }) {
+// Draw pile + discard pile in the middle of the table. The top discarded card
+// is shown face-up so the centre reads as an active play area.
+function CenterPiles({ deckCount, discardCount, topDiscard }: { deckCount: number; discardCount: number; topDiscard: Card | null }) {
   const stack = Math.min(Math.max(deckCount, 1), 6);
   const label = (text: string) => (
     <Html center position={[0, 0.25, 0.55]} distanceFactor={6} style={{ pointerEvents: "none" }}>
@@ -285,7 +287,11 @@ function CenterPiles({ deckCount, discardCount }: { deckCount: number; discardCo
         {label(`🂠 ${deckCount}`)}
       </group>
       <group position={[0.45, 0, 0]}>
-        {discardCount > 0 && <CardMesh faceDown scale={0.72} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0.25]} />}
+        {topDiscard ? (
+          <CardMesh card={topDiscard} scale={0.72} position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0.2]} />
+        ) : (
+          discardCount > 0 && <CardMesh faceDown scale={0.72} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0.25]} />
+        )}
         {label(`🗑️ ${discardCount}`)}
       </group>
     </group>
@@ -312,7 +318,7 @@ function Scene({ view }: { view: PlayerView }) {
       <Environment preset="warehouse" />
       <Saloon felt={felt} />
       <Table felt={felt} />
-      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} />
+      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} />
     </>
   );

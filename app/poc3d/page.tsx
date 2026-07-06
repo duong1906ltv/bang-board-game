@@ -53,6 +53,7 @@ const view: PlayerView = {
     alive: true,
     turnPhase: "play",
     range: 1,
+    canBang: true,
   },
   players,
   turnSeat: 0,
@@ -63,6 +64,7 @@ const view: PlayerView = {
   checks: [],
   deckCount: 40,
   discardCount: 5,
+  topDiscard: card("d1", "bang", "Bang!", "clubs", 7),
 };
 
 export default function Poc3DPage() {

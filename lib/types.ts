@@ -173,6 +173,7 @@ export interface PlayerView {
     alive: boolean;
     turnPhase: TurnPhase | null; // your current turn sub-phase (null if not your turn)
     range: number; // how far you can Bang! (weapon range, default 1)
+    canBang: boolean; // may you still play a Bang! this turn (limit/Volcanic/Willy)
   };
   players: PlayerPublic[];
   turnSeat: number | null;
@@ -183,6 +184,7 @@ export interface PlayerView {
   checks: CheckView[]; // recent Draw! reveals to show (upkeep / Barrel)
   deckCount: number; // cards left in the draw pile
   discardCount: number; // cards in the discard pile
+  topDiscard: Card | null; // top card of the discard pile (for the center play area)
 }
 
 // ─── Socket.IO event payloads ────────────────────────────────────────────────

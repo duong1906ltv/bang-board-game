@@ -357,6 +357,23 @@ button.danger {
   animation: fadeIn 0.15s ease;
 }
 
+@keyframes drawIn {
+  from {
+    transform: translateY(-150px) scale(0.7) rotate(-7deg);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(0) scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+.draw-in {
+  animation: drawIn 0.5s cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

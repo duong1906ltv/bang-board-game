@@ -369,6 +369,26 @@ function Table({
   const [sidPicking, setSidPicking] = useState(false);
   const [threeD, setThreeD] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [notice, setNotice] = useState("");
+  // Cards freshly added to your hand — animated in for a "draw" effect.
+  const [justDrew, setJustDrew] = useState<Set<string>>(new Set());
+  const prevHandRef = useRef<string[]>([]);
+
+  const flash = (msg: string) => {
+    setNotice(msg);
+    window.setTimeout(() => setNotice((cur) => (cur === msg ? "" : cur)), 1800);
+  };
+
+  useEffect(() => {
+    const cur = you.hand.map((c) => c.id);
+    const added = cur.filter((id) => !prevHandRef.current.includes(id));
+    prevHandRef.current = cur;
+    if (added.length > 0) {
+      setJustDrew(new Set(added));
+      const t = window.setTimeout(() => setJustDrew(new Set()), 650);
+      return () => window.clearTimeout(t);
+    }
+  }, [you.hand]);
 
   // End-of-turn discard mode: once trimmed to the hand limit, end the turn.
   useEffect(() => {
@@ -418,13 +438,23 @@ function Table({
   // 3D drag gestures: drag a card UP to play/aim, drag RIGHT to discard.
   const playGesture = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
+    // Bang! is once per turn (unless Volcanic / Willy) — say so up front instead
+    // of letting the player aim into a silent rejection.
+    if (card.defId === "bang" && !you.canBang) {
+      return flash(L(locale, "Đã đánh Bang! trong lượt này rồi.", "Already played a Bang! this turn."));
+    }
     if (TARGETED.includes(card.defId)) {
       return setAiming({ id: card.id, defId: card.defId });
     }
     onPlay(card.id);
   };
   const discardGesture = (card: { id: string }) => {
-    if (inPlayPhase) onDiscard(card.id);
+    // Only discard when over the hand limit (hand > hp).
+    if (!inPlayPhase) return;
+    if (you.hand.length <= you.hp) {
+      return flash(L(locale, "Chỉ bỏ được khi số bài > máu.", "Can only discard when over the hand limit."));
+    }
+    onDiscard(card.id);
   };
 
   const canTarget = (p: (typeof view.players)[number]) => {
@@ -625,12 +655,13 @@ function Table({
             <span className="muted">{L(locale, "Chưa có lá nào.", "No cards.")}</span>
           ) : (
             you.hand.map((c) => (
-              <PlayingCard
-                key={c.id}
-                card={c}
-                onClick={inPlayPhase ? () => cardAction(c) : undefined}
-                selected={sidPick.includes(c.id) || aiming?.id === c.id}
-              />
+              <div key={c.id} className={justDrew.has(c.id) ? "draw-in" : undefined}>
+                <PlayingCard
+                  card={c}
+                  onClick={inPlayPhase ? () => cardAction(c) : undefined}
+                  selected={sidPick.includes(c.id) || aiming?.id === c.id}
+                />
+              </div>
             ))
           )}
         </div>
@@ -666,6 +697,30 @@ function Table({
           </>
         )}
       </div>
+      )}
+
+      {notice && (
+        <div
+          style={{
+            position: "fixed",
+            left: "50%",
+            top: "18%",
+            transform: "translateX(-50%)",
+            zIndex: 1200,
+            background: "rgba(180,40,40,0.95)",
+            color: "#fff",
+            padding: "10px 18px",
+            borderRadius: 10,
+            fontFamily: "system-ui, sans-serif",
+            fontWeight: 600,
+            boxShadow: "0 6px 20px rgba(0,0,0,.5)",
+            pointerEvents: "none",
+            maxWidth: "80vw",
+            textAlign: "center",
+          }}
+        >
+          {notice}
+        </div>
       )}
 
       {threeD && (
@@ -715,6 +770,7 @@ function Table({
                   <DragCard
                     card={c}
                     canInteract={inPlayPhase}
+                    entering={justDrew.has(c.id)}
                     selected={sidPick.includes(c.id) || aiming?.id === c.id}
                     onPlay={() => (sidPicking ? cardAction(c) : playGesture(c))}
                     onDiscard={() => discardGesture(c)}
@@ -740,12 +796,14 @@ function DragCard({
   card,
   canInteract,
   selected,
+  entering,
   onPlay,
   onDiscard,
 }: {
   card: Card;
   canInteract: boolean;
   selected?: boolean;
+  entering?: boolean;
   onPlay: () => void;
   onDiscard: () => void;
 }) {
@@ -789,6 +847,7 @@ function DragCard({
         cursor: canInteract ? "grab" : "default",
         transform: drag ? `translate(${drag.dx}px, ${drag.dy}px) scale(1.06)` : undefined,
         transition: drag ? "none" : "transform .16s ease",
+        animation: entering && !drag ? "drawIn 0.5s cubic-bezier(0.2,0.85,0.25,1) both" : undefined,
         borderRadius: 10,
         position: "relative",
         zIndex: drag ? 60 : undefined,
