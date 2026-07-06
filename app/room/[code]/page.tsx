@@ -10,7 +10,7 @@ import {
   ROLE_GOAL,
   ROLE_LABELS,
 } from "@/lib/types";
-import { SUIT_SYMBOL } from "@/lib/cards";
+import { SUIT_SYMBOL, rankLabel } from "@/lib/cards";
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 7;
@@ -307,8 +307,8 @@ function Table({
                 <span key={c.id} className="card-chip">
                   {c.name}{" "}
                   <span style={{ color: red ? "#ff6b6b" : "var(--muted)" }}>
+                    {rankLabel(c.rank)}
                     {SUIT_SYMBOL[c.suit]}
-                    {c.rank ?? ""}
                   </span>
                 </span>
               );
