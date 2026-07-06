@@ -104,7 +104,7 @@ jobs:
         if: ${{ vars.API_URL != '' }}
         run: |
           for i in $(seq 1 12); do
-            if curl -fsS "${{ vars.API_URL }}/health"; then
+            if curl -fsS --connect-timeout 5 --max-time 10 "${{ vars.API_URL }}/health"; then
               echo " — OK"
               exit 0
             fi
