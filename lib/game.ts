@@ -7,6 +7,7 @@
 
 import {
   Character,
+  CheckView,
   CHARACTERS,
   DraftView,
   PendingView,
@@ -58,6 +59,7 @@ export interface Room {
   pending: Pending | null; // unresolved reaction locking the table
   pendingTimer: NodeJS.Timeout | null;
   winner: Winner | null; // set when the game ends
+  checks: CheckView[]; // recent Draw! reveals (upkeep / Barrel), display-only
   draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
   draftTimer: NodeJS.Timeout | null;
   deck: Card[]; // draw pile (top = end of array)
@@ -157,6 +159,7 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     pending: null,
     pendingTimer: null,
     winner: null,
+    checks: [],
     draftEndsAt: null,
     draftTimer: null,
     deck: [],
@@ -316,11 +319,10 @@ function finalizeDraft(room: Room) {
 
   const sheriffIdx = room.players.findIndex((p) => p.role === "sheriff");
   room.turnIndex = sheriffIdx >= 0 ? sheriffIdx : 0;
-  room.turnPhase = "draw"; // Sheriff begins by drawing
-  room.bangsThisTurn = 0;
   room.winner = null;
   room.pending = null;
   room.phase = "playing";
+  beginTurn(room); // Sheriff begins (runs upkeep if they somehow have blue cards)
 }
 
 // --- deck helpers ---
@@ -421,13 +423,18 @@ export function playCard(
   }
 
   if (def.kind === "blue") {
-    if (card.defId === "jail" || card.defId === "dynamite") {
-      return { ok: false, error: "Jail/Dynamite sẽ hỗ trợ ở bước Draw!" };
+    // Jail: place on another non-Sheriff player who isn't already jailed.
+    if (card.defId === "jail") {
+      const target = room.players.find((p) => p.id === _targetId);
+      if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
+      if (target.role === "sheriff") return { ok: false, error: "Không thể bỏ tù Cảnh Sát Trưởng" };
+      if (target.equipment.some((c) => c.defId === "jail")) return { ok: false, error: "Người này đã bị giam" };
+      current.hand.splice(idx, 1);
+      target.equipment.push(card);
+      return { ok: true };
     }
-    // Mustang / Scope / Barrel: at most one of each in play.
-    if (hasEquip(current, card.defId)) {
-      return { ok: false, error: `Đã có ${def.name} trên bàn` };
-    }
+    // Self-equip (Mustang / Scope / Barrel / Dynamite): at most one of each.
+    if (hasEquip(current, card.defId)) return { ok: false, error: `Đã có ${def.name} trên bàn` };
     current.hand.splice(idx, 1);
     current.equipment.push(card);
     return { ok: true };
@@ -457,14 +464,27 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   room.discard.push(c);
   room.bangsThisTurn += 1;
   const missedNeeded = current.character?.id === "slab-the-killer" ? 2 : 1;
-  room.pending = {
-    kind: "bang",
+  const pending = {
+    kind: "bang" as const,
     targetId: target.id,
     sourceId: current.id,
     missedNeeded,
     missedPlayed: 0,
     endsAt: Date.now() + REACTION_MS,
   };
+  room.pending = pending;
+  room.checks = [];
+
+  // Barrel: auto Draw! — a Heart counts as one Missed!.
+  if (hasEquip(target, "barrel")) {
+    const card = drawCheck(room);
+    const heart = !!card && card.suit === "hearts";
+    room.checks = [{ name: target.name, card, kind: "barrel", outcome: heart ? "Barrel né được!" : "Barrel trượt" }];
+    if (heart) {
+      pending.missedPlayed += 1;
+      if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // fully dodged
+    }
+  }
   return { ok: true };
 }
 
@@ -502,17 +522,91 @@ export function endTurn(code: string, playerId: string): { ok: boolean; error?: 
   if (current.hand.length > current.hp) {
     return { ok: false, error: `Bỏ bớt ${current.hand.length - current.hp} lá (giới hạn = máu)` };
   }
+  if (!advanceToNextAlive(room)) return { ok: false };
+  beginTurn(room);
+  return { ok: true };
+}
+
+// Move the turn to the next living player (by seat, wrapping). Returns false if
+// nobody living is found.
+function advanceToNextAlive(room: Room): boolean {
   const n = room.players.length;
   for (let step = 1; step <= n; step++) {
     const idx = (room.turnIndex + step) % n;
     if (room.players[idx].alive) {
       room.turnIndex = idx;
-      room.turnPhase = "draw";
-      room.bangsThisTurn = 0;
-      return { ok: true };
+      return true;
     }
   }
-  return { ok: false };
+  return false;
+}
+
+// The living player to the left (next in play order) of `p`.
+function leftNeighbor(room: Room, p: Player): Player | null {
+  const alive = [...room.players].sort((a, b) => a.seat - b.seat).filter((x) => x.alive);
+  const i = alive.findIndex((x) => x.id === p.id);
+  if (i < 0 || alive.length < 2) return null;
+  return alive[(i + 1) % alive.length];
+}
+
+// A Draw!: flip the top card to the discard pile and return it.
+function drawCheck(room: Room): Card | null {
+  const c = drawOne(room);
+  if (c) room.discard.push(c);
+  return c;
+}
+
+// Start-of-turn upkeep: resolve Dynamite then Jail for the active player (and any
+// players skipped by Jail), then leave them in the draw phase — unless Jail makes
+// them skip, in which case play passes on. Fully synchronous (no reaction window,
+// since Dynamite damage cannot be saved by Beer in this variant).
+function beginTurn(room: Room) {
+  room.checks = [];
+  while (room.phase === "playing") {
+    const cur = room.players[room.turnIndex];
+    if (!cur) return;
+    room.bangsThisTurn = 0;
+
+    // --- Dynamite ---
+    const dyn = cur.equipment.find((c) => c.defId === "dynamite");
+    if (dyn) {
+      const card = drawCheck(room);
+      const exploded = !!card && card.suit === "spades" && card.rank >= 2 && card.rank <= 9;
+      room.checks.push({ name: cur.name, card, kind: "dynamite", outcome: exploded ? "Nổ! −3 máu" : "An toàn" });
+      cur.equipment = cur.equipment.filter((c) => c.id !== dyn.id);
+      if (exploded) {
+        room.discard.push(dyn);
+        applyDamage(room, cur, 3, null, false); // unsaveable: Beer can't cancel Dynamite
+        if (!cur.alive) {
+          if (room.phase !== "playing") return; // game ended
+          if (!advanceToNextAlive(room)) return;
+          continue; // run the next player's upkeep
+        }
+      } else {
+        // Pass to the left, unless they already hold a Dynamite (then it stays).
+        const left = leftNeighbor(room, cur);
+        if (left && !left.equipment.some((c) => c.defId === "dynamite")) left.equipment.push(dyn);
+        else cur.equipment.push(dyn);
+      }
+    }
+
+    // --- Jail ---
+    const jail = cur.equipment.find((c) => c.defId === "jail");
+    if (jail) {
+      const card = drawCheck(room);
+      const released = !!card && card.suit === "hearts";
+      room.checks.push({ name: cur.name, card, kind: "jail", outcome: released ? "Thoát tù" : "Bỏ lượt" });
+      cur.equipment = cur.equipment.filter((c) => c.id !== jail.id);
+      room.discard.push(jail);
+      if (!released) {
+        if (!advanceToNextAlive(room)) return;
+        continue; // skipped turn — next player's upkeep
+      }
+    }
+
+    room.turnPhase = "draw";
+    return;
+  }
 }
 
 // --- reactions, damage, death, win ---
@@ -596,12 +690,13 @@ export function pendingTimeout(code: string): boolean {
 
 // Apply damage; if it drops the target to <=0 HP, open a dying window if they
 // can still be saved by Beer, otherwise kill them.
-function applyDamage(room: Room, target: Player, amount: number, sourceId: string | null) {
+function applyDamage(room: Room, target: Player, amount: number, sourceId: string | null, saveable = true) {
   target.hp -= amount;
   if (target.hp > 0) return;
   const needed = 1 - target.hp; // Beers required to reach 1 HP
   const beers = target.hand.filter((c) => c.defId === "beer").length;
-  if (beers >= needed) {
+  // Dynamite damage (saveable=false) cannot be cancelled by Beer.
+  if (saveable && beers >= needed) {
     room.pending = { kind: "dying", targetId: target.id, sourceId, beersNeeded: needed, endsAt: Date.now() + REACTION_MS };
   } else {
     killPlayer(room, target);
@@ -652,6 +747,7 @@ export function restart(code: string): boolean {
   room.turnPhase = "draw";
   room.bangsThisTurn = 0;
   room.winner = null;
+  room.checks = [];
   room.draftEndsAt = null;
   room.deck = [];
   room.discard = [];
@@ -778,6 +874,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
     draft: room.phase === "drafting" ? buildDraft(room, me) : null,
     pending: buildPending(room, me),
     winner: room.winner,
+    checks: room.checks,
     deckCount: room.deck.length,
     discardCount: room.discard.length,
   };

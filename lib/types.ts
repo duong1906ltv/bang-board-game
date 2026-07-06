@@ -138,6 +138,14 @@ export interface DraftView {
   waitingFor: string[]; // names still choosing
 }
 
+// One resolved "Draw!" reveal (upkeep Dynamite/Jail, or Barrel), shown briefly.
+export interface CheckView {
+  name: string; // whose card was checked
+  card: Card | null; // the flipped card
+  kind: "dynamite" | "jail" | "barrel";
+  outcome: string; // human-readable result
+}
+
 export interface PlayerView {
   code: string;
   phase: Phase;
@@ -163,6 +171,7 @@ export interface PlayerView {
   draft: DraftView | null; // present only during the drafting phase
   pending: PendingView | null; // an unresolved reaction locking the table
   winner: Winner | null; // set in the result phase
+  checks: CheckView[]; // recent Draw! reveals to show (upkeep / Barrel)
   deckCount: number; // cards left in the draw pile
   discardCount: number; // cards in the discard pile
 }
