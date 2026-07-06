@@ -6,7 +6,6 @@
 // combat resolution are stubbed and will be implemented with the card rules.
 
 import {
-  Card,
   Character,
   CHARACTERS,
   DraftView,
@@ -17,6 +16,7 @@ import {
   rankPriority,
   Role,
 } from "./types";
+import { buildDeck, Card } from "./cards";
 
 export interface Player {
   id: string;
@@ -43,6 +43,8 @@ export interface Room {
   turnIndex: number; // index into players[] whose turn it is (playing phase)
   draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
   draftTimer: NodeJS.Timeout | null;
+  deck: Card[]; // draw pile (top = end of array)
+  discard: Card[]; // discard pile
 }
 
 const rooms = new Map<string, Room>();
@@ -134,6 +136,8 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     turnIndex: 0,
     draftEndsAt: null,
     draftTimer: null,
+    deck: [],
+    discard: [],
   };
   rooms.set(code, room);
   return { room, player };
@@ -278,6 +282,14 @@ function finalizeDraft(room: Room) {
     p.alive = true;
     p.hand = []; // dealt when the card layer lands
   });
+  // Build and shuffle the draw pile, then deal each player a starting hand equal
+  // to their life points (Bang! starting-hand rule).
+  room.deck = shuffle(buildDeck());
+  room.discard = [];
+  room.players.forEach((p) => {
+    p.hand = room.deck.splice(-p.hp, p.hp);
+  });
+
   const sheriffIdx = room.players.findIndex((p) => p.role === "sheriff");
   room.turnIndex = sheriffIdx >= 0 ? sheriffIdx : 0;
   room.phase = "playing";
@@ -309,6 +321,8 @@ export function restart(code: string): boolean {
   room.phase = "lobby";
   room.turnIndex = 0;
   room.draftEndsAt = null;
+  room.deck = [];
+  room.discard = [];
   room.players.forEach((p) => {
     p.role = null;
     p.character = null;
@@ -392,5 +406,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
     turnSeat: turnPlayer ? turnPlayer.seat : null,
     roleSetup: roleSetupFor(room.players.length),
     draft: room.phase === "drafting" ? buildDraft(room, me) : null,
+    deckCount: room.deck.length,
+    discardCount: room.discard.length,
   };
 }
