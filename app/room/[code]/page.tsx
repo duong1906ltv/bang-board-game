@@ -335,6 +335,17 @@ function Table({
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
   const isSid = you.character?.id === "sid-ketchum";
 
+  // Opponents ordered clockwise starting from the seat after you, so the arc
+  // around the felt reads in natural play order.
+  const opponents = useMemo(() => {
+    const others = view.players.filter((p) => p.id !== you.id);
+    return others.slice().sort((a, b) => {
+      const da = (a.seat - you.seat + 100) % 100;
+      const db = (b.seat - you.seat + 100) % 100;
+      return da - db;
+    });
+  }, [view.players, you.id, you.seat]);
+
   const cardAction = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
     if (sidPicking) {
@@ -384,8 +395,6 @@ function Table({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h2 className="section-title">{L(locale, "Bàn chơi", "Table")}</h2>
         <div className="row" style={{ alignItems: "center" }}>
-          <span className="badge">🂠 {L(locale, "Bộ", "Deck")}: {view.deckCount}</span>
-          <span className="badge">🗑️ {view.discardCount}</span>
           {view.you.isHost && (
             <button className="ghost" style={{ width: "auto", padding: "8px 12px" }} onClick={onRestart}>
               {L(locale, "Về phòng chờ", "To lobby")}
@@ -423,20 +432,24 @@ function Table({
         </div>
       )}
 
-      <div className="seats">
-        {view.players.map((p) => {
+      <div className="board">
+        {opponents.map((p, i) => {
           const targetable = canTarget(p);
+          const n = opponents.length;
+          const t = (i + 0.5) / n; // 0..1 across the top arc, left → right
+          const angle = Math.PI * (1 - t);
+          const left = 50 + 38 * Math.cos(angle);
+          const top = 50 - 34 * Math.sin(angle);
           return (
             <div
               key={p.id}
-              className={["seat", p.isTurn ? "turn" : "", p.alive ? "" : "dead", p.id === view.you.id ? "me" : "", targetable ? "selectable picked" : ""].join(" ")}
+              className={["seat", p.isTurn ? "turn" : "", p.alive ? "" : "dead", targetable ? "selectable picked" : ""].join(" ")}
               onClick={() => targetable && fireAt(p.id)}
-              style={{ cursor: targetable ? "pointer" : "default" }}
+              style={{ left: `${left}%`, top: `${top}%`, cursor: targetable ? "pointer" : "default" }}
             >
               <div className="seat-name">
                 <span className={`dot ${p.connected ? "on" : "off"}`} />
                 {p.name}
-                {p.id === view.you.id && <span className="muted"> {L(locale, "(bạn)", "(you)")}</span>}
               </div>
               <div className="seat-meta">
                 {L(locale, "Ghế", "Seat")} #{p.seat + 1}
@@ -467,6 +480,21 @@ function Table({
             </div>
           );
         })}
+
+        <div className="board-center">
+          <div className="pile">
+            <span className="pile-label">{L(locale, "Bộ bài", "Deck")}</span>
+            <div className="pile-deck">
+              🂠<span className="pile-count">{view.deckCount}</span>
+            </div>
+          </div>
+          <div className="pile">
+            <span className="pile-label">{L(locale, "Bài bỏ", "Discard")}</span>
+            <div className="pile-discard">
+              🗑️<span className="pile-count">{view.discardCount}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="you-panel">

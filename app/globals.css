@@ -497,6 +497,113 @@ button.danger {
   gap: 12px;
   margin: 16px 0;
 }
+
+/* Felt board: opponents arranged around the top arc, piles in the centre. */
+.board {
+  position: relative;
+  margin: 18px 0;
+  min-height: 520px;
+  border-radius: 999px / 46%;
+  border: 3px solid #6b4a24;
+  background:
+    radial-gradient(120% 90% at 50% 30%, #2f6b3a 0%, #244f2c 55%, #1c3d22 100%);
+  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.55), 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.board .seat {
+  position: absolute;
+  width: 168px;
+  transform: translate(-50%, -50%);
+  background: rgba(46, 33, 20, 0.94);
+  backdrop-filter: blur(2px);
+}
+.board-center {
+  position: absolute;
+  left: 50%;
+  bottom: 14%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 22px;
+  align-items: flex-end;
+}
+.pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.pile-label {
+  font-size: 0.78rem;
+  color: #dfeadd;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  font-weight: 600;
+}
+.pile-deck,
+.pile-discard {
+  width: 72px;
+  height: 100px;
+  border-radius: 9px;
+  position: relative;
+}
+.pile-deck {
+  background: repeating-linear-gradient(135deg, #7a2f2f 0 8px, #8f3a3a 8px 16px);
+  border: 2px solid #d9c07a;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.35), 6px 6px 0 rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  color: #f0e2c0;
+}
+.pile-discard {
+  border: 2px dashed rgba(240, 226, 192, 0.55);
+  background: rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #dfeadd;
+  font-weight: 700;
+}
+.pile-count {
+  position: absolute;
+  bottom: -8px;
+  right: -8px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent2);
+  border: 2px solid #f0e2c0;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* On narrow screens the arc can't breathe — fall back to a wrapping grid. */
+@media (max-width: 680px) {
+  .board {
+    border-radius: 20px;
+    min-height: 0;
+    padding: 14px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .board .seat {
+    position: static;
+    width: auto;
+    transform: none;
+  }
+  .board-center {
+    position: static;
+    transform: none;
+    grid-column: 1 / -1;
+    justify-content: center;
+    margin-top: 4px;
+  }
+}
 .seat {
   background: var(--panel2);
   border: 1px solid var(--border);
