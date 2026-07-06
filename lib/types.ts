@@ -91,20 +91,24 @@ export const WINNER_LABEL: Record<Winner, string> = {
   renegade: "Kẻ Phản Bội thắng! 🐍",
 };
 
-// An unresolved action waiting on one player's response (whole table is locked).
-//  - bang:  the target may play Missed!(s) to dodge, or take the hit
-//  - dying: the target dropped to 0 HP and may play Beer(s) to survive
+// An unresolved action that locks the table until responded to.
+//  - bang:  a target dodges with Missed!(s) or takes the hit
+//  - dying: a player at 0 HP plays Beer(s) to survive
+//  - multi: Indians!/Gatling — each other player defends or takes 1
+//  - duel:  two players alternate discarding Bang!; first to fail loses 1
+//  - store: General Store — players pick a revealed card in turn order
+export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store";
+export type PendingAction = "missed" | "beer" | "bang" | "pass";
+
 export interface PendingView {
-  kind: "bang" | "dying";
-  targetId: string;
-  targetName: string;
-  sourceName: string;
+  kind: PendingKind;
   endsAt: number; // epoch ms deadline (reaction window)
-  youAreTarget: boolean;
-  missedNeeded?: number; // bang: how many Missed! required (2 vs Slab)
-  missedPlayed?: number; // bang: how many played so far
-  canMissed?: boolean; // you (the target) hold a Missed!
-  canBeer?: boolean; // you (the target) hold a Beer
+  info: string; // description shown to everyone
+  youMustRespond: boolean; // is it your turn to act right now
+  actions: PendingAction[]; // response buttons to show you
+  storeCards?: Card[]; // store: revealed cards to pick from
+  missedNeeded?: number; // bang: Missed! required (2 vs Slab)
+  missedPlayed?: number; // bang: Missed! played so far
 }
 
 // ─── Views sent to clients ───────────────────────────────────────────────────
@@ -195,7 +199,8 @@ export interface ClientToServerEvents {
   pickCharacter: (data: { code: string; characterId: string }) => void;
   drawCards: (data: { code: string }) => void; // draw phase: draw your 2 cards
   playCard: (data: { code: string; cardId: string; targetId?: string; targetCardId?: string }) => void; // play a card
-  respond: (data: { code: string; type: "missed" | "beer" | "pass"; cardId?: string }) => void; // reply to a pending
+  respond: (data: { code: string; type: "missed" | "beer" | "bang" | "pass"; cardId?: string }) => void; // reply to a pending
+  choose: (data: { code: string; cardId: string }) => void; // pick a card (General Store)
   discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;
   restart: (data: { code: string }) => void;

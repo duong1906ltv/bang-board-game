@@ -123,6 +123,14 @@ app.prepare().then(() => {
       else if (res.error) socket.emit("errorMsg", res.error);
     });
 
+    socket.on("choose", ({ code, cardId }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (!pid) return;
+      const res = game.chooseStore(code, pid, cardId);
+      if (res.ok) broadcast(code);
+      else if (res.error) socket.emit("errorMsg", res.error);
+    });
+
     socket.on("discardCard", ({ code, cardId }) => {
       const pid = playerIdOf(code, socket.id);
       if (pid && game.discardCard(code, pid, cardId)) broadcast(code);

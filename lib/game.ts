@@ -10,6 +10,7 @@ import {
   CheckView,
   CHARACTERS,
   DraftView,
+  PendingAction,
   PendingView,
   Phase,
   PlayerPublic,
@@ -22,10 +23,13 @@ import {
 } from "./types";
 import { buildDeck, Card, CARD_DEF_BY_ID } from "./cards";
 
-// An unresolved reaction that locks the table until the target responds.
+// An unresolved reaction that locks the table until responded to.
 type Pending =
   | { kind: "bang"; targetId: string; sourceId: string; missedNeeded: number; missedPlayed: number; endsAt: number }
-  | { kind: "dying"; targetId: string; sourceId: string | null; beersNeeded: number; endsAt: number };
+  | { kind: "dying"; targetId: string; sourceId: string | null; beersNeeded: number; endsAt: number }
+  | { kind: "multi"; effect: "indians" | "gatling"; sourceId: string; responders: { id: string; done: boolean; safe: boolean }[]; endsAt: number }
+  | { kind: "duel"; aId: string; bId: string; turnId: string; endsAt: number }
+  | { kind: "store"; sourceId: string; cards: Card[]; order: string[]; endsAt: number };
 
 // Reaction window (ms) for Bang!/dying responses.
 export const REACTION_MS = 15_000;
@@ -59,6 +63,7 @@ export interface Room {
   pending: Pending | null; // unresolved reaction locking the table
   pendingTimer: NodeJS.Timeout | null;
   winner: Winner | null; // set when the game ends
+  deathQueue: { id: string; needed: number }[]; // players awaiting a Beer-save after multi-damage
   checks: CheckView[]; // recent Draw! reveals (upkeep / Barrel), display-only
   draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
   draftTimer: NodeJS.Timeout | null;
@@ -159,6 +164,7 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     pending: null,
     pendingTimer: null,
     winner: null,
+    deathQueue: [],
     checks: [],
     draftEndsAt: null,
     draftTimer: null,
@@ -449,9 +455,62 @@ export function playCard(
   if (card.defId === "saloon") return playSaloon(room, current, idx);
   if (card.defId === "panic") return playPanic(room, current, idx, _targetId, targetCardId);
   if (card.defId === "cat-balou") return playCatBalou(room, current, idx, _targetId, targetCardId);
+  if (card.defId === "indians") return playMulti(room, current, idx, "indians");
+  if (card.defId === "gatling") return playMulti(room, current, idx, "gatling");
+  if (card.defId === "duel") return playDuel(room, current, idx, _targetId);
+  if (card.defId === "general-store") return playGeneralStore(room, current, idx);
   // Missed! is only playable as a reaction, not proactively.
   if (card.defId === "missed") return { ok: false, error: "Missed! chỉ dùng để phản ứng Bang!" };
   return { ok: false, error: "Lá này sẽ hỗ trợ ở bước sau" };
+}
+
+// Indians! / Gatling: open a simultaneous reaction for every other living player.
+// Gatling also lets a defender's Barrel help (it is a Bang! effect).
+function playMulti(room: Room, current: Player, handIdx: number, effect: "indians" | "gatling"): { ok: boolean; error?: string } {
+  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  const responders = room.players
+    .filter((p) => p.alive && p.id !== current.id)
+    .map((p) => ({ id: p.id, done: false, safe: false }));
+  room.checks = [];
+  // Gatling: auto-Barrel each defender up front.
+  if (effect === "gatling") {
+    for (const r of responders) {
+      const p = room.players.find((x) => x.id === r.id)!;
+      if (hasEquip(p, "barrel")) {
+        const card = drawCheck(room);
+        const heart = !!card && card.suit === "hearts";
+        room.checks.push({ name: p.name, card, kind: "barrel", outcome: heart ? "Barrel né!" : "Barrel trượt" });
+        if (heart) { r.done = true; r.safe = true; }
+      }
+    }
+  }
+  room.pending = { kind: "multi", effect, sourceId: current.id, responders, endsAt: Date.now() + REACTION_MS };
+  if (responders.every((r) => r.done)) resolveMulti(room);
+  return { ok: true };
+}
+
+// Duel: the target discards a Bang! first, then alternating; first to fail loses 1.
+function playDuel(room: Room, current: Player, handIdx: number, targetId?: string): { ok: boolean; error?: string } {
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
+  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  room.pending = { kind: "duel", aId: current.id, bId: target.id, turnId: target.id, endsAt: Date.now() + REACTION_MS };
+  return { ok: true };
+}
+
+// General Store: reveal one card per living player; each picks one in turn order.
+function playGeneralStore(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
+  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  const alive = [...room.players].sort((a, b) => a.seat - b.seat).filter((p) => p.alive);
+  const start = alive.findIndex((p) => p.id === current.id);
+  const order = alive.slice(start).concat(alive.slice(0, start)).map((p) => p.id); // current first, clockwise
+  const cards: Card[] = [];
+  for (let i = 0; i < order.length; i++) {
+    const c = drawOne(room);
+    if (c) cards.push(c);
+  }
+  room.pending = { kind: "store", sourceId: current.id, cards, order, endsAt: Date.now() + REACTION_MS };
+  return { ok: true };
 }
 
 // Discard `card` from a player's hand or table.
@@ -686,26 +745,37 @@ function clearPending(room: Room) {
   }
 }
 
-// The target of a pending replies: play a Missed! / Beer, or pass (take it).
+// Reset the current pending's deadline (and force the timer to reschedule).
+function refreshDeadline(room: Room, ms: number) {
+  if (room.pending) room.pending.endsAt = Date.now() + ms;
+  if (room.pendingTimer) {
+    clearTimeout(room.pendingTimer);
+    room.pendingTimer = null;
+  }
+}
+
+const hasHandCard = (p: Player, defId: string, cardId?: string) =>
+  p.hand.findIndex((c) => c.defId === defId && (cardId ? c.id === cardId : true));
+
+// A player replies to the active pending. `type` meaning depends on the pending.
 export function respond(
   code: string,
   playerId: string,
-  type: "missed" | "beer" | "pass",
+  type: "missed" | "beer" | "bang" | "pass",
   cardId?: string
 ): { ok: boolean; error?: string } {
   const room = rooms.get(code);
   if (!room || !room.pending) return { ok: false };
   const pending = room.pending;
-  if (playerId !== pending.targetId) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
-  const target = room.players.find((p) => p.id === pending.targetId);
-  if (!target) return { ok: false };
 
+  // --- Bang!: target dodges with Missed!(s) or takes the hit ---
   if (pending.kind === "bang") {
+    if (playerId !== pending.targetId) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
+    const target = room.players.find((p) => p.id === pending.targetId)!;
     if (type === "missed") {
-      const idx = target.hand.findIndex((c) => c.id === cardId && c.defId === "missed");
+      const idx = hasHandCard(target, "missed", cardId);
       if (idx < 0) return { ok: false, error: "Không có Missed! đó" };
-      const [c] = target.hand.splice(idx, 1);
-      room.discard.push(c);
+      room.discard.push(target.hand.splice(idx, 1)[0]);
       pending.missedPlayed += 1;
       if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // dodged
       return { ok: true };
@@ -713,46 +783,198 @@ export function respond(
     if (type === "pass") {
       clearPending(room);
       applyDamage(room, target, 1, pending.sourceId);
+      if (room.phase === "playing") processDeathQueue(room);
       return { ok: true };
     }
     return { ok: false };
   }
 
-  // dying: play Beer(s) to climb back to 1 HP, or pass to accept death.
-  if (type === "beer") {
-    const idx = target.hand.findIndex((c) => c.id === cardId && c.defId === "beer");
-    if (idx < 0) return { ok: false, error: "Không có Beer đó" };
-    const [c] = target.hand.splice(idx, 1);
-    room.discard.push(c);
-    target.hp += 1;
-    pending.beersNeeded -= 1;
-    if (pending.beersNeeded <= 0) clearPending(room); // survived
+  // --- Dying: play Beer(s) to survive, or pass to accept death ---
+  if (pending.kind === "dying") {
+    if (playerId !== pending.targetId) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
+    const target = room.players.find((p) => p.id === pending.targetId)!;
+    if (type === "beer") {
+      const idx = hasHandCard(target, "beer", cardId);
+      if (idx < 0) return { ok: false, error: "Không có Beer đó" };
+      room.discard.push(target.hand.splice(idx, 1)[0]);
+      target.hp += 1;
+      pending.beersNeeded -= 1;
+      if (pending.beersNeeded <= 0) {
+        clearPending(room);
+        processDeathQueue(room);
+      }
+      return { ok: true };
+    }
+    if (type === "pass") {
+      clearPending(room);
+      killPlayer(room, target);
+      checkWin(room);
+      if (room.phase === "playing") processDeathQueue(room);
+      return { ok: true };
+    }
+    return { ok: false };
+  }
+
+  // --- Multi (Indians!/Gatling): each responder defends or takes 1 ---
+  if (pending.kind === "multi") {
+    const r = pending.responders.find((x) => x.id === playerId);
+    if (!r || r.done) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
+    const me = room.players.find((p) => p.id === playerId)!;
+    const need = pending.effect === "indians" ? "bang" : "missed";
+    if (type === need) {
+      const idx = hasHandCard(me, need, cardId);
+      if (idx < 0) return { ok: false, error: `Không có ${need === "bang" ? "Bang!" : "Missed!"} đó` };
+      room.discard.push(me.hand.splice(idx, 1)[0]);
+      r.done = true;
+      r.safe = true;
+    } else if (type === "pass") {
+      r.done = true;
+      r.safe = false;
+    } else {
+      return { ok: false };
+    }
+    if (pending.responders.every((x) => x.done)) resolveMulti(room);
     return { ok: true };
   }
-  if (type === "pass") {
-    clearPending(room);
-    killPlayer(room, target);
-    checkWin(room);
-    return { ok: true };
+
+  // --- Duel: alternate discarding Bang!; first to pass loses 1 ---
+  if (pending.kind === "duel") {
+    if (playerId !== pending.turnId) return { ok: false, error: "Chưa tới lượt bạn trong Duel" };
+    const me = room.players.find((p) => p.id === playerId)!;
+    if (type === "bang") {
+      const idx = hasHandCard(me, "bang", cardId);
+      if (idx < 0) return { ok: false, error: "Không có Bang! đó" };
+      room.discard.push(me.hand.splice(idx, 1)[0]);
+      pending.turnId = pending.turnId === pending.aId ? pending.bId : pending.aId; // pass back
+      refreshDeadline(room, REACTION_MS);
+      return { ok: true };
+    }
+    if (type === "pass") {
+      const loser = room.players.find((p) => p.id === pending.turnId)!;
+      const srcId = pending.turnId === pending.aId ? pending.bId : pending.aId;
+      clearPending(room);
+      applyDamage(room, loser, 1, srcId);
+      if (room.phase === "playing") processDeathQueue(room);
+      return { ok: true };
+    }
+    return { ok: false };
   }
+
   return { ok: false };
 }
 
-// Timer callback when a reaction window expires (take the hit / accept death).
+// General Store: the current picker chooses a revealed card.
+export function chooseStore(code: string, playerId: string, cardId: string): { ok: boolean; error?: string } {
+  const room = rooms.get(code);
+  if (!room || !room.pending || room.pending.kind !== "store") return { ok: false };
+  const pending = room.pending;
+  if (pending.order[0] !== playerId) return { ok: false, error: "Chưa tới lượt chọn của bạn" };
+  const ci = pending.cards.findIndex((c) => c.id === cardId);
+  if (ci < 0) return { ok: false, error: "Lá không hợp lệ" };
+  const picker = room.players.find((p) => p.id === playerId)!;
+  picker.hand.push(pending.cards.splice(ci, 1)[0]);
+  pending.order.shift();
+  if (pending.order.length === 0) {
+    room.discard.push(...pending.cards); // leftovers (shouldn't occur)
+    clearPending(room);
+  } else {
+    refreshDeadline(room, REACTION_MS);
+  }
+  return { ok: true };
+}
+
+// Timer callback when a reaction window expires.
 export function pendingTimeout(code: string): boolean {
   const room = rooms.get(code);
   if (!room || !room.pending) return false;
-  const pending = room.pending;
-  const target = room.players.find((p) => p.id === pending.targetId);
-  clearPending(room);
-  if (!target) return true;
-  if (pending.kind === "bang") {
-    applyDamage(room, target, 1, pending.sourceId);
+  const p = room.pending;
+
+  if (p.kind === "bang") {
+    const t = room.players.find((x) => x.id === p.targetId);
+    clearPending(room);
+    if (t) {
+      applyDamage(room, t, 1, p.sourceId);
+      if (room.phase === "playing") processDeathQueue(room);
+    }
+    return true;
+  }
+  if (p.kind === "dying") {
+    const t = room.players.find((x) => x.id === p.targetId);
+    clearPending(room);
+    if (t) {
+      killPlayer(room, t);
+      checkWin(room);
+      if (room.phase === "playing") processDeathQueue(room);
+    }
+    return true;
+  }
+  if (p.kind === "multi") {
+    for (const r of p.responders) if (!r.done) { r.done = true; r.safe = false; }
+    resolveMulti(room);
+    return true;
+  }
+  if (p.kind === "duel") {
+    const loser = room.players.find((x) => x.id === p.turnId);
+    const srcId = p.turnId === p.aId ? p.bId : p.aId;
+    clearPending(room);
+    if (loser) {
+      applyDamage(room, loser, 1, srcId);
+      if (room.phase === "playing") processDeathQueue(room);
+    }
+    return true;
+  }
+  // store: auto-pick the first card for the current picker, then advance.
+  const picker = room.players.find((x) => x.id === p.order[0]);
+  if (picker && p.cards.length) picker.hand.push(p.cards.shift()!);
+  p.order.shift();
+  if (p.order.length === 0) {
+    room.discard.push(...p.cards);
+    clearPending(room);
   } else {
-    killPlayer(room, target);
-    checkWin(room);
+    refreshDeadline(room, REACTION_MS);
   }
   return true;
+}
+
+// Resolve a multi (Indians!/Gatling): each undefended responder takes 1 damage;
+// lethal hits with an available Beer queue up for a dying window.
+function resolveMulti(room: Room) {
+  if (!room.pending || room.pending.kind !== "multi") return;
+  const responders = room.pending.responders;
+  clearPending(room);
+  for (const r of responders) {
+    if (r.safe) continue;
+    const t = room.players.find((x) => x.id === r.id);
+    if (!t || !t.alive) continue;
+    t.hp -= 1;
+    if (t.hp <= 0) {
+      const beers = t.hand.filter((c) => c.defId === "beer").length;
+      if (beers >= 1 - t.hp) room.deathQueue.push({ id: t.id, needed: 1 - t.hp });
+      else killPlayer(room, t);
+    }
+  }
+  checkWin(room);
+  if (room.phase === "playing") processDeathQueue(room);
+}
+
+// Open dying windows one at a time for queued lethal hits; kill anyone who can't
+// (or no longer can) be saved.
+function processDeathQueue(room: Room) {
+  while (room.deathQueue.length) {
+    if (room.phase !== "playing") { room.deathQueue = []; return; }
+    const entry = room.deathQueue[0];
+    const t = room.players.find((x) => x.id === entry.id);
+    if (!t || !t.alive || t.hp > 0) { room.deathQueue.shift(); continue; }
+    const beers = t.hand.filter((c) => c.defId === "beer").length;
+    if (beers >= entry.needed) {
+      room.pending = { kind: "dying", targetId: t.id, sourceId: null, beersNeeded: entry.needed, endsAt: Date.now() + REACTION_MS };
+      room.deathQueue.shift();
+      return; // wait for this player's response
+    }
+    killPlayer(room, t);
+    checkWin(room);
+    room.deathQueue.shift();
+  }
 }
 
 // Apply damage; if it drops the target to <=0 HP, open a dying window if they
@@ -814,6 +1036,7 @@ export function restart(code: string): boolean {
   room.turnPhase = "draw";
   room.bangsThisTurn = 0;
   room.winner = null;
+  room.deathQueue = [];
   room.checks = [];
   room.draftEndsAt = null;
   room.deck = [];
@@ -885,26 +1108,73 @@ function buildDraft(room: Room, me: Player | undefined): DraftView {
 function buildPending(room: Room, me: Player | undefined): PendingView | null {
   const p = room.pending;
   if (!p) return null;
-  const target = room.players.find((x) => x.id === p.targetId);
-  const source = p.kind === "bang" ? room.players.find((x) => x.id === p.sourceId) : undefined;
-  const youAreTarget = !!me && me.id === p.targetId;
-  const base = {
-    kind: p.kind,
-    targetId: p.targetId,
-    targetName: target?.name ?? "",
-    sourceName: source?.name ?? "",
-    endsAt: p.endsAt,
-    youAreTarget,
+  const name = (id: string) => room.players.find((x) => x.id === id)?.name ?? "";
+  const meId = me?.id;
+  const has = (defId: string) => !!me?.hand.some((c) => c.defId === defId);
+  const acts = (mine: boolean, primary: PendingAction | null): PendingAction[] => {
+    if (!mine) return [];
+    const out: PendingAction[] = [];
+    if (primary && has(primary)) out.push(primary);
+    out.push("pass");
+    return out;
   };
+
   if (p.kind === "bang") {
+    const mine = meId === p.targetId;
     return {
-      ...base,
+      kind: "bang",
+      endsAt: p.endsAt,
+      info: `${name(p.sourceId)} bắn Bang! vào ${name(p.targetId)}`,
+      youMustRespond: mine,
+      actions: acts(mine, "missed"),
       missedNeeded: p.missedNeeded,
       missedPlayed: p.missedPlayed,
-      canMissed: youAreTarget && !!me?.hand.some((c) => c.defId === "missed"),
     };
   }
-  return { ...base, canBeer: youAreTarget && !!me?.hand.some((c) => c.defId === "beer") };
+  if (p.kind === "dying") {
+    const mine = meId === p.targetId;
+    return {
+      kind: "dying",
+      endsAt: p.endsAt,
+      info: `${name(p.targetId)} sắp gục — cần Beer để sống`,
+      youMustRespond: mine,
+      actions: acts(mine, "beer"),
+    };
+  }
+  if (p.kind === "multi") {
+    const r = p.responders.find((x) => x.id === meId);
+    const mine = !!r && !r.done;
+    const need = p.effect === "indians" ? "bang" : "missed";
+    return {
+      kind: "multi",
+      endsAt: p.endsAt,
+      info: p.effect === "indians"
+        ? `${name(p.sourceId)} dùng Indians! — bỏ 1 Bang! hoặc mất 1 máu`
+        : `${name(p.sourceId)} dùng Gatling — đánh Missed! hoặc mất 1 máu`,
+      youMustRespond: mine,
+      actions: acts(mine, need),
+    };
+  }
+  if (p.kind === "duel") {
+    const mine = meId === p.turnId;
+    return {
+      kind: "duel",
+      endsAt: p.endsAt,
+      info: `Duel: ${name(p.aId)} vs ${name(p.bId)} — tới lượt ${name(p.turnId)} bỏ Bang!`,
+      youMustRespond: mine,
+      actions: acts(mine, "bang"),
+    };
+  }
+  // store
+  const mine = meId === p.order[0];
+  return {
+    kind: "store",
+    endsAt: p.endsAt,
+    info: `General Store — ${name(p.order[0])} đang chọn bài`,
+    youMustRespond: mine,
+    actions: [],
+    storeCards: p.cards, // revealed cards are public
+  };
 }
 
 // Build the personalized view for one player: they always see their OWN role,

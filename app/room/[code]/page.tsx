@@ -66,8 +66,9 @@ export default function RoomPage() {
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
   const draw = () => socket.emit("drawCards", { code });
   const play = (cardId: string, targetId?: string) => socket.emit("playCard", { code, cardId, targetId });
-  const respond = (type: "missed" | "beer" | "pass", cardId?: string) =>
+  const respond = (type: "missed" | "beer" | "bang" | "pass", cardId?: string) =>
     socket.emit("respond", { code, type, cardId });
+  const choose = (cardId: string) => socket.emit("choose", { code, cardId });
   const discard = (cardId: string) => socket.emit("discardCard", { code, cardId });
   const endTurn = () => socket.emit("endTurn", { code });
   const restart = () => socket.emit("restart", { code });
@@ -92,78 +93,93 @@ export default function RoomPage() {
         <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onEndTurn={endTurn} onRestart={restart} />
       )}
 
-      {view.pending && <ReactionPanel view={view} onRespond={respond} />}
+      {view.pending && <ReactionPanel view={view} onRespond={respond} onChoose={choose} />}
     </main>
   );
 }
 
-// Modal / banner for an in-flight reaction (Bang! -> Missed!, or dying -> Beer).
+// Modal for an in-flight reaction / choice (Bang!, dying, Indians!, Gatling,
+// Duel, General Store).
+const ACTION_LABEL: Record<string, string> = {
+  missed: "Đánh Missed!",
+  beer: "Uống Beer 🍺",
+  bang: "Bỏ 1 Bang!",
+  pass: "Bỏ qua / Chịu",
+};
+const PENDING_EMOJI: Record<string, string> = {
+  bang: "🔫",
+  dying: "💀",
+  multi: "🎯",
+  duel: "⚔️",
+  store: "🏪",
+};
+
 function ReactionPanel({
   view,
   onRespond,
+  onChoose,
 }: {
   view: PlayerView;
-  onRespond: (type: "missed" | "beer" | "pass", cardId?: string) => void;
+  onRespond: (type: "missed" | "beer" | "bang" | "pass", cardId?: string) => void;
+  onChoose: (cardId: string) => void;
 }) {
   const p = view.pending!;
   const remaining = useCountdown(p.endsAt);
   const you = view.you;
 
-  if (!p.youAreTarget) {
-    return (
-      <div className="modal-overlay">
-        <div className="modal-card" style={{ color: "var(--accent)" }}>
-          <div className="modal-emoji">⏳</div>
-          <p className="modal-ability">
-            Đang chờ <strong>{p.targetName}</strong> phản ứng…
-          </p>
-          <div className="timer">{remaining}s</div>
-        </div>
-      </div>
-    );
-  }
+  // Send a response, attaching the relevant card id from your hand when needed.
+  const doAction = (a: "missed" | "beer" | "bang" | "pass") => {
+    if (a === "pass") return onRespond("pass");
+    const card = you.hand.find((c) => c.defId === a);
+    onRespond(a, card?.id);
+  };
 
-  if (p.kind === "bang") {
-    const missed = you.hand.find((c) => c.defId === "missed");
-    const need = (p.missedNeeded ?? 1) - (p.missedPlayed ?? 0);
-    return (
-      <div className="modal-overlay">
-        <div className="modal-card" style={{ color: "var(--danger)" }}>
-          <div className="modal-emoji">🔫</div>
-          <h3 className="role-name" style={{ fontSize: "1.4rem" }}>Bạn trúng Bang!</h3>
-          <p className="modal-ability">
-            Từ <strong>{p.sourceName}</strong> · cần {need} Missed! để né · {remaining}s
-          </p>
-          <button
-            disabled={!p.canMissed || !missed}
-            onClick={() => missed && onRespond("missed", missed.id)}
-          >
-            Đánh Missed! {need > 1 ? `(còn ${need})` : ""}
-          </button>
-          <div style={{ height: 8 }} />
-          <button className="ghost" onClick={() => onRespond("pass")}>
-            Chịu 1 máu
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const bystander = !p.youMustRespond;
 
-  // dying
-  const beer = you.hand.find((c) => c.defId === "beer");
   return (
     <div className="modal-overlay">
-      <div className="modal-card" style={{ color: "var(--good)" }}>
-        <div className="modal-emoji">💀</div>
-        <h3 className="role-name" style={{ fontSize: "1.4rem" }}>Bạn sắp gục!</h3>
-        <p className="modal-ability">Uống Beer để sống sót, hoặc chấp nhận · {remaining}s</p>
-        <button disabled={!p.canBeer || !beer} onClick={() => beer && onRespond("beer", beer.id)}>
-          Uống Beer 🍺
-        </button>
-        <div style={{ height: 8 }} />
-        <button className="ghost danger" onClick={() => onRespond("pass")}>
-          Chấp nhận chết
-        </button>
+      <div className="modal-card" style={{ color: "var(--accent)" }}>
+        <div className="modal-emoji">{PENDING_EMOJI[p.kind]}</div>
+        <p className="modal-ability">{p.info}</p>
+        {p.kind === "bang" && (
+          <p className="muted">Cần {(p.missedNeeded ?? 1) - (p.missedPlayed ?? 0)} Missed! để né</p>
+        )}
+        <div className="timer">{remaining}s</div>
+
+        {/* General Store: the current picker chooses one of the revealed cards. */}
+        {p.kind === "store" && (
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(90px,1fr))", marginTop: 10 }}>
+            {(p.storeCards ?? []).map((c) => {
+              const red = c.suit === "hearts" || c.suit === "diamonds";
+              return (
+                <div
+                  key={c.id}
+                  className="selectable"
+                  style={{ cursor: p.youMustRespond ? "pointer" : "default", opacity: p.youMustRespond ? 1 : 0.7 }}
+                  onClick={() => p.youMustRespond && onChoose(c.id)}
+                >
+                  <div style={{ fontSize: "0.85rem", fontWeight: 700 }}>{c.name}</div>
+                  <div style={{ color: red ? "#ff6b6b" : "var(--muted)" }}>
+                    {rankLabel(c.rank)}
+                    {SUIT_SYMBOL[c.suit]}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Response buttons for the player who must act. */}
+        {p.actions.map((a, i) => (
+          <div key={a}>
+            {i > 0 && <div style={{ height: 8 }} />}
+            <button className={a === "pass" ? "ghost" : ""} onClick={() => doAction(a)}>
+              {ACTION_LABEL[a]}
+            </button>
+          </div>
+        ))}
+
+        {bystander && p.kind !== "store" && <p className="muted" style={{ marginTop: 10 }}>Đang chờ người khác…</p>}
       </div>
     </div>
   );
@@ -305,7 +321,7 @@ function Table({
   const overLimit = Math.max(0, you.hand.length - you.hp); // cards to discard before ending
   const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
   const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null); // card awaiting a target
-  const TARGETED = ["bang", "jail", "panic", "cat-balou"];
+  const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
 
   // Click behavior for a hand card: discard excess, aim a targeted card, or play.
   const cardAction = (card: { id: string; defId: string }) => {
@@ -324,6 +340,7 @@ function Table({
     if (aiming.defId === "jail") return p.role !== "sheriff" && !p.equipment.some((c) => c.defId === "jail");
     if (aiming.defId === "panic") return p.distance != null && p.distance <= 1;
     if (aiming.defId === "cat-balou") return p.handCount > 0 || p.equipment.length > 0;
+    if (aiming.defId === "duel") return true; // any living opponent
     return false;
   };
   const fireAt = (targetId: string) => {
@@ -373,6 +390,8 @@ function Table({
             ? "Chọn người để bỏ tù (không phải Sheriff)"
             : aiming.defId === "panic"
             ? "Chọn người ở khoảng cách 1 để rút bài"
+            : aiming.defId === "duel"
+            ? "Chọn người để Duel (đấu bỏ Bang!)"
             : "Chọn người để ép bỏ 1 lá (Cat Balou)"}{" "}
           ·{" "}
           <button className="ghost" style={{ width: "auto", padding: "4px 10px" }} onClick={() => setAiming(null)}>
