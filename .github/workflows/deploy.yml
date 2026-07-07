@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/**'
       - 'lib/**'
+      - 'components/**'
       - 'server.ts'
       - 'Dockerfile'
       - 'package.json'
