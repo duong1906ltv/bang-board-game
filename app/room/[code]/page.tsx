@@ -544,6 +544,11 @@ function Table({
   }, [inPlayPhase, discarding]);
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
   const isSid = you.character?.id === "sid-ketchum";
+  const isCalamity = you.character?.id === "calamity-janet";
+  // Calamity Janet may fire a Missed! as a Bang! — so a Missed! in hand aims like
+  // a Bang! (targeting + range), and it counts against her Bang!/turn limit.
+  const bangLike = (defId: string) => defId === "bang" || (isCalamity && defId === "missed");
+  const needsTarget = (defId: string) => TARGETED.includes(defId) || bangLike(defId);
 
   const cardAction = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
@@ -559,7 +564,7 @@ function Table({
     // A click discards only in explicit end-of-turn discard mode; otherwise it
     // always plays (or starts aiming), even while over the hand limit.
     if (discarding) return onDiscard(card.id);
-    if (TARGETED.includes(card.defId)) {
+    if (needsTarget(card.defId)) {
       return setAiming((cur) => (cur?.id === card.id ? null : { id: card.id, defId: card.defId }));
     }
     onPlay(card.id);
@@ -570,10 +575,10 @@ function Table({
     if (!inPlayPhase) return;
     // Bang! is once per turn (unless Volcanic / Willy) — say so up front instead
     // of letting the player aim into a silent rejection.
-    if (card.defId === "bang" && !you.canBang) {
+    if (bangLike(card.defId) && !you.canBang) {
       return flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
     }
-    if (TARGETED.includes(card.defId)) {
+    if (needsTarget(card.defId)) {
       return setAiming({ id: card.id, defId: card.defId });
     }
     onPlay(card.id);
@@ -583,7 +588,7 @@ function Table({
   const requestPlay = (card: Card) => {
     if (!inPlayPhase) return;
     if (sidPicking) return cardAction(card);
-    if (card.defId === "bang" && !you.canBang) {
+    if (bangLike(card.defId) && !you.canBang) {
       return flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
     }
     setConfirmPlay(card);
@@ -605,7 +610,7 @@ function Table({
 
   const canTarget = (p: (typeof view.players)[number]) => {
     if (!aiming || !p.alive || p.id === you.id) return false;
-    if (aiming.defId === "bang") return p.distance != null && p.distance <= you.range;
+    if (bangLike(aiming.defId)) return p.distance != null && p.distance <= you.range;
     if (aiming.defId === "jail") return p.role !== "sheriff" && !p.equipment.some((c) => c.defId === "jail");
     if (aiming.defId === "panic") return p.distance != null && p.distance <= 1;
     if (aiming.defId === "cat-balou") return p.handCount > 0 || p.equipment.length > 0;
@@ -624,6 +629,7 @@ function Table({
 
   const aimText: Record<string, [string, string]> = {
     bang: [`Chọn mục tiêu Bang! (trong tầm ${you.range})`, `Choose a Bang! target (range ${you.range})`],
+    missed: [`Dùng Né làm Bang! — chọn mục tiêu (trong tầm ${you.range})`, `Missed! as Bang! — choose a target (range ${you.range})`],
     jail: ["Chọn người để bỏ tù (không phải Sheriff)", "Choose someone to jail (not the Sheriff)"],
     panic: ["Khoảng cách 1: bấm kính nhắm (lấy 1 lá tay ngẫu nhiên) hoặc bấm lá xanh trên bàn để lấy lá đó", "Distance 1: click the scope (random hand card) or a table card to take it"],
     duel: ["Chọn người để Duel", "Choose someone to Duel"],
