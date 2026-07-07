@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
-import { CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, CARD_ICON, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import {
   L,
@@ -175,6 +175,10 @@ function PendingNote({ view }: { view: PlayerView }) {
 
 const PENDING_EMOJI: Record<string, string> = { bang: "🔫", dying: "💀", multi: "🎯", duel: "⚔️", store: "🏪", kit: "🎴" };
 const CHECK_ICON: Record<string, string> = { dynamite: "🧨", jail: "⛓️", barrel: "🛢️", blackjack: "🎴", "lucky-duke": "🍀" };
+// Card name → definition, so a card mentioned in the log can be clicked to view it.
+const CARD_DEF_BY_NAME: Record<string, { id: string; name: string; effect: string }> = Object.fromEntries(
+  Object.values(CARD_DEF_BY_ID).map((d) => [d.name, d])
+);
 
 function ReactionPanel({
   view,
@@ -844,11 +848,30 @@ function Table({
                 <span>{logOpen ? "▾" : "▸"}</span>
               </div>
               <div style={{ flex: "1 1 auto", minHeight: 0, maxHeight: logOpen ? undefined : 118, overflowY: "auto", padding: "6px 10px", display: "flex", flexDirection: "column", gap: 3, fontSize: 12, lineHeight: 1.3 }}>
-                {[...view.log].reverse().map((e) => (
-                  <div key={e.id} style={{ opacity: e.kind === "turn" ? 0.7 : 1, fontWeight: e.kind === "death" ? 700 : 400 }}>
-                    {logText(locale, e, you.name)}
-                  </div>
-                ))}
+                {[...view.log].reverse().map((e) => {
+                  const text = logText(locale, e, you.name);
+                  // Make a played/reacted card name a link that opens its info.
+                  const def = (e.kind === "play" || e.kind === "react") && e.card ? CARD_DEF_BY_NAME[e.card] : undefined;
+                  const idx = def && e.card ? text.indexOf(e.card) : -1;
+                  return (
+                    <div key={e.id} style={{ opacity: e.kind === "turn" ? 0.7 : 1, fontWeight: e.kind === "death" ? 700 : 400 }}>
+                      {idx >= 0 && def && e.card ? (
+                        <>
+                          {text.slice(0, idx)}
+                          <span
+                            onClick={() => setInfo({ title: def.name, icon: CARD_ICON[def.id] ?? "🎴", body: def.effect })}
+                            style={{ color: "#ffd24a", textDecoration: "underline", cursor: "pointer" }}
+                          >
+                            {e.card}
+                          </span>
+                          {text.slice(idx + e.card.length)}
+                        </>
+                      ) : (
+                        text
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               {logOpen && (
                 <div
