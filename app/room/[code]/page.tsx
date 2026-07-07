@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, ROLE_EMOJI } from "@/lib/types";
-import { SUIT_SYMBOL, rankLabel, CARD_DEF_BY_ID, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import {
   L,
@@ -17,7 +17,6 @@ import {
   charAbility,
   winnerText,
   formatPending,
-  checkText,
   actionLabel,
   tError,
   logText,
@@ -479,17 +478,6 @@ function Table({
   }, [inPlayPhase, discarding]);
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
   const isSid = you.character?.id === "sid-ketchum";
-
-  // Opponents ordered clockwise starting from the seat after you, so the arc
-  // around the felt reads in natural play order.
-  const opponents = useMemo(() => {
-    const others = view.players.filter((p) => p.id !== you.id);
-    return others.slice().sort((a, b) => {
-      const da = (a.seat - you.seat + 100) % 100;
-      const db = (b.seat - you.seat + 100) % 100;
-      return da - db;
-    });
-  }, [view.players, you.id, you.seat]);
 
   const cardAction = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
