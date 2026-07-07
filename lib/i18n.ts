@@ -136,7 +136,7 @@ export function formatPending(l: Locale, p: PlayerView["pending"], youName?: str
         ? L(l, `${a} dùng Indians! — bỏ 1 Bang! hoặc mất 1 máu`, `${a} plays Indians! — discard a Bang! or lose 1 life`)
         : L(l, `${a} dùng Gatling — đánh Missed! hoặc mất 1 máu`, `${a} plays Gatling — play a Missed! or lose 1 life`);
     case "duel":
-      return L(l, `Đấu tay đôi: ${a} vs ${b} — tới lượt ${obj(p.turnName)} bỏ Bang!`, `Duel: ${a} vs ${b} — ${obj(p.turnName)} must discard a Bang!`);
+      return L(l, `Duel: ${a} vs ${b} — tới lượt ${obj(p.turnName)} bỏ Bang!`, `Duel: ${a} vs ${b} — ${obj(p.turnName)} must discard a Bang!`);
     case "kit":
       return L(l, `${a} (Kit Carlson) chọn 2 trong 3 lá`, `${a} (Kit Carlson) picks 2 of 3 cards`);
     case "store":
