@@ -1077,17 +1077,20 @@ function CharacterCard({ c }: { c: Character }) {
   );
 }
 
-// The character rendered in the same playing-card style as the deck cards.
+// The character rendered as a playing-card face: title banner, portrait, then
+// the full ability text below. Bullets (max HP) top-right; no tier rank.
 function CharacterFace({ c }: { c: Character }) {
   const locale = useLocale();
   return (
-    <div className="pcard pcard-md pc-character" style={{ height: "auto", minHeight: 168 }}>
-      <div className="pc-name">{c.name}</div>
-      <div className="pc-center" style={{ minHeight: 46, flex: "0 0 auto" }}>
-        <span className="pc-icon">🤠</span>
+    <div className="pcard pc-character" style={{ width: 150, height: "auto" }}>
+      <div className="pc-name" style={{ fontSize: "0.82rem" }}>{c.name}</div>
+      <div className="pc-center" style={{ minHeight: 60, flex: "0 0 auto" }}>
+        <span className="pc-icon" style={{ fontSize: "2.8rem" }}>🤠</span>
       </div>
-      <div className="pc-desc" style={{ WebkitLineClamp: 7 }}>{charAbility(locale, c.id)}</div>
-      <span className="pc-corner">❤️{c.maxHp}{c.rank ? ` · ${c.rank}` : ""}</span>
+      <div className="pc-desc" style={{ display: "block", WebkitLineClamp: "unset" as unknown as number, fontSize: "0.56rem", lineHeight: 1.25, padding: "4px 4px 6px" }}>
+        {charAbility(locale, c.id)}
+      </div>
+      <span className="pc-corner">🔴 {c.maxHp}</span>
     </div>
   );
 }
