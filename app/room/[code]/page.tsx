@@ -749,7 +749,13 @@ function Table({
                       {sidPicking ? L(locale, `Chọn 2 lá (${sidPick.length}/2)`, `Pick 2 (${sidPick.length}/2)`) : L(locale, "Sid: bỏ 2 → +1 máu", "Sid: discard 2 → +1")}
                     </button>
                   )}
-                  <button onClick={onEndTurn}>{L(locale, "Kết thúc lượt →", "End turn →")}</button>
+                  {overLimit > 0 ? (
+                    <button onClick={() => flash(L(locale, `Bỏ ${overLimit} lá dư đã: kéo bài sang PHẢI để bỏ.`, `Discard ${overLimit} first: drag a card RIGHT.`))}>
+                      {L(locale, `Bỏ ${overLimit} lá dư để kết thúc`, `Discard ${overLimit} to end`)}
+                    </button>
+                  ) : (
+                    <button onClick={onEndTurn}>{L(locale, "Kết thúc lượt →", "End turn →")}</button>
+                  )}
                 </>
               )}
             </div>

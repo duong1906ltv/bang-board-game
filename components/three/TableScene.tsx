@@ -10,7 +10,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
 import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
-import type { PlayerView, PlayerPublic } from "@/lib/types";
+import type { PlayerView, PlayerPublic, CheckView } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
 
 // Repeating wooden-plank texture drawn on a canvas (no external asset needed).
@@ -333,16 +333,16 @@ function FeltCards({ cards, ang, radius }: { cards: Card[]; ang: number; radius:
   if (!cards.length) return null;
   const cx = radius * Math.cos(ang);
   const cz = radius * Math.sin(ang);
-  const tx = -Math.sin(ang);
-  const tz = Math.cos(ang);
-  const gap = 0.36;
+  const gap = 0.38;
+  // Orient the row so each card's long axis points toward the table centre
+  // (portrait, facing the seat) and cards spread tangentially.
   return (
-    <group>
+    <group position={[cx, 0, cz]} rotation={[0, Math.PI / 2 - ang, 0]}>
       {cards.map((c, i) => {
         const o = (i - (cards.length - 1) / 2) * gap;
         const def = CARD_DEF_BY_ID[c.defId];
         return (
-          <group key={c.id} position={[cx + tx * o, 0, cz + tz * o]}>
+          <group key={c.id} position={[o, 0, 0]}>
             <CardMesh card={c} scale={0.46} position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} />
             {/* readable name label; hover shows the effect */}
             <Html center position={[0, 0.12, 0.18]} distanceFactor={7} style={{ pointerEvents: "auto" }}>
@@ -590,6 +590,109 @@ function FlyingCards({ hand, felt, camY, camZ }: { hand: Card[]; felt: number; c
   );
 }
 
+// A dramatic Draw!-check reveal for Dynamite, staged over the centre of the
+// table: the revealed card rises and turns face-up, then either explodes (blast)
+// or shows a "safe → pass left" note. Purely visual; it reacts to a new dynamite
+// entry appearing in view.checks so the resolution no longer feels skipped.
+function DynamiteFx({ check, felt }: { check: CheckView | null; felt: number }) {
+  const [active, setActive] = useState<{ card: Card | null; blast: boolean } | null>(null);
+  const lastKey = useRef<string | null>(null);
+  const t = useRef(0);
+  const cardRef = useRef<THREE.Group>(null);
+  const blastRef = useRef<THREE.Mesh>(null);
+  const lightRef = useRef<THREE.PointLight>(null);
+  const cy = 0.3 + felt * 0.5; // stage height above the felt
+
+  useEffect(() => {
+    if (!check) return;
+    const key = check.card?.id ?? `${check.name}-${check.outcome}`;
+    if (key === lastKey.current) return; // already showed this reveal
+    lastKey.current = key;
+    t.current = 0;
+    setActive({ card: check.card, blast: check.outcome === "blast" });
+  }, [check]);
+
+  const DUR = 1.8;
+  useFrame((_, dt) => {
+    if (!active) return;
+    t.current += dt;
+    const p = Math.min(t.current / DUR, 1);
+
+    // Card: rise + turn face-up over the first 0.4s, hold, fade over the last 0.25.
+    const rise = Math.min(t.current / 0.4, 1);
+    const er = 1 - Math.pow(1 - rise, 3);
+    if (cardRef.current) {
+      cardRef.current.position.set(0, 0.3 + er * (cy - 0.3), 0);
+      cardRef.current.rotation.y = (1 - er) * Math.PI * 1.5;
+      cardRef.current.scale.setScalar(0.8 + er * 1.3);
+      const op = p < 0.75 ? 1 : 1 - (p - 0.75) / 0.25;
+      cardRef.current.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (m) {
+          m.transparent = true;
+          m.opacity = op;
+        }
+      });
+    }
+
+    // Blast: an expanding, fading fireball + a flash of light, after the reveal.
+    if (active.blast) {
+      const bp = (t.current - 0.4) / (DUR - 0.4);
+      const eb = 1 - Math.pow(1 - Math.min(Math.max(bp, 0), 1), 2);
+      if (blastRef.current) {
+        blastRef.current.visible = bp > 0 && bp < 1;
+        blastRef.current.scale.setScalar(0.2 + eb * felt * 1.7);
+        (blastRef.current.material as THREE.MeshStandardMaterial).opacity = Math.max(0, 0.85 * (1 - eb));
+      }
+      if (lightRef.current) lightRef.current.intensity = Math.max(0, 45 * (1 - bp * 1.3));
+    }
+
+    if (p >= 1) {
+      if (lightRef.current) lightRef.current.intensity = 0;
+      setActive(null);
+    }
+  });
+
+  if (!active) return null;
+  return (
+    <group>
+      {active.card && (
+        <group ref={cardRef}>
+          <CardMesh card={active.card} rotation={[0, 0, 0]} />
+        </group>
+      )}
+      {active.blast && (
+        <>
+          <mesh ref={blastRef} position={[0, cy, 0]} visible={false}>
+            <icosahedronGeometry args={[0.5, 2]} />
+            <meshStandardMaterial color="#ff8a2a" emissive="#ff4400" emissiveIntensity={2.5} transparent opacity={0.85} />
+          </mesh>
+          <pointLight ref={lightRef} position={[0, cy, 0]} color="#ff8a2a" intensity={0} distance={felt * 9} decay={2} />
+        </>
+      )}
+      <Html center position={[0, cy + 0.75, 0]} distanceFactor={5} style={{ pointerEvents: "none" }} zIndexRange={[80, 70]}>
+        <div
+          className="boom-label"
+          style={{
+            whiteSpace: "nowrap",
+            fontFamily: "system-ui, sans-serif",
+            fontWeight: 800,
+            fontSize: 26,
+            color: "#fff",
+            textShadow: active.blast ? "0 2px 10px #ff3b00, 0 0 24px #ff6a00" : "0 2px 6px #000",
+            background: active.blast ? "rgba(120,20,0,0.55)" : "rgba(20,60,30,0.55)",
+            border: `2px solid ${active.blast ? "#ff7a2a" : "#4ad07a"}`,
+            padding: "6px 16px",
+            borderRadius: 12,
+          }}
+        >
+          {active.blast ? "🧨💥 NỔ! −3 ❤️" : "🧨 An toàn → chuyền trái"}
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 function Scene({ view, targetIds, onPickTarget }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void }) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
@@ -618,6 +721,8 @@ function Scene({ view, targetIds, onPickTarget }: { view: PlayerView; targetIds?
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} />
       {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
+      {/* dramatic Dynamite Draw!-check reveal over the table centre */}
+      <DynamiteFx check={view.checks.find((c) => c.kind === "dynamite") ?? null} felt={felt} />
     </>
   );
 }
