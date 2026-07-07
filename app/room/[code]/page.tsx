@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, ROLE_EMOJI } from "@/lib/types";
-import { SUIT_SYMBOL, rankLabel, CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
+import { SUIT_SYMBOL, rankLabel, CARD_DEF_BY_ID, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import {
   L,
@@ -371,15 +371,9 @@ function Table({
   const [discarding, setDiscarding] = useState(false);
   const [notice, setNotice] = useState("");
   const [info, setInfo] = useState<{ title: string; icon: string; body: string } | null>(null);
+  const [infoCard, setInfoCard] = useState<Card | null>(null);
 
-  const inspectCard = (c: Card) => {
-    const def = CARD_DEF_BY_ID[c.defId];
-    setInfo({
-      title: `${c.name} · ${rankLabel(c.rank)}${SUIT_SYMBOL[c.suit]}`,
-      icon: CARD_ICON[c.defId] ?? "🃏",
-      body: def?.effect ?? "",
-    });
-  };
+  const inspectCard = (c: Card) => setInfoCard(c);
   const showRole = () => {
     if (!you.role) return;
     setInfo({ title: roleLabel(locale, you.role), icon: ROLE_EMOJI[you.role], body: roleGoal(locale, you.role) });
@@ -455,7 +449,7 @@ function Table({
     // Bang! is once per turn (unless Volcanic / Willy) — say so up front instead
     // of letting the player aim into a silent rejection.
     if (card.defId === "bang" && !you.canBang) {
-      return flash(L(locale, "Đã đánh Bang! trong lượt này rồi.", "Already played a Bang! this turn."));
+      return flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
     }
     if (TARGETED.includes(card.defId)) {
       return setAiming({ id: card.id, defId: card.defId });
@@ -708,7 +702,7 @@ function Table({
               </button>
             ) : overLimit > 0 ? (
               <button onClick={() => setDiscarding(true)}>
-                {L(locale, `Bỏ ${overLimit} lá để kết thúc →`, `Discard ${overLimit} to end →`)}
+                {L(locale, `Chỉ giữ tối đa ${you.hp} lá & kết thúc`, `Keep max ${you.hp} & end turn`)}
               </button>
             ) : (
               <button onClick={onEndTurn}>{L(locale, "Kết thúc lượt →", "End turn →")}</button>
@@ -742,7 +736,28 @@ function Table({
         </div>
       )}
 
-      {/* card / role info popup (tap to open, tap anywhere to close) */}
+      {/* card detail popup — shows the actual card face + full effect */}
+      {infoCard && (
+        <div
+          onClick={() => setInfoCard(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 320 }}
+          >
+            <div style={{ transform: "scale(1.6)", transformOrigin: "top center", marginBottom: 60 }}>
+              <PlayingCard card={infoCard} />
+            </div>
+            <p className="muted" style={{ textAlign: "center", lineHeight: 1.5, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px" }}>
+              {CARD_DEF_BY_ID[infoCard.defId]?.effect}
+            </p>
+            <button style={{ width: "auto", padding: "10px 24px" }} onClick={() => setInfoCard(null)}>{L(locale, "Đóng", "Close")}</button>
+          </div>
+        </div>
+      )}
+
+      {/* role / character info popup */}
       {info && (
         <div
           onClick={() => setInfo(null)}
@@ -801,8 +816,8 @@ function Table({
                     </button>
                   )}
                   {overLimit > 0 ? (
-                    <button onClick={() => flash(L(locale, `Bỏ ${overLimit} lá dư đã: kéo bài sang PHẢI để bỏ.`, `Discard ${overLimit} first: drag a card RIGHT.`))}>
-                      {L(locale, `Bỏ ${overLimit} lá dư để kết thúc`, `Discard ${overLimit} to end`)}
+                    <button onClick={() => flash(L(locale, `Chỉ giữ tối đa ${you.hp} lá: kéo bài sang PHẢI để bỏ bớt.`, `Keep at most ${you.hp}: drag cards RIGHT to discard.`))}>
+                      {L(locale, `Chỉ giữ tối đa ${you.hp} lá & kết thúc`, `Keep max ${you.hp} & end turn`)}
                     </button>
                   ) : (
                     <button onClick={onEndTurn}>{L(locale, "Kết thúc lượt →", "End turn →")}</button>

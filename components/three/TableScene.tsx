@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
-import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, type Card } from "@/lib/cards";
 import type { PlayerView, PlayerPublic, CheckView } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
 
@@ -342,29 +342,39 @@ function FeltCards({ cards, ang, radius, onInspect }: { cards: Card[]; ang: numb
       {cards.map((c, i) => {
         const o = (i - (cards.length - 1) / 2) * gap;
         const def = CARD_DEF_BY_ID[c.defId];
+        // Short suffix: gun range, or a distance modifier for Scope/Mustang.
+        const suffix =
+          def?.kind === "gun" && def.range
+            ? ` 🎯${def.range}`
+            : c.defId === "scope"
+            ? " −1"
+            : c.defId === "mustang"
+            ? " +1"
+            : "";
         return (
           <group key={c.id} position={[o, 0, 0]}>
             <CardMesh card={c} scale={0.46} position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} />
-            {/* name label; tap to see the effect */}
-            <Html center position={[0, 0.12, 0.18]} distanceFactor={7} style={{ pointerEvents: "auto" }}>
+            {/* small name label above the card; tap to see the full effect */}
+            <Html center position={[0, 0.14, -0.28]} distanceFactor={9} style={{ pointerEvents: "auto" }}>
               <div
                 title={def?.effect}
                 onClick={() => onInspect?.(c)}
                 style={{
                   whiteSpace: "nowrap",
                   fontFamily: "system-ui, sans-serif",
-                  fontSize: 13,
-                  fontWeight: 700,
+                  fontSize: 11,
+                  fontWeight: 600,
                   color: "#fff",
-                  background: "rgba(20,18,16,0.85)",
-                  border: "1px solid rgba(240,226,192,0.5)",
-                  padding: "2px 7px",
-                  borderRadius: 8,
+                  background: "rgba(20,18,16,0.8)",
+                  border: "1px solid rgba(240,226,192,0.35)",
+                  padding: "1px 6px",
+                  borderRadius: 7,
                   textShadow: "0 1px 2px #000",
                   cursor: "pointer",
                 }}
               >
-                {CARD_ICON[c.defId] ?? "🔵"} {c.name} ⓘ
+                {c.name}
+                {suffix}
               </div>
             </Html>
           </group>

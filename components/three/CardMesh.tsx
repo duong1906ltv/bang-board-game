@@ -6,7 +6,7 @@
 // cards show a simple card-back pattern.
 import { useMemo } from "react";
 import * as THREE from "three";
-import { Card, CARD_DEF_BY_ID, CARD_ICON, CARD_IMAGE, SUIT_SYMBOL, rankLabel } from "@/lib/cards";
+import { Card, CARD_DEF_BY_ID, CARD_ICON, SUIT_SYMBOL, rankLabel } from "@/lib/cards";
 
 // Poker-ish aspect ratio, in world units.
 export const CARD_W = 0.63;
@@ -51,16 +51,11 @@ function drawFace(card: Card): THREE.CanvasTexture {
   ctx.fillText(corner, 0, 0);
   ctx.restore();
 
-  // Center art box.
-  const bx = 30;
-  const by = 66;
-  const bw = W - 60;
-  const bh = 176;
-  // Big center emoji (immediate; also the fallback for cards without art).
+  // Big center emoji icon.
   ctx.font = "120px 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, by + bh / 2);
+  ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, H / 2 - 6);
 
   // Name.
   ctx.fillStyle = "#3a2a18";
@@ -69,28 +64,6 @@ function drawFace(card: Card): THREE.CanvasTexture {
 
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 8;
-
-  // If this card has vector art (same as the 2D face), draw it over the emoji
-  // once it loads and refresh the texture.
-  const art = CARD_IMAGE[card.defId];
-  if (art) {
-    const image = new Image();
-    image.onload = () => {
-      ctx.fillStyle = "#fdf9ef";
-      ctx.fillRect(bx - 2, by - 2, bw + 4, bh + 4); // clear the emoji
-      // fit the artwork inside the box, preserving aspect
-      const ar = image.width / image.height || 120 / 96;
-      let dw = bw;
-      let dh = dw / ar;
-      if (dh > bh) {
-        dh = bh;
-        dw = dh * ar;
-      }
-      ctx.drawImage(image, W / 2 - dw / 2, by + (bh - dh) / 2, dw, dh);
-      tex.needsUpdate = true;
-    };
-    image.src = art;
-  }
   return tex;
 }
 
