@@ -899,29 +899,27 @@ function Table({
                   );
                 })}
               </div>
-              {logOpen && (
-                <div
-                  onPointerDown={startLogResize}
-                  title={L(locale, "Kéo để đổi kích thước", "Drag to resize")}
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    bottom: 0,
-                    width: 18,
-                    height: 18,
-                    cursor: "nesw-resize",
-                    display: "flex",
-                    alignItems: "flex-end",
-                    justifyContent: "flex-start",
-                    color: "rgba(240,226,192,0.6)",
-                    fontSize: 12,
-                    lineHeight: 1,
-                    touchAction: "none",
-                  }}
-                >
-                  ◣
-                </div>
-              )}
+              <div
+                onPointerDown={startLogResize}
+                title={L(locale, "Kéo để đổi kích thước", "Drag to resize")}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  bottom: 0,
+                  width: 18,
+                  height: 18,
+                  cursor: "nesw-resize",
+                  display: "flex",
+                  alignItems: "flex-end",
+                  justifyContent: "flex-start",
+                  color: "rgba(240,226,192,0.6)",
+                  fontSize: 12,
+                  lineHeight: 1,
+                  touchAction: "none",
+                }}
+              >
+                ◣
+              </div>
             </div>
           )}
 
