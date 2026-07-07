@@ -5,7 +5,11 @@
 
 const svg = (inner: string) =>
   "data:image/svg+xml," +
-  encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 96'>${inner}</svg>`);
+  encodeURIComponent(
+    // width/height are required: without an intrinsic size an SVG data-URI
+    // won't render as a CSS background-image or via canvas drawImage.
+    `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='96' viewBox='0 0 120 96'>${inner}</svg>`
+  );
 
 export const CARD_ART: Record<string, string> = {
   // Revolver firing to the left with a muzzle flash.
