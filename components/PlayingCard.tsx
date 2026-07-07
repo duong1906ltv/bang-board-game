@@ -46,8 +46,11 @@ export function PlayingCard({
     <div className={cls} onClick={onClick} title={title ?? def?.name} draggable={false} onDragStart={(e) => e.preventDefault()}>
       <div className="pc-name">{card.name}</div>
       <div className="pc-center">
-        <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
-        {img && <img className="pc-art" src={img} alt="" draggable={false} />}
+        {img ? (
+          <img className="pc-art" src={img} alt="" draggable={false} />
+        ) : (
+          <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
+        )}
       </div>
       {def?.effect && <div className="pc-desc">{def.effect}</div>}
       <span className="pc-corner">{corner}</span>
