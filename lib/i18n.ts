@@ -48,12 +48,12 @@ export function L(locale: Locale, vi: string, en: string): string {
 // --- roles ---
 const ROLE_LABEL: Record<Role, [string, string]> = {
   sheriff: ["Cảnh Sát Trưởng", "Sheriff"],
-  deputy: ["Phó Cảnh Sát", "Deputy"],
-  outlaw: ["Kẻ Ngoài Vòng Pháp Luật", "Outlaw"],
-  renegade: ["Kẻ Phản Bội", "Renegade"],
+  deputy: ["Cảnh Sát Phó", "Deputy"],
+  outlaw: ["Tội Phạm", "Outlaw"],
+  renegade: ["Phản Bội", "Renegade"],
 };
 const ROLE_GOAL: Record<Role, [string, string]> = {
-  sheriff: ["Tiêu diệt tất cả Outlaw và Renegade.", "Eliminate all Outlaws and the Renegade."],
+  sheriff: ["Tiêu diệt tất cả Tội Phạm và Phản Bội.", "Eliminate all Outlaws and the Renegade."],
   deputy: ["Bảo vệ Cảnh Sát Trưởng. Thắng cùng phe Cảnh Sát.", "Protect the Sheriff. Win with the Law."],
   outlaw: ["Hạ gục Cảnh Sát Trưởng.", "Kill the Sheriff."],
   renegade: ["Là người sống sót cuối cùng — Cảnh Sát Trưởng chết cuối.", "Be the last one standing — Sheriff dies last."],
@@ -86,8 +86,8 @@ export const charAbility = (l: Locale, id?: string | null) =>
 // --- winner ---
 const WINNER: Record<string, [string, string]> = {
   sheriff: ["Phe Cảnh Sát thắng! ⭐", "The Law wins! ⭐"],
-  outlaws: ["Phe Ngoài Vòng Pháp Luật thắng! 🤠", "The Outlaws win! 🤠"],
-  renegade: ["Kẻ Phản Bội thắng! 🐍", "The Renegade wins! 🐍"],
+  outlaws: ["Phe Tội Phạm thắng! 🤠", "The Outlaws win! 🤠"],
+  renegade: ["Phản Bội thắng! 🐍", "The Renegade wins! 🐍"],
 };
 export const winnerText = (l: Locale, w: string) => (WINNER[w] ? WINNER[w][l === "vi" ? 0 : 1] : "");
 

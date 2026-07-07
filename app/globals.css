@@ -750,14 +750,14 @@ button.danger {
   border-radius: 9px;
   /* neutral outer edge; the kind colour is an inner accent ring instead */
   border: 2px solid #d8c49a;
-  box-shadow: inset 0 0 0 3px var(--pc-accent, #a0672f), 0 2px 6px rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 0 2px var(--pc-accent, #a0672f), 0 2px 6px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
   align-items: stretch;
   overflow: hidden;
   user-select: none;
   flex: 0 0 auto;
-  padding: 6px;
+  padding: 4px;
 }
 .pcard-md { width: 104px; height: 150px; }
 .pcard-sm { width: 72px; height: 104px; }
@@ -781,8 +781,8 @@ button.danger {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.pcard-md .pc-name { font-size: 0.78rem; }
-.pcard-sm .pc-name { font-size: 0.6rem; -webkit-line-clamp: 1; }
+.pcard-md .pc-name { font-size: 0.7rem; }
+.pcard-sm .pc-name { font-size: 0.58rem; -webkit-line-clamp: 2; }
 
 .pc-center {
   flex: 1;
@@ -808,7 +808,7 @@ button.danger {
   display: -webkit-box;
   -webkit-box-orient: vertical;
 }
-.pcard-md .pc-desc { font-size: 0.5rem; -webkit-line-clamp: 3; }
+.pcard-md .pc-desc { font-size: 0.52rem; -webkit-line-clamp: 5; }
 .pcard-sm .pc-desc { display: none; }
 
 /* Suit + rank — only at the bottom-left */

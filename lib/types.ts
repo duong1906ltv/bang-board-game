@@ -8,9 +8,9 @@ export type Role = "sheriff" | "deputy" | "outlaw" | "renegade";
 
 export const ROLE_LABELS: Record<Role, string> = {
   sheriff: "Cảnh Sát Trưởng",
-  deputy: "Phó Cảnh Sát",
-  outlaw: "Kẻ Ngoài Vòng Pháp Luật",
-  renegade: "Kẻ Phản Bội",
+  deputy: "Cảnh Sát Phó",
+  outlaw: "Tội Phạm",
+  renegade: "Phản Bội",
 };
 
 export const ROLE_EMOJI: Record<Role, string> = {
