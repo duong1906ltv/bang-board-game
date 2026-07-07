@@ -113,13 +113,13 @@ export const CARD_DEFS: CardDef[] = [
     effect: "Có thể chơi bao nhiêu lá Bang! tùy thích. Tầm bắn cơ bản 1.",
     notes: ["Rule 6"] },
   { id: "schofield", it: "Schofeld", name: "Schofield", kind: "gun", count: 3, spec: "JC QC KS", range: 2,
-    effect: "Tầm bắn cơ bản 2.", notes: ["Rule 6"] },
+    effect: "", notes: ["Rule 6"] },
   { id: "remington", it: "Remington", name: "Remington", kind: "gun", count: 1, spec: "KC", range: 3,
-    effect: "Tầm bắn cơ bản 3.", notes: ["Rule 6"] },
+    effect: "", notes: ["Rule 6"] },
   { id: "rev-carabine", it: "Rev. Carabine", name: "Rev. Carabine", kind: "gun", count: 1, spec: "AC", range: 4,
-    effect: "Tầm bắn cơ bản 4.", notes: ["Rule 6"] },
+    effect: "", notes: ["Rule 6"] },
   { id: "winchester", it: "Winchester", name: "Winchester", kind: "gun", count: 1, spec: "8S", range: 5,
-    effect: "Tầm bắn cơ bản 5.", notes: ["Rule 6"] },
+    effect: "", notes: ["Rule 6"] },
 ];
 
 // Lookup by slug.
