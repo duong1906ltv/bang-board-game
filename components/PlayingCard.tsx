@@ -45,8 +45,9 @@ export function PlayingCard({
   return (
     <div className={cls} onClick={onClick} title={title ?? def?.name}>
       <div className="pc-name">{card.name}</div>
-      <div className="pc-center" style={img ? { backgroundImage: `url(${img})` } : undefined}>
-        {!img && <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>}
+      <div className="pc-center">
+        <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
+        {img && <img className="pc-art" src={img} alt="" />}
       </div>
       {def?.effect && <div className="pc-desc">{def.effect}</div>}
       <span className="pc-corner">{corner}</span>
