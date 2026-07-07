@@ -1401,7 +1401,13 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
   if (!p) return null;
   const name = (id: string) => room.players.find((x) => x.id === id)?.name ?? "";
   const meId = me?.id;
-  const has = (defId: string) => !!me?.hand.some((c) => c.defId === defId);
+  // Whether the viewer holds a card usable as `defId` — respects Calamity Janet's
+  // Bang!⇄Missed! swap so her reaction buttons show for the substituted card too.
+  const has = (defId: string) => {
+    if (!me) return false;
+    const m = me;
+    return m.hand.some((c) => canUseAs(m, c, defId));
+  };
   const acts = (mine: boolean, primary: PendingAction | null): PendingAction[] => {
     if (!mine) return [];
     const out: PendingAction[] = [];

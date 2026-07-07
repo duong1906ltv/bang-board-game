@@ -188,7 +188,17 @@ function ReactionPanel({
 
   const doAction = (a: "missed" | "beer" | "bang" | "pass") => {
     if (a === "pass") return onRespond("pass");
-    const card = you.hand.find((c) => c.defId === a);
+    // Calamity Janet may play Bang! as Missed! (and vice versa) — fall back to the
+    // swapped card so she can react even without the literal card in hand.
+    const alt =
+      you.character?.id === "calamity-janet"
+        ? a === "missed"
+          ? "bang"
+          : a === "bang"
+          ? "missed"
+          : null
+        : null;
+    const card = you.hand.find((c) => c.defId === a) ?? (alt ? you.hand.find((c) => c.defId === alt) : undefined);
     onRespond(a, card?.id);
   };
 
