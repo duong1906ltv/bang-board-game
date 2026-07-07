@@ -376,6 +376,7 @@ function Table({
   const [info, setInfo] = useState<{ title: string; icon: string; body: string } | null>(null);
   const [infoCard, setInfoCard] = useState<Card | null>(null);
   const [charView, setCharView] = useState<Character | null>(null);
+  const [confirmPlay, setConfirmPlay] = useState<Card | null>(null);
 
   const inspectCard = (c: Card) => setInfoCard(c);
   const showRole = () => {
@@ -460,6 +461,22 @@ function Table({
     }
     onPlay(card.id);
   };
+  // Tap/drag-up asks for confirmation first (so a stray touch can't play a card);
+  // Sid selection and the "no Bang! left" case are handled without a dialog.
+  const requestPlay = (card: Card) => {
+    if (!inPlayPhase) return;
+    if (sidPicking) return cardAction(card);
+    if (card.defId === "bang" && !you.canBang) {
+      return flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
+    }
+    setConfirmPlay(card);
+  };
+  const doConfirmedPlay = () => {
+    const c = confirmPlay;
+    setConfirmPlay(null);
+    if (c) playGesture(c);
+  };
+
   const discardGesture = (card: { id: string }) => {
     // Only discard when over the hand limit (hand > hp).
     if (!inPlayPhase) return;
@@ -761,6 +778,24 @@ function Table({
         </div>
       )}
 
+      {/* confirm before playing a card */}
+      {confirmPlay && (
+        <div
+          onClick={() => setConfirmPlay(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 300 }}>
+            <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginBottom: 70 }}>
+              <PlayingCard card={confirmPlay} />
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button style={{ width: "auto", padding: "12px 28px" }} onClick={doConfirmedPlay}>{L(locale, "Đánh bài", "Play")}</button>
+              <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={() => setConfirmPlay(null)}>{L(locale, "Hủy", "Cancel")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* character card popup */}
       {charView && (
         <div
@@ -920,7 +955,7 @@ function Table({
                     canDiscard={overLimit > 0}
                     entering={justDrew.has(c.id)}
                     selected={sidPick.includes(c.id) || aiming?.id === c.id}
-                    onPlay={() => (sidPicking ? cardAction(c) : playGesture(c))}
+                    onPlay={() => requestPlay(c)}
                     onDiscard={() => discardGesture(c)}
                     onDragState={setDragDelta}
                   />

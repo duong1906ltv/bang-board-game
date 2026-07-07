@@ -366,13 +366,13 @@ function FeltCards({ cards, ang, radius, onInspect, color }: { cards: Card[]; an
                 style={{
                   whiteSpace: "nowrap",
                   fontFamily: "system-ui, sans-serif",
-                  fontSize: 15,
+                  fontSize: 12,
                   fontWeight: 700,
                   color: "#fff",
                   background: "rgba(20,18,16,0.85)",
                   border: `2px solid ${color ?? "rgba(240,226,192,0.5)"}`,
-                  padding: "1px 6px",
-                  borderRadius: 8,
+                  padding: "0 5px",
+                  borderRadius: 7,
                   textShadow: "0 1px 2px #000",
                   cursor: "pointer",
                   userSelect: "none",
@@ -380,7 +380,7 @@ function FeltCards({ cards, ang, radius, onInspect, color }: { cards: Card[]; an
                 }}
               >
                 {CARD_ICON[c.defId] ?? "🔵"}
-                {suffix && <span style={{ fontSize: 12, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
+                {suffix && <span style={{ fontSize: 10, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
               </div>
             </Html>
           </group>

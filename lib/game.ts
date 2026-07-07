@@ -1281,7 +1281,9 @@ function killPlayer(room: Room, target: Player, killerId: string | null = null) 
 // Suzy Lafayette: any living Suzy left with an empty hand immediately draws one.
 // Called after every resolved action (from the server broadcast).
 export function refillEmptyHands(room: Room) {
-  if (room.phase !== "playing" || room.pending) return;
+  // Suzy draws the instant her hand is empty — even mid-duel / during a pending
+  // reaction (so she isn't left defenceless in a duel).
+  if (room.phase !== "playing") return;
   for (const p of room.players) {
     if (p.alive && p.character?.id === "suzy-lafayette" && p.hand.length === 0) {
       const c = drawOne(room);
