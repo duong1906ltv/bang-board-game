@@ -436,7 +436,12 @@ function Opponents({
   onPickTarget?: (id: string) => void;
   onInspect?: (c: Card) => void;
 }) {
-  const others = players.filter((p) => p.seat !== youSeat);
+  // Order opponents by turn order relative to the viewer (the player right after
+  // you first) so the seating reads the same from everyone's perspective.
+  const n = players.length;
+  const others = players
+    .filter((p) => p.seat !== youSeat)
+    .sort((a, b) => ((a.seat - youSeat + n) % n) - ((b.seat - youSeat + n) % n));
   const seatR = felt + 0.2; // avatars just beyond the felt edge
   return (
     <>

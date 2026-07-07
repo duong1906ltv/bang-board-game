@@ -126,8 +126,46 @@ export default function RoomPage() {
         <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onRestart={restart} />
       )}
 
-      {view.pending && <ReactionPanel view={view} onRespond={respond} onChoose={choose} />}
+      {view.pending &&
+        (view.pending.youMustRespond ? (
+          <ReactionPanel view={view} onRespond={respond} onChoose={choose} />
+        ) : (
+          <PendingNote view={view} />
+        ))}
     </main>
+  );
+}
+
+// A small non-blocking banner for players who aren't the one acting on a pending.
+function PendingNote({ view }: { view: PlayerView }) {
+  const locale = useLocale();
+  const p = view.pending!;
+  const remaining = useCountdown(p.endsAt);
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: "7%",
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 1000,
+        background: "rgba(20,18,16,0.92)",
+        color: "#f0e2c0",
+        padding: "8px 16px",
+        borderRadius: 12,
+        fontFamily: "system-ui, sans-serif",
+        display: "flex",
+        gap: 10,
+        alignItems: "center",
+        maxWidth: "92vw",
+        boxShadow: "0 4px 16px rgba(0,0,0,.5)",
+        pointerEvents: "none",
+      }}
+    >
+      <span style={{ fontSize: 18 }}>{PENDING_EMOJI[p.kind]}</span>
+      <span>{formatPending(locale, p, view.you.name)}</span>
+      <span style={{ opacity: 0.6 }}>{remaining}s</span>
+    </div>
   );
 }
 
