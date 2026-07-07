@@ -197,7 +197,9 @@ function SheriffStar({ radius, y, color, opacity = 1 }: { radius: number; y: num
 function layout(nOpp: number) {
   const ring = 1.4 + 0.13 * nOpp; // radius of the opponent circle
   const felt = ring + 0.5; // felt top radius
-  const arc = Math.min(1.15, 0.55 + 0.11 * nOpp) * Math.PI; // arc span, widens with count
+  // Arc widens with player count so a full table wraps evenly around the felt
+  // instead of bunching on the far side (up to ~270° for 6 opponents).
+  const arc = Math.min(1.5, 0.6 + 0.15 * nOpp) * Math.PI;
   // Frame the camera relative to the table size so the whole table reads the same
   // way for any player count: a 3/4 "seated" view, table filling the width.
   const d = felt * 1.95;
