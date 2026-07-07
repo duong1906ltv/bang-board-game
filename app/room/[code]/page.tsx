@@ -7,6 +7,7 @@ import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
 import { CARD_DEF_BY_ID, CARD_ICON, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
+import { toggleMusic } from "@/lib/music";
 import {
   L,
   useLocale,
@@ -39,6 +40,22 @@ function LangToggle() {
       title="Đổi ngôn ngữ / Switch language"
     >
       {locale === "vi" ? "🇻🇳 VI" : "🇬🇧 EN"}
+    </button>
+  );
+}
+
+// Toggle the procedural wild-west background music (starts on this user gesture).
+function MusicToggle() {
+  const locale = useLocale();
+  const [on, setOn] = useState(false);
+  return (
+    <button
+      className="ghost"
+      style={{ width: "auto", padding: "4px 10px", fontSize: "0.9rem" }}
+      onClick={() => setOn(toggleMusic())}
+      title={L(locale, "Nhạc nền miền Tây", "Wild-west background music")}
+    >
+      {on ? "🎵" : "🔇"}
     </button>
   );
 }
@@ -476,6 +493,9 @@ function Table({
   const [playerInfo, setPlayerInfo] = useState<PlayerPublic | null>(null);
 
   const inspectCard = (c: Card) => setInfoCard(c);
+  // Open a card mentioned in the log as the same card-face popup as a table card.
+  const showLogCard = (def: { id: string; name: string }) =>
+    setInfoCard({ id: "log", defId: def.id, name: def.name, suit: "spades", rank: 1 });
   const showRole = () => {
     if (!you.role) return;
     setInfo({ title: roleLabel(locale, you.role), icon: ROLE_EMOJI[you.role], body: roleGoal(locale, you.role) });
@@ -885,7 +905,7 @@ function Table({
                         <>
                           {text.slice(0, idx)}
                           <span
-                            onClick={() => setInfo({ title: def.name, icon: CARD_ICON[def.id] ?? "🎴", body: def.effect })}
+                            onClick={() => showLogCard(def)}
                             style={{ color: "#ffd24a", textDecoration: "underline", cursor: "pointer" }}
                           >
                             {e.card}
