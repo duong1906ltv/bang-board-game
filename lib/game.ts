@@ -22,7 +22,7 @@ import {
   Winner,
   LogEntry,
 } from "./types";
-import { buildDeck, Card, CARD_DEF_BY_ID } from "./cards";
+import { buildDeck, Card, CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL } from "./cards";
 
 // An unresolved reaction that locks the table until responded to.
 type Pending =
@@ -83,6 +83,18 @@ const rooms = new Map<string, Room>();
 function pushLog(room: Room, e: Omit<LogEntry, "id">) {
   room.log.push({ ...e, id: room.logSeq++ });
   if (room.log.length > 40) room.log.shift();
+}
+
+// Record a Draw! reveal (Dynamite/Jail/Barrel/Black Jack…) in the permanent log
+// so everyone can see it in history, not just the transient checks banner.
+function logCheck(room: Room, c: { name: string; card: Card | null; kind: string; outcome: string }) {
+  pushLog(room, {
+    kind: "check",
+    a: c.name,
+    card: c.card ? `${rankLabel(c.card.rank)}${SUIT_SYMBOL[c.card.suit]}` : undefined,
+    checkKind: c.kind,
+    outcome: c.outcome,
+  });
 }
 
 // Bang! plays 4–7 in the base game. This room is capped at 7 as requested.
@@ -509,6 +521,7 @@ export function drawCards(
       current.hand.push(c2);
       const bonus = c2.suit === "hearts" || c2.suit === "diamonds";
       room.checks = [{ name: current.name, card: c2, kind: "blackjack", outcome: bonus ? "bonus" : "nobonus" }];
+      logCheck(room, room.checks[0]);
       if (bonus) {
         const c3 = drawOne(room);
         if (c3) current.hand.push(c3);
@@ -630,7 +643,9 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
       for (let i = 0; i < attempts && !r.safe; i++) {
         const card = drawCheck(room, p, goodBarrel);
         const heart = !!card && card.suit === "hearts";
-        room.checks.push({ name: p.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" });
+        const chk = { name: p.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" };
+        room.checks.push(chk);
+        logCheck(room, chk);
         if (heart) { r.done = true; r.safe = true; }
       }
     }
@@ -760,7 +775,9 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
     for (let i = 0; i < attempts; i++) {
       const card = drawCheck(room, target, goodBarrel);
       const heart = !!card && card.suit === "hearts";
-      room.checks.push({ name: target.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" });
+      const chk = { name: target.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" };
+      room.checks.push(chk);
+      logCheck(room, chk);
       if (heart) pending.missedPlayed += 1;
     }
     if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // fully dodged
@@ -787,6 +804,7 @@ export function discardCard(code: string, playerId: string, cardId: string): boo
   if (idx < 0) return false;
   const [card] = current.hand.splice(idx, 1);
   room.discard.push(card);
+  pushLog(room, { kind: "discard", a: current.name, n: 1 });
   return true;
 }
 
@@ -870,6 +888,7 @@ function beginTurn(room: Room) {
       const card = drawCheck(room, cur, goodDynamite);
       const exploded = !!card && card.suit === "spades" && card.rank >= 2 && card.rank <= 9;
       room.checks.push({ name: cur.name, card, kind: "dynamite", outcome: exploded ? "blast" : "safe" });
+      logCheck(room, room.checks[room.checks.length - 1]);
       cur.equipment = cur.equipment.filter((c) => c.id !== dyn.id);
       if (exploded) {
         room.discard.push(dyn);
@@ -893,6 +912,7 @@ function beginTurn(room: Room) {
       const card = drawCheck(room, cur, goodJail);
       const released = !!card && card.suit === "hearts";
       room.checks.push({ name: cur.name, card, kind: "jail", outcome: released ? "free" : "skip" });
+      logCheck(room, room.checks[room.checks.length - 1]);
       cur.equipment = cur.equipment.filter((c) => c.id !== jail.id);
       room.discard.push(jail);
       if (!released) {
@@ -958,6 +978,7 @@ export function respond(
       const idx = target.hand.findIndex((c) => c.id === cardId && canUseAs(target, c, "missed"));
       if (idx < 0) return { ok: false, error: "Không có lá né hợp lệ" };
       room.discard.push(target.hand.splice(idx, 1)[0]);
+      pushLog(room, { kind: "react", a: target.name, card: "Missed!" });
       pending.missedPlayed += 1;
       if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // dodged
       return { ok: true };
@@ -1008,6 +1029,7 @@ export function respond(
       const idx = me.hand.findIndex((c) => c.id === cardId && canUseAs(me, c, need));
       if (idx < 0) return { ok: false, error: `Không có ${need === "bang" ? "Bang!" : "Missed!"} hợp lệ` };
       room.discard.push(me.hand.splice(idx, 1)[0]);
+      pushLog(room, { kind: "react", a: me.name, card: need === "bang" ? "Bang!" : "Missed!" });
       r.done = true;
       r.safe = true;
     } else if (type === "pass") {
@@ -1028,6 +1050,7 @@ export function respond(
       const idx = me.hand.findIndex((c) => c.id === cardId && canUseAs(me, c, "bang"));
       if (idx < 0) return { ok: false, error: "Không có Bang! hợp lệ" };
       room.discard.push(me.hand.splice(idx, 1)[0]);
+      pushLog(room, { kind: "react", a: me.name, card: "Bang!" });
       pending.turnId = pending.turnId === pending.aId ? pending.bId : pending.aId; // pass back
       refreshDeadline(room, REACTION_MS);
       return { ok: true };

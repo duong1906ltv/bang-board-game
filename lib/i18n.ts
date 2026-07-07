@@ -76,6 +76,17 @@ export function logText(l: Locale, e: LogEntry, youName?: string): string {
       if (!e.b) return vi ? `${subj(e.a)} đánh ${e.card}` : `${subj(e.a)} played ${e.card}`;
       if (e.card === "Bang!") return vi ? `${subj(e.a)} bắn vào ${obj(e.b)}` : `${subj(e.a)} shot ${obj(e.b)}`;
       return vi ? `${subj(e.a)} dùng ${e.card} lên ${obj(e.b)}` : `${subj(e.a)} used ${e.card} on ${obj(e.b)}`;
+    case "react":
+      if (e.card === "Missed!") return vi ? `${subj(e.a)} né bằng Missed!` : `${subj(e.a)} dodged with Missed!`;
+      if (e.card === "Beer") return vi ? `${subj(e.a)} uống Beer để trụ lại` : `${subj(e.a)} drank Beer to survive`;
+      if (e.card === "Bang!") return vi ? `${subj(e.a)} bỏ 1 Bang!` : `${subj(e.a)} discarded a Bang!`;
+      return vi ? `${subj(e.a)} phản ứng ${e.card}` : `${subj(e.a)} responded ${e.card}`;
+    case "discard":
+      return vi ? `${subj(e.a)} bỏ ${e.n ?? 1} lá bài` : `${subj(e.a)} discarded ${e.n ?? 1} card(s)`;
+    case "check": {
+      const t = checkText(l, e.checkKind ?? "", e.outcome ?? "");
+      return `🎲 ${subj(e.a)} — ${t.kind}${e.card ? ` (${e.card})` : ""}: ${t.outcome}`;
+    }
     case "hit":
       return vi ? `${subj(e.a)} mất ${e.n} máu (còn ${e.hp}❤️)` : `${subj(e.a)} took ${e.n} (${e.hp}❤️ left)`;
     case "heal":

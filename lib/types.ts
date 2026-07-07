@@ -191,13 +191,15 @@ export interface PlayerView {
 // One entry in the action history. Formatted per-locale on the client.
 export interface LogEntry {
   id: number;
-  kind: "play" | "hit" | "heal" | "death" | "draw" | "turn";
+  kind: "play" | "hit" | "heal" | "death" | "draw" | "turn" | "react" | "check" | "discard";
   a?: string; // primary actor name
   b?: string; // target name
-  card?: string; // card name
-  n?: number; // count (cards drawn, life points)
+  card?: string; // card name (or the drawn card label for a check, e.g. "5♠")
+  n?: number; // count (cards drawn, life points, cards discarded)
   hp?: number; // resulting HP
   role?: Role; // revealed role (death)
+  checkKind?: string; // Draw! check type (dynamite/jail/barrel/blackjack)
+  outcome?: string; // Draw! check outcome key
 }
 
 // ─── Socket.IO event payloads ────────────────────────────────────────────────
