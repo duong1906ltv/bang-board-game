@@ -4,9 +4,9 @@
 // so the game logic / socket layer is untouched — this is purely a render layer.
 // The camera sits at "your" seat looking across a round table; your hand is
 // fanned in front of you, opponents are arranged around the far arc.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
 import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
@@ -476,6 +476,120 @@ function CenterPiles({ deckCount, discardCount, topDiscard }: { deckCount: numbe
   );
 }
 
+// A single card animating from the draw pile at table centre toward "you" (the
+// camera), arcing up and turning face-up along the way — the "rút bài kéo về
+// phía mình" effect. Removes itself once it reaches the near edge.
+function DrawFlight({
+  card,
+  delay,
+  felt,
+  camY,
+  camZ,
+  onDone,
+}: {
+  card: Card;
+  delay: number;
+  felt: number;
+  camY: number;
+  camZ: number;
+  onDone: () => void;
+}) {
+  const group = useRef<THREE.Group>(null);
+  const t = useRef(-delay); // stagger multiple cards drawn in the same turn
+  const DUR = 0.7;
+  // Deck top (matches CenterPiles: group y=0.05 + draw-pile x=-0.45).
+  const from = useMemo(() => new THREE.Vector3(-0.45, 0.15, 0), []);
+  // Arc apex, lifted high over the felt on the way toward the camera.
+  const mid = useMemo(() => new THREE.Vector3(-0.2, felt * 0.9, felt * 0.5), [felt]);
+  // Near the camera, low and forward, so it reads as arriving in your hand.
+  const to = useMemo(() => new THREE.Vector3(0, camY * 0.42, camZ * 0.72), [camY, camZ]);
+
+  useFrame((_, dt) => {
+    const g = group.current;
+    if (!g) return;
+    t.current += dt;
+    if (t.current < 0) {
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
+    const p = Math.min(t.current / DUR, 1);
+    const e = 1 - Math.pow(1 - p, 3); // easeOutCubic
+    // Quadratic Bézier from → mid → to.
+    const u = 1 - e;
+    g.position.set(
+      u * u * from.x + 2 * u * e * mid.x + e * e * to.x,
+      u * u * from.y + 2 * u * e * mid.y + e * e * to.y,
+      u * u * from.z + 2 * u * e * mid.z + e * e * to.z
+    );
+    // Lie flat on the deck → stand up facing the camera, with a little spin.
+    g.rotation.x = -Math.PI / 2 + (Math.PI / 2 - 0.35) * e;
+    g.rotation.z = Math.sin(e * Math.PI) * 0.5;
+    const s = 0.72 * (0.7 + 0.7 * e);
+    g.scale.setScalar(s);
+    // Fade out over the last stretch as it "tucks" into the hand.
+    const opacity = p < 0.8 ? 1 : 1 - (p - 0.8) / 0.2;
+    g.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (m) {
+        m.transparent = true;
+        m.opacity = opacity;
+      }
+    });
+    if (p >= 1) onDone();
+  });
+
+  return (
+    <group ref={group} visible={false}>
+      <CardMesh card={card} />
+    </group>
+  );
+}
+
+// Watches your hand and launches a DrawFlight for each newly-added card, so
+// drawn cards visibly travel from the deck toward you instead of just popping in.
+function FlyingCards({ hand, felt, camY, camZ }: { hand: Card[]; felt: number; camY: number; camZ: number }) {
+  const [flights, setFlights] = useState<{ key: string; card: Card; delay: number }[]>([]);
+  const prev = useRef<string[]>(hand.map((c) => c.id));
+  const primed = useRef(false);
+
+  useEffect(() => {
+    const ids = hand.map((c) => c.id);
+    if (!primed.current) {
+      // Skip the initial mount (entering 3D) so the whole hand doesn't fly in.
+      primed.current = true;
+      prev.current = ids;
+      return;
+    }
+    const added = hand.filter((c) => !prev.current.includes(c.id));
+    prev.current = ids;
+    if (added.length) {
+      setFlights((f) => [
+        ...f,
+        ...added.map((c, i) => ({ key: `${c.id}-${i}`, card: c, delay: i * 0.14 })),
+      ]);
+    }
+  }, [hand]);
+
+  const done = (key: string) => setFlights((f) => f.filter((x) => x.key !== key));
+
+  return (
+    <>
+      {flights.map((fl) => (
+        <DrawFlight
+          key={fl.key}
+          card={fl.card}
+          delay={fl.delay}
+          felt={felt}
+          camY={camY}
+          camZ={camZ}
+          onDone={() => done(fl.key)}
+        />
+      ))}
+    </>
+  );
+}
+
 function Scene({ view, targetIds, onPickTarget }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void }) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
@@ -502,6 +616,8 @@ function Scene({ view, targetIds, onPickTarget }: { view: PlayerView; targetIds?
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} />
+      {/* cards drawn into your hand fly out of the deck toward you */}
+      <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
     </>
   );
 }
