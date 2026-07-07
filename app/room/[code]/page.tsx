@@ -375,6 +375,7 @@ function Table({
   const [notice, setNotice] = useState("");
   const [info, setInfo] = useState<{ title: string; icon: string; body: string } | null>(null);
   const [infoCard, setInfoCard] = useState<Card | null>(null);
+  const [charView, setCharView] = useState<Character | null>(null);
 
   const inspectCard = (c: Card) => setInfoCard(c);
   const showRole = () => {
@@ -643,7 +644,7 @@ function Table({
         )}
         {!threeD && you.character && (
           <div style={{ marginTop: 10 }}>
-            <CharacterCard c={you.character} />
+            <CharacterFace c={you.character} />
           </div>
         )}
         <div className="row" style={{ alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
@@ -760,6 +761,21 @@ function Table({
         </div>
       )}
 
+      {/* character card popup */}
+      {charView && (
+        <div
+          onClick={() => setCharView(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+            <div style={{ transform: "scale(1.6)", transformOrigin: "top center", marginBottom: 90 }}>
+              <CharacterFace c={charView} />
+            </div>
+            <button style={{ width: "auto", padding: "10px 24px" }} onClick={() => setCharView(null)}>{L(locale, "Đóng", "Close")}</button>
+          </div>
+        </div>
+      )}
+
       {/* role / character info popup */}
       {info && (
         <div
@@ -802,7 +818,7 @@ function Table({
               </span>
             )}
             <HpPips hp={you.hp} maxHp={you.maxHp} />
-            {you.character && <span className="badge" style={{ cursor: "pointer" }} onClick={() => you.character && setInfo({ title: you.character.name, icon: "🎭", body: charAbility(locale, you.character.id) })}>🎭 {you.character.name}</span>}
+            {you.character && <span className="badge" style={{ cursor: "pointer" }} onClick={() => setCharView(you.character)}>🎭 {you.character.name}</span>}
             <span className="badge">🎯 {you.range}</span>
           </div>
 
@@ -1057,6 +1073,21 @@ function CharacterCard({ c }: { c: Character }) {
       <p className="muted" style={{ marginTop: 6, fontSize: "0.85rem", lineHeight: 1.4 }}>
         {charAbility(locale, c.id)}
       </p>
+    </div>
+  );
+}
+
+// The character rendered in the same playing-card style as the deck cards.
+function CharacterFace({ c }: { c: Character }) {
+  const locale = useLocale();
+  return (
+    <div className="pcard pcard-md pc-character" style={{ height: "auto", minHeight: 168 }}>
+      <div className="pc-name">{c.name}</div>
+      <div className="pc-center" style={{ minHeight: 46, flex: "0 0 auto" }}>
+        <span className="pc-icon">🤠</span>
+      </div>
+      <div className="pc-desc" style={{ WebkitLineClamp: 7 }}>{charAbility(locale, c.id)}</div>
+      <span className="pc-corner">❤️{c.maxHp}{c.rank ? ` · ${c.rank}` : ""}</span>
     </div>
   );
 }

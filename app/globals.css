@@ -764,6 +764,7 @@ button.danger {
 .pc-brown { --pc-accent: #a06a2c; }
 .pc-blue { --pc-accent: #3b82f6; }
 .pc-gun { --pc-accent: #8a8f98; }
+.pc-character { --pc-accent: #a855f7; }
 .pc-red .pc-corner { color: #d12f2f; }
 .pc-black .pc-corner { color: #222; }
 
