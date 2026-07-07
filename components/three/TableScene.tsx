@@ -251,9 +251,9 @@ function Table({ felt }: { felt: number }) {
   );
 }
 
-function Nameplate({ p }: { p: PlayerPublic }) {
+function Nameplate({ p, position }: { p: PlayerPublic; position?: [number, number, number] }) {
   return (
-    <Html center distanceFactor={6} style={{ pointerEvents: "none" }}>
+    <Html center position={position} distanceFactor={6} style={{ pointerEvents: "none" }}>
       <div
         style={{
           whiteSpace: "nowrap",
@@ -261,7 +261,6 @@ function Nameplate({ p }: { p: PlayerPublic }) {
           fontFamily: "system-ui, sans-serif",
           color: "#fff",
           textShadow: "0 1px 3px #000",
-          transform: "translateY(-46px)",
         }}
       >
         <div style={{ fontWeight: 700, fontSize: 15 }}>
@@ -460,12 +459,13 @@ function Opponents({
           <group key={p.id}>
             <group position={[x, 0.05, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
               <OpponentHand count={p.handCount} />
-              <Nameplate p={p} />
             </group>
             <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} sheriff={p.role === "sheriff"} />
+            {/* name / hp / character floating above the avatar's head */}
+            <Nameplate p={p} position={[ax, 1.35, az]} />
             <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} />
             {targetable && onPickTarget && (
-              <TargetMarker position={[ax, 1.15, az]} onClick={() => onPickTarget(p.id)} />
+              <TargetMarker position={[ax, 1.6, az]} onClick={() => onPickTarget(p.id)} />
             )}
           </group>
         );
