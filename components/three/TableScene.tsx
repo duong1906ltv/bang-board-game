@@ -335,6 +335,59 @@ function Avatar({ position, color, dead, sheriff }: { position: [number, number,
   );
 }
 
+// A stone grave marker shown at an eliminated player's seat, with a carved cross.
+function Tombstone({ position }: { position: [number, number, number] }) {
+  return (
+    <group position={position}>
+      {/* mound base */}
+      <mesh position={[0, 0.05, 0.02]} castShadow receiveShadow>
+        <boxGeometry args={[0.46, 0.1, 0.22]} />
+        <meshStandardMaterial color="#4f4a45" roughness={1} />
+      </mesh>
+      {/* slab */}
+      <mesh position={[0, 0.34, 0]} castShadow>
+        <boxGeometry args={[0.34, 0.5, 0.09]} />
+        <meshStandardMaterial color="#8d8880" roughness={0.95} />
+      </mesh>
+      {/* rounded top */}
+      <mesh position={[0, 0.59, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.17, 0.17, 0.09, 20]} />
+        <meshStandardMaterial color="#8d8880" roughness={0.95} />
+      </mesh>
+      {/* carved cross (R.I.P.) */}
+      <mesh position={[0, 0.44, 0.05]}>
+        <boxGeometry args={[0.05, 0.22, 0.02]} />
+        <meshStandardMaterial color="#5b564f" roughness={1} />
+      </mesh>
+      <mesh position={[0, 0.5, 0.05]}>
+        <boxGeometry args={[0.17, 0.05, 0.02]} />
+        <meshStandardMaterial color="#5b564f" roughness={1} />
+      </mesh>
+    </group>
+  );
+}
+
+// A pulsing golden ring laid on the felt under whoever's turn it is.
+function TurnHalo({ position }: { position: [number, number, number] }) {
+  const ref = useRef<THREE.Mesh>(null);
+  const t = useRef(0);
+  useFrame((_, dt) => {
+    t.current += dt;
+    const m = ref.current;
+    if (!m) return;
+    const pulse = Math.sin(t.current * 3);
+    const s = 1 + pulse * 0.07;
+    m.scale.set(s, s, 1);
+    (m.material as THREE.MeshStandardMaterial).opacity = 0.55 + pulse * 0.25;
+  });
+  return (
+    <mesh ref={ref} position={position} rotation={[-Math.PI / 2, 0, 0]}>
+      <ringGeometry args={[0.36, 0.54, 48]} />
+      <meshStandardMaterial color="#ffd24a" emissive="#ffb300" emissiveIntensity={1.8} transparent opacity={0.7} side={THREE.DoubleSide} />
+    </mesh>
+  );
+}
+
 // Blue "in play" cards (guns, Barrel, Scope, Jail…) laid face-up on the felt in
 // front of a seat, upright toward the camera so the whole table can read them.
 function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string; pickable?: boolean; onPickCard?: (cardId: string) => void }) {
@@ -490,7 +543,12 @@ function Opponents({
             <group position={[x, 0.05, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
               <OpponentHand count={p.handCount} />
             </group>
-            <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} sheriff={p.role === "sheriff"} />
+            {p.alive && p.isTurn && <TurnHalo position={[ax, 0.03, az]} />}
+            {p.alive ? (
+              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} />
+            ) : (
+              <Tombstone position={[ax, 0, az]} />
+            )}
             {/* name / hp / character floating above the avatar's head */}
             <Nameplate p={p} position={[ax, 1.35, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
             <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} pickable={!!pickCardMode && targetable} onPickCard={(cid) => onPickCard?.(p.id, cid)} />
@@ -758,6 +816,8 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
+      {/* halo at your near seat when it's your turn */}
+      {view.turnSeat === view.you.seat && view.you.alive && <TurnHalo position={[0, 0.03, ring * 0.9]} />}
       {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       {/* Draw!-check reveal (any kind) over the table centre */}
