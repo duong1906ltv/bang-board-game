@@ -371,6 +371,7 @@ function Table({
   const [threeD, setThreeD] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
+  const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
   const [notice, setNotice] = useState("");
   const [info, setInfo] = useState<{ title: string; icon: string; body: string } | null>(null);
   const [infoCard, setInfoCard] = useState<Card | null>(null);
@@ -859,7 +860,24 @@ function Table({
             </div>
           )}
 
-          {/* draggable hand: up = play, right = discard */}
+          {/* drop zones shown while dragging a card */}
+          {dragDelta && (() => {
+            const z = dragZone(dragDelta, overLimit > 0);
+            return (
+              <>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: "42vh", zIndex: 52, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", background: z === "play" ? "rgba(46,204,113,0.28)" : "rgba(46,204,113,0.08)", borderBottom: z === "play" ? "3px dashed #2ecc71" : "3px dashed rgba(46,204,113,0.4)", transition: "background .1s" }}>
+                  <span style={{ fontSize: z === "play" ? 34 : 26, fontWeight: 800, color: "#eafff2", textShadow: "0 2px 6px #000", opacity: z === "play" ? 1 : 0.7 }}>▲ {L(locale, "ĐÁNH", "PLAY")}</span>
+                </div>
+                {overLimit > 0 && (
+                  <div style={{ position: "fixed", top: 0, bottom: 0, right: 0, width: "26vw", zIndex: 53, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", background: z === "discard" ? "rgba(231,76,60,0.32)" : "rgba(231,76,60,0.1)", borderLeft: z === "discard" ? "3px dashed #e74c3c" : "3px dashed rgba(231,76,60,0.4)", transition: "background .1s" }}>
+                    <span style={{ fontSize: z === "discard" ? 30 : 24, fontWeight: 800, color: "#ffecec", textShadow: "0 2px 6px #000", opacity: z === "discard" ? 1 : 0.7 }}>🗑️ {L(locale, "BỎ", "DISCARD")}</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          {/* draggable hand */}
           {you.alive && (
             <div style={{ position: "fixed", left: 0, right: 0, bottom: 10, zIndex: 55, display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 4, pointerEvents: "none" }}>
               {you.hand.map((c) => (
@@ -867,18 +885,20 @@ function Table({
                   <DragCard
                     card={c}
                     canInteract={inPlayPhase}
+                    canDiscard={overLimit > 0}
                     entering={justDrew.has(c.id)}
                     selected={sidPick.includes(c.id) || aiming?.id === c.id}
                     onPlay={() => (sidPicking ? cardAction(c) : playGesture(c))}
                     onDiscard={() => discardGesture(c)}
+                    onDragState={setDragDelta}
                   />
                 </div>
               ))}
             </div>
           )}
-          {inPlayPhase && !aiming && you.hand.length > 0 && (
+          {inPlayPhase && !aiming && !dragDelta && you.hand.length > 0 && (
             <div style={{ position: "fixed", left: "50%", bottom: 176, transform: "translateX(-50%)", zIndex: 55, color: "rgba(240,226,192,0.85)", fontSize: 13, fontFamily: "system-ui, sans-serif", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", pointerEvents: "none" }}>
-              {sidPicking ? L(locale, `Kéo LÊN 2 lá để bỏ (${sidPick.length}/2)`, `Drag UP 2 cards to discard (${sidPick.length}/2)`) : L(locale, "Kéo bài LÊN để đánh · sang PHẢI để bỏ", "Drag UP to play · RIGHT to discard")}
+              {sidPicking ? L(locale, `Kéo LÊN 2 lá để bỏ (${sidPick.length}/2)`, `Drag UP 2 cards to discard (${sidPick.length}/2)`) : overLimit > 0 ? L(locale, "Kéo LÊN để đánh · sang PHẢI để bỏ lá dư", "Drag UP to play · RIGHT to discard") : L(locale, "Kéo bài LÊN để đánh", "Drag UP to play")}
             </div>
           )}
         </>
@@ -887,48 +907,60 @@ function Table({
   );
 }
 
-// A hand card you drag: up past a threshold plays it, right past a threshold
-// discards it; anything else snaps back. Used in the 3D view's HUD.
+const DRAG_PLAY = 80;
+const DRAG_DISC = 90;
+// Which drop zone a drag delta is over ("play" up / "discard" right).
+function dragZone(d: { dx: number; dy: number } | null, canDiscard: boolean): "play" | "discard" | null {
+  if (!d) return null;
+  if (d.dy < -DRAG_PLAY && Math.abs(d.dy) > Math.abs(d.dx)) return "play";
+  if (canDiscard && d.dx > DRAG_DISC && Math.abs(d.dx) >= Math.abs(d.dy)) return "discard";
+  return null;
+}
+
+// A hand card you drag: up plays it; right discards it (only when over the hand
+// limit). Anything else snaps back. Reports its drag state so the parent can
+// show the drop zones.
 function DragCard({
   card,
   canInteract,
+  canDiscard,
   selected,
   entering,
   onPlay,
   onDiscard,
+  onDragState,
 }: {
   card: Card;
   canInteract: boolean;
+  canDiscard: boolean;
   selected?: boolean;
   entering?: boolean;
   onPlay: () => void;
   onDiscard: () => void;
+  onDragState?: (d: { dx: number; dy: number } | null) => void;
 }) {
   const [drag, setDrag] = useState<{ dx: number; dy: number } | null>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
-  const PLAY = 80;
-  const DISC = 90;
-  const zone =
-    drag && (drag.dy < -PLAY && Math.abs(drag.dy) > Math.abs(drag.dx))
-      ? "play"
-      : drag && drag.dx > DISC && Math.abs(drag.dx) >= Math.abs(drag.dy)
-      ? "discard"
-      : null;
+  const zone = dragZone(drag, canDiscard);
   const down = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!canInteract) return;
     start.current = { x: e.clientX, y: e.clientY };
     setDrag({ dx: 0, dy: 0 });
+    onDragState?.({ dx: 0, dy: 0 });
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
   const move = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!start.current) return;
-    setDrag({ dx: e.clientX - start.current.x, dy: e.clientY - start.current.y });
+    const d = { dx: e.clientX - start.current.x, dy: e.clientY - start.current.y };
+    setDrag(d);
+    onDragState?.(d);
   };
   const up = () => {
     if (!start.current) return;
     const z = zone;
     start.current = null;
     setDrag(null);
+    onDragState?.(null);
     if (z === "play") onPlay();
     else if (z === "discard") onDiscard();
   };
