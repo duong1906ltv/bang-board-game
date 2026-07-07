@@ -174,7 +174,7 @@ const ACTIONS: Record<string, [string, string]> = {
   missed: ["Đánh Missed!", "Play Missed!"],
   beer: ["Uống Beer 🍺", "Drink Beer 🍺"],
   bang: ["Bỏ 1 Bang!", "Discard a Bang!"],
-  pass: ["Bỏ qua / Chịu", "Pass / Take it"],
+  pass: ["Bỏ qua", "Pass"],
 };
 export const actionLabel = (l: Locale, a: string) => (ACTIONS[a] ? ACTIONS[a][l === "vi" ? 0 : 1] : a);
 
