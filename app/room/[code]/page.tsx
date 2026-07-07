@@ -406,9 +406,11 @@ function Table({
   const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null);
   const [sidPick, setSidPick] = useState<string[]>([]);
   const [sidPicking, setSidPicking] = useState(false);
-  const [threeD, setThreeD] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
+  // User-resizable size for the 3D history panel; persisted across re-renders so
+  // socket updates don't snap it back.
+  const [logSize, setLogSize] = useState<{ w: number; h: number }>({ w: 240, h: 300 });
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
   const [notice, setNotice] = useState("");
   const [info, setInfo] = useState<{ title: string; icon: string; body: string } | null>(null);
@@ -440,6 +442,29 @@ function Table({
       return () => window.clearTimeout(t);
     }
   }, [you.hand]);
+
+  // Drag the bottom-left grip to resize the right-docked 3D history panel: it
+  // grows toward the left and down, so the grip follows the pointer naturally.
+  const startLogResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const sw = logSize.w;
+    const sh = logSize.h;
+    const move = (ev: PointerEvent) => {
+      setLogSize({
+        w: Math.min(Math.max(sw + (sx - ev.clientX), 160), window.innerWidth * 0.85),
+        h: Math.min(Math.max(sh + (ev.clientY - sy), 120), window.innerHeight * 0.85),
+      });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   // End-of-turn discard mode: once trimmed to the hand limit, end the turn.
   useEffect(() => {
@@ -552,224 +577,15 @@ function Table({
 
   return (
     <div className="card wide" style={{ marginTop: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <h2 className="section-title">{L(locale, "Bàn chơi", "Table")}</h2>
-        <div className="row" style={{ alignItems: "center" }}>
-          <button
-            className="ghost"
-            style={{ width: "auto", padding: "8px 12px" }}
-            onClick={() => setThreeD((v) => !v)}
-            title={L(locale, "Đổi giao diện bàn 2D/3D", "Toggle 2D/3D table")}
-          >
-            {threeD ? "🃏 2D" : "🎲 3D"}
-          </button>
-          {view.you.isHost && (
-            <button className="ghost" style={{ width: "auto", padding: "8px 12px" }} onClick={onRestart}>
-              {L(locale, "Về phòng chờ", "To lobby")}
-            </button>
-          )}
-          <LangToggle />
-        </div>
+      <div style={{ position: "fixed", inset: 0, zIndex: 40, background: "#141210" }}>
+        <TableScene
+          view={view}
+          targetIds={aiming ? view.players.filter((p) => canTarget(p)).map((p) => p.id) : []}
+          onPickTarget={fireAt}
+          onInspect={inspectCard}
+        />
       </div>
 
-      {view.phase === "result" && view.winner && (
-        <div className={`banner ${view.winner === "outlaws" ? "werewolf" : view.winner === "sheriff" ? "village" : "none"}`}>
-          {winnerText(locale, view.winner)}
-        </div>
-      )}
-
-      {view.checks.length > 0 && (
-        <div className="banner none">
-          {view.checks.map((ck, i) => {
-            const t = checkText(locale, ck.kind, ck.outcome);
-            return (
-              <div key={i}>
-                🎲 {ck.name} — {t.kind}: {ck.card ? `${rankLabel(ck.card.rank)}${SUIT_SYMBOL[ck.card.suit]}` : "?"} → {t.outcome}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {aiming && (
-        <div className="banner none">
-          🎯 {L(locale, aimText[aiming.defId]?.[0] ?? "", aimText[aiming.defId]?.[1] ?? "")} ·{" "}
-          <button className="ghost" style={{ width: "auto", padding: "4px 10px" }} onClick={() => setAiming(null)}>
-            {L(locale, "Hủy", "Cancel")}
-          </button>
-        </div>
-      )}
-
-      {threeD ? (
-        <div style={{ position: "fixed", inset: 0, zIndex: 40, background: "#141210" }}>
-          <TableScene
-            view={view}
-            targetIds={aiming ? view.players.filter((p) => canTarget(p)).map((p) => p.id) : []}
-            onPickTarget={fireAt}
-            onInspect={inspectCard}
-          />
-          <button
-            className="ghost"
-            style={{ position: "fixed", top: 12, right: 12, zIndex: 60, width: "auto", padding: "8px 14px" }}
-            onClick={() => setThreeD(false)}
-          >
-            {L(locale, "🃏 Thoát 3D", "🃏 Exit 3D")}
-          </button>
-        </div>
-      ) : (
-      <div className="board">
-        {opponents.map((p, i) => {
-          const targetable = canTarget(p);
-          const n = opponents.length;
-          const t = (i + 0.5) / n; // 0..1 across the top arc, left → right
-          const angle = Math.PI * (1 - t);
-          const left = 50 + 38 * Math.cos(angle);
-          const top = 50 - 34 * Math.sin(angle);
-          return (
-            <div
-              key={p.id}
-              className={["seat", p.isTurn ? "turn" : "", p.alive ? "" : "dead", targetable ? "selectable picked" : ""].join(" ")}
-              onClick={() => targetable && fireAt(p.id)}
-              style={{ left: `${left}%`, top: `${top}%`, cursor: targetable ? "pointer" : "default" }}
-            >
-              <div className="seat-name">
-                <span className={`dot ${p.connected ? "on" : "off"}`} />
-                {p.name}
-              </div>
-              <div className="seat-meta">
-                {L(locale, "Ghế", "Seat")} #{p.seat + 1}
-                {p.distance != null && ` · ${L(locale, "cách", "dist")} ${p.distance}`}
-                {p.isTurn && ` · ${L(locale, "đang tới lượt", "their turn")}`}
-                {!p.alive && ` · ${L(locale, "đã chết", "dead")}`}
-              </div>
-              {p.character && (
-                <div className="seat-meta" style={{ color: "var(--accent)", marginTop: 4 }}>
-                  🎭 {p.character.name}
-                  {p.character.rank ? ` (${p.character.rank})` : ""}
-                </div>
-              )}
-              <HpPips hp={p.hp} maxHp={p.maxHp} />
-              {p.equipment.length > 0 && (
-                <div className="seat-meta" style={{ marginTop: 4 }}>
-                  🔵 {p.equipment.map((c) => `${c.name}${SUIT_SYMBOL[c.suit]}`).join(", ")}
-                </div>
-              )}
-              <div>
-                {p.role ? (
-                  <span className="role-badge">{ROLE_EMOJI[p.role]} {roleLabel(locale, p.role)}</span>
-                ) : (
-                  <span className="role-badge hidden">{L(locale, "Vai ẩn", "Hidden role")}</span>
-                )}
-              </div>
-              <div className="seat-meta">🂠 {p.handCount}</div>
-            </div>
-          );
-        })}
-
-        <div className="board-center">
-          <div className="pile">
-            <span className="pile-label">{L(locale, "Bộ bài", "Deck")}</span>
-            <div className="pile-deck">
-              🂠<span className="pile-count">{view.deckCount}</span>
-            </div>
-          </div>
-          <div className="pile">
-            <span className="pile-label">{L(locale, "Bài bỏ", "Discard")}</span>
-            <div className="pile-discard">
-              🗑️<span className="pile-count">{view.discardCount}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {!threeD && (
-      <div className="you-panel">
-        <h3>{L(locale, "Thông tin của bạn", "Your info")}</h3>
-        {you.role && (
-          <>
-            <div>
-              <span className="role-badge" style={{ fontSize: "0.9rem" }}>{ROLE_EMOJI[you.role]} {roleLabel(locale, you.role)}</span>
-              {threeD && you.character && (
-                <span className="badge" style={{ marginLeft: 8 }}>🎭 {you.character.name}</span>
-              )}
-            </div>
-            {!threeD && <p className="muted" style={{ marginTop: 6 }}>🎯 {roleGoal(locale, you.role)}</p>}
-          </>
-        )}
-        {!threeD && you.character && (
-          <div style={{ marginTop: 10 }}>
-            <CharacterFace c={you.character} />
-          </div>
-        )}
-        <div className="row" style={{ alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
-          <HpPips hp={you.hp} maxHp={you.maxHp} />
-          <span className="badge">🎯 {L(locale, "Tầm bắn", "Range")} {you.range}</span>
-        </div>
-
-        {!threeD && you.equipment.length > 0 && (
-          <>
-            <label style={{ marginTop: 12 }}>{L(locale, "Bài xanh trên bàn", "In play")}</label>
-            <div className="card-row">
-              {you.equipment.map((c) => (
-                <PlayingCard key={c.id} card={c} size="sm" />
-              ))}
-            </div>
-          </>
-        )}
-
-        <label style={{ marginTop: 12 }}>
-          {L(locale, "Bài trên tay", "Hand")} ({you.hand.length})
-          {inPlayPhase && (discarding ? L(locale, ` · bấm lá để bỏ (còn ${overLimit})`, ` · click a card to discard (${overLimit} left)`) : L(locale, " · bấm để đánh", " · click to play"))}
-        </label>
-        <div className="card-row">
-          {you.hand.length === 0 ? (
-            <span className="muted">{L(locale, "Chưa có lá nào.", "No cards.")}</span>
-          ) : (
-            you.hand.map((c) => (
-              <div key={c.id} className={justDrew.has(c.id) ? "draw-in" : undefined}>
-                <PlayingCard
-                  card={c}
-                  onClick={inPlayPhase ? () => cardAction(c) : undefined}
-                  selected={sidPick.includes(c.id) || aiming?.id === c.id}
-                />
-              </div>
-            ))
-          )}
-        </div>
-
-        <div style={{ height: 14 }} />
-        {!you.alive ? (
-          <p className="muted">{L(locale, "Bạn đã bị loại — theo dõi tiếp.", "You're out — spectating.")}</p>
-        ) : !isMyTurn ? (
-          <button disabled>{L(locale, "Chưa tới lượt bạn", "Not your turn")}</button>
-        ) : you.turnPhase === "draw" ? (
-          <DrawControls you={you} onDraw={onDraw} aimJesse={() => setAiming({ id: "", defId: "jesse" })} />
-        ) : (
-          <>
-            {isSid && you.hp < you.maxHp && you.hand.length >= 2 && (
-              <>
-                <button className="ghost" onClick={() => { setSidPicking((v) => !v); setSidPick([]); }}>
-                  {sidPicking ? L(locale, `Chọn 2 lá để bỏ… (${sidPick.length}/2)`, `Pick 2 to discard… (${sidPick.length}/2)`) : L(locale, "Sid: bỏ 2 lá → +1 máu", "Sid: discard 2 → +1 life")}
-                </button>
-                <div style={{ height: 8 }} />
-              </>
-            )}
-            {discarding ? (
-              <button className="ghost" onClick={() => setDiscarding(false)}>
-                {L(locale, `Đang bỏ bài (còn ${overLimit}) · Hủy`, `Discarding (${overLimit} left) · Cancel`)}
-              </button>
-            ) : overLimit > 0 ? (
-              <button onClick={() => setDiscarding(true)}>
-                {L(locale, `Chỉ giữ tối đa ${you.hp} lá & kết thúc`, `Keep max ${you.hp} & end turn`)}
-              </button>
-            ) : (
-              <button onClick={onEndTurn}>{L(locale, "Kết thúc lượt →", "End turn →")}</button>
-            )}
-          </>
-        )}
-      </div>
-      )}
 
       {notice && (
         <div
@@ -867,21 +683,20 @@ function Table({
         </div>
       )}
 
-      {/* end-of-game overlay for the 3D view (2D has its own banner) */}
-      {threeD && view.phase === "result" && view.winner && (
+      {/* end-of-game overlay */}
+      {view.phase === "result" && view.winner && (
         <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, fontFamily: "system-ui, sans-serif", padding: 20 }}>
           <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#f0e2c0", textAlign: "center" }}>{winnerText(locale, view.winner)}</div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
             {view.you.isHost && (
               <button style={{ width: "auto", padding: "12px 20px" }} onClick={onRestart}>{L(locale, "🔁 Chơi lại / Về phòng chờ", "🔁 Play again / Lobby")}</button>
             )}
-            <button className="ghost" style={{ width: "auto", padding: "12px 20px" }} onClick={() => setThreeD(false)}>{L(locale, "🃏 Xem bảng 2D", "🃏 View 2D")}</button>
           </div>
           {!view.you.isHost && <p className="muted">{L(locale, "Chờ chủ phòng bắt đầu ván mới…", "Waiting for the host…")}</p>}
         </div>
       )}
 
-      {threeD && (
+      {(
         <>
           {/* compact status — tap the role to see your objective */}
           <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,18,16,0.82)", padding: "8px 12px", borderRadius: 10, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "70vw" }}>
@@ -893,25 +708,72 @@ function Table({
             <HpPips hp={you.hp} maxHp={you.maxHp} />
             {you.character && <span className="badge" style={{ cursor: "pointer" }} onClick={() => setCharView(you.character)}>🎭 {you.character.name}</span>}
             <span className="badge">🎯 {you.range}</span>
+            {view.you.isHost && (
+              <button className="ghost" style={{ width: "auto", padding: "4px 10px", fontSize: "0.8rem" }} onClick={onRestart}>
+                {L(locale, "🏠 Phòng chờ", "🏠 Lobby")}
+              </button>
+            )}
+            <LangToggle />
           </div>
 
-          {/* action history — top-right, collapsible, scrollable */}
+          {/* action history — top-right, collapsible, scrollable, drag-to-resize */}
           {view.log.length > 0 && (
-            <div style={{ position: "fixed", top: 56, right: 12, zIndex: 55, width: 220, background: "rgba(20,18,16,0.82)", borderRadius: 10, fontFamily: "system-ui, sans-serif", color: "#f0e2c0", overflow: "hidden" }}>
+            <div
+              style={{
+                position: "fixed",
+                top: 56,
+                right: 12,
+                zIndex: 55,
+                width: logSize.w,
+                height: logOpen ? logSize.h : undefined,
+                maxWidth: "85vw",
+                maxHeight: "85vh",
+                background: "rgba(20,18,16,0.82)",
+                borderRadius: 10,
+                fontFamily: "system-ui, sans-serif",
+                color: "#f0e2c0",
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
               <div
                 onClick={() => setLogOpen((o) => !o)}
-                style={{ padding: "6px 10px", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(240,226,192,0.2)" }}
+                style={{ flex: "0 0 auto", padding: "6px 10px", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(240,226,192,0.2)" }}
               >
                 <span>📜 {L(locale, "Lịch sử", "History")}</span>
                 <span>{logOpen ? "▾" : "▸"}</span>
               </div>
-              <div style={{ maxHeight: logOpen ? "56vh" : 118, overflowY: "auto", padding: "6px 10px", display: "flex", flexDirection: "column", gap: 3, fontSize: 12, lineHeight: 1.3 }}>
+              <div style={{ flex: "1 1 auto", minHeight: 0, maxHeight: logOpen ? undefined : 118, overflowY: "auto", padding: "6px 10px", display: "flex", flexDirection: "column", gap: 3, fontSize: 12, lineHeight: 1.3 }}>
                 {[...view.log].reverse().map((e) => (
                   <div key={e.id} style={{ opacity: e.kind === "turn" ? 0.7 : 1, fontWeight: e.kind === "death" ? 700 : 400 }}>
                     {logText(locale, e, you.name)}
                   </div>
                 ))}
               </div>
+              {logOpen && (
+                <div
+                  onPointerDown={startLogResize}
+                  title={L(locale, "Kéo để đổi kích thước", "Drag to resize")}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    bottom: 0,
+                    width: 18,
+                    height: 18,
+                    cursor: "nesw-resize",
+                    display: "flex",
+                    alignItems: "flex-end",
+                    justifyContent: "flex-start",
+                    color: "rgba(240,226,192,0.6)",
+                    fontSize: 12,
+                    lineHeight: 1,
+                    touchAction: "none",
+                  }}
+                >
+                  ◣
+                </div>
+              )}
             </div>
           )}
 
