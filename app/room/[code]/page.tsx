@@ -472,6 +472,7 @@ function Table({
   const [infoCard, setInfoCard] = useState<Card | null>(null);
   const [charView, setCharView] = useState<Character | null>(null);
   const [confirmPlay, setConfirmPlay] = useState<Card | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState<Card | null>(null);
   const [playerInfo, setPlayerInfo] = useState<PlayerPublic | null>(null);
 
   const inspectCard = (c: Card) => setInfoCard(c);
@@ -610,7 +611,14 @@ function Table({
     if (you.hand.length <= you.hp) {
       return flash(L(locale, "Chỉ bỏ được khi số bài > máu.", "Can only discard when over the hand limit."));
     }
-    onDiscard(card.id);
+    // Confirm first so a stray drag can't throw away a card.
+    const c = you.hand.find((h) => h.id === card.id);
+    if (c) setConfirmDiscard(c);
+  };
+  const doConfirmedDiscard = () => {
+    const c = confirmDiscard;
+    setConfirmDiscard(null);
+    if (c) onDiscard(c.id);
   };
 
   const canTarget = (p: (typeof view.players)[number]) => {
@@ -723,6 +731,24 @@ function Table({
             <div style={{ display: "flex", gap: 12 }}>
               <button style={{ width: "auto", padding: "12px 28px" }} onClick={doConfirmedPlay}>{L(locale, "Đánh bài", "Play")}</button>
               <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={() => setConfirmPlay(null)}>{L(locale, "Hủy", "Cancel")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* confirm before discarding a card */}
+      {confirmDiscard && (
+        <div
+          onClick={() => setConfirmDiscard(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 300 }}>
+            <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginBottom: 70 }}>
+              <PlayingCard card={confirmDiscard} />
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button style={{ width: "auto", padding: "12px 28px" }} onClick={doConfirmedDiscard}>{L(locale, "Bỏ bài", "Discard")}</button>
+              <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={() => setConfirmDiscard(null)}>{L(locale, "Hủy", "Cancel")}</button>
             </div>
           </div>
         </div>
