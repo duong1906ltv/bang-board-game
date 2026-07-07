@@ -157,7 +157,7 @@ function ReactionPanel({
     <div className="modal-overlay">
       <div className="modal-card" style={{ color: "var(--accent)" }}>
         <div className="modal-emoji">{PENDING_EMOJI[p.kind]}</div>
-        <p className="modal-ability">{formatPending(locale, p)}</p>
+        <p className="modal-ability">{formatPending(locale, p, you.name)}</p>
         {p.kind === "bang" && (
           <p className="muted">
             {L(locale, `Cần ${(p.missedNeeded ?? 1) - (p.missedPlayed ?? 0)} Missed! để né`, `Need ${(p.missedNeeded ?? 1) - (p.missedPlayed ?? 0)} Missed! to dodge`)}
@@ -819,7 +819,7 @@ function Table({
               <div style={{ maxHeight: logOpen ? "56vh" : 118, overflowY: "auto", padding: "6px 10px", display: "flex", flexDirection: "column", gap: 3, fontSize: 12, lineHeight: 1.3 }}>
                 {[...view.log].reverse().map((e) => (
                   <div key={e.id} style={{ opacity: e.kind === "turn" ? 0.7 : 1, fontWeight: e.kind === "death" ? 700 : 400 }}>
-                    {logText(locale, e)}
+                    {logText(locale, e, you.name)}
                   </div>
                 ))}
               </div>

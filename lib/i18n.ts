@@ -60,22 +60,28 @@ const ROLE_GOAL: Record<Role, [string, string]> = {
 };
 export const roleLabel = (l: Locale, r: Role) => ROLE_LABEL[r][l === "vi" ? 0 : 1];
 
-// Format one action-history entry for the log panel.
-export function logText(l: Locale, e: LogEntry): string {
+// Format one action-history entry. `youName` is the viewer's name so it can be
+// rendered as "bạn"/"you" for natural phrasing.
+export function logText(l: Locale, e: LogEntry, youName?: string): string {
   const vi = l === "vi";
+  // subject form (sentence start) vs object form (mid-sentence)
+  const subj = (n?: string) => (n && n === youName ? (vi ? "Bạn" : "You") : n ?? "");
+  const obj = (n?: string) => (n && n === youName ? (vi ? "bạn" : "you") : n ?? "");
   switch (e.kind) {
     case "turn":
-      return vi ? `▶ Tới lượt ${e.a}` : `▶ ${e.a}'s turn`;
+      return vi ? `▶ Đến lượt ${obj(e.a)}` : `▶ ${subj(e.a)}'s turn`;
     case "draw":
-      return vi ? `${e.a} rút ${e.n} lá` : `${e.a} drew ${e.n}`;
+      return vi ? `${subj(e.a)} rút ${e.n} lá` : `${subj(e.a)} drew ${e.n}`;
     case "play":
-      return (vi ? `${e.a} đánh ${e.card}` : `${e.a} played ${e.card}`) + (e.b ? ` → ${e.b}` : "");
+      if (!e.b) return vi ? `${subj(e.a)} đánh ${e.card}` : `${subj(e.a)} played ${e.card}`;
+      if (e.card === "Bang!") return vi ? `${subj(e.a)} bắn vào ${obj(e.b)}` : `${subj(e.a)} shot ${obj(e.b)}`;
+      return vi ? `${subj(e.a)} dùng ${e.card} lên ${obj(e.b)}` : `${subj(e.a)} used ${e.card} on ${obj(e.b)}`;
     case "hit":
-      return vi ? `${e.a} mất ${e.n} máu (còn ${e.hp}❤️)` : `${e.a} took ${e.n} (${e.hp}❤️ left)`;
+      return vi ? `${subj(e.a)} mất ${e.n} máu (còn ${e.hp}❤️)` : `${subj(e.a)} took ${e.n} (${e.hp}❤️ left)`;
     case "heal":
-      return vi ? `${e.a} hồi ${e.n} máu` : `${e.a} healed ${e.n}`;
+      return vi ? `${subj(e.a)} hồi ${e.n} máu` : `${subj(e.a)} healed ${e.n}`;
     case "death":
-      return (vi ? `☠️ ${e.a} bị loại` : `☠️ ${e.a} eliminated`) + (e.role ? ` — ${roleLabel(l, e.role)}` : "");
+      return (vi ? `☠️ ${subj(e.a)} bị loại` : `☠️ ${subj(e.a)} eliminated`) + (e.role ? ` — ${roleLabel(l, e.role)}` : "");
     default:
       return "";
   }
@@ -113,13 +119,16 @@ const WINNER: Record<string, [string, string]> = {
 export const winnerText = (l: Locale, w: string) => (WINNER[w] ? WINNER[w][l === "vi" ? 0 : 1] : "");
 
 // --- pending descriptions (built from structured fields) ---
-export function formatPending(l: Locale, p: PlayerView["pending"]): string {
+export function formatPending(l: Locale, p: PlayerView["pending"], youName?: string): string {
   if (!p) return "";
-  const a = p.actorName;
-  const b = p.targetName ?? "";
+  const vi = l === "vi";
+  const subj = (n?: string) => (n && n === youName ? (vi ? "Bạn" : "You") : n ?? "");
+  const obj = (n?: string) => (n && n === youName ? (vi ? "bạn" : "you") : n ?? "");
+  const a = subj(p.actorName);
+  const b = obj(p.targetName);
   switch (p.kind) {
     case "bang":
-      return L(l, `${a} bắn Bang! vào ${b}`, `${a} shoots Bang! at ${b}`);
+      return L(l, `${a} bắn vào ${b}`, `${a} shoots ${b}`);
     case "dying":
       return L(l, `${a} sắp gục — cần Beer để sống`, `${a} is dying — needs a Beer to survive`);
     case "multi":
@@ -127,7 +136,7 @@ export function formatPending(l: Locale, p: PlayerView["pending"]): string {
         ? L(l, `${a} dùng Indians! — bỏ 1 Bang! hoặc mất 1 máu`, `${a} plays Indians! — discard a Bang! or lose 1 life`)
         : L(l, `${a} dùng Gatling — đánh Missed! hoặc mất 1 máu`, `${a} plays Gatling — play a Missed! or lose 1 life`);
     case "duel":
-      return L(l, `Duel: ${a} vs ${b} — tới lượt ${p.turnName} bỏ Bang!`, `Duel: ${a} vs ${b} — ${p.turnName} must discard a Bang!`);
+      return L(l, `Đấu tay đôi: ${a} vs ${b} — tới lượt ${obj(p.turnName)} bỏ Bang!`, `Duel: ${a} vs ${b} — ${obj(p.turnName)} must discard a Bang!`);
     case "kit":
       return L(l, `${a} (Kit Carlson) chọn 2 trong 3 lá`, `${a} (Kit Carlson) picks 2 of 3 cards`);
     case "store":

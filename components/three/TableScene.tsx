@@ -330,7 +330,7 @@ function Avatar({ position, color, dead }: { position: [number, number, number];
 
 // Blue "in play" cards (guns, Barrel, Scope, Jail…) laid face-up on the felt in
 // front of a seat, upright toward the camera so the whole table can read them.
-function FeltCards({ cards, ang, radius, onInspect }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void }) {
+function FeltCards({ cards, ang, radius, onInspect, color }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string }) {
   if (!cards.length) return null;
   const cx = radius * Math.cos(ang);
   const cz = radius * Math.sin(ang);
@@ -367,8 +367,8 @@ function FeltCards({ cards, ang, radius, onInspect }: { cards: Card[]; ang: numb
                   fontSize: 15,
                   fontWeight: 700,
                   color: "#fff",
-                  background: "rgba(20,18,16,0.8)",
-                  border: "1px solid rgba(240,226,192,0.35)",
+                  background: "rgba(20,18,16,0.85)",
+                  border: `2px solid ${color ?? "rgba(240,226,192,0.5)"}`,
                   padding: "1px 6px",
                   borderRadius: 8,
                   textShadow: "0 1px 2px #000",
@@ -454,7 +454,7 @@ function Opponents({
               <Nameplate p={p} />
             </group>
             <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} />
-            <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.64} onInspect={onInspect} />
+            <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} />
             {targetable && onPickTarget && (
               <TargetMarker position={[ax, 1.15, az]} onClick={() => onPickTarget(p.id)} />
             )}
