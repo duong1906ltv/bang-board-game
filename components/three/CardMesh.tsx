@@ -28,39 +28,38 @@ function drawFace(card: Card): THREE.CanvasTexture {
   const def = CARD_DEF_BY_ID[card.defId];
   const red = card.suit === "hearts" || card.suit === "diamonds";
 
-  // Card body.
+  // Card body (matches the 2D PlayingCard: neutral outer edge + inner kind ring).
   ctx.fillStyle = "#fdf9ef";
   roundRect(ctx, 4, 4, W - 8, H - 8, 22);
   ctx.fill();
-  ctx.lineWidth = 10;
-  ctx.strokeStyle = KIND_BORDER[def?.kind ?? "brown"];
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = "#d8c49a";
   roundRect(ctx, 4, 4, W - 8, H - 8, 22);
   ctx.stroke();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = KIND_BORDER[def?.kind ?? "brown"];
+  roundRect(ctx, 13, 13, W - 26, H - 26, 15);
+  ctx.stroke();
 
-  const corner = `${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`;
-  ctx.fillStyle = red ? "#c0392b" : "#1c2733";
-
-  // Corner labels (top-left, bottom-right rotated).
-  ctx.font = "bold 34px system-ui, sans-serif";
-  ctx.textAlign = "left";
+  // Name at the top.
+  ctx.fillStyle = "#3a2a15";
+  ctx.font = "bold 30px system-ui, sans-serif";
+  ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.fillText(corner, 18, 16);
-  ctx.save();
-  ctx.translate(W - 18, H - 16);
-  ctx.rotate(Math.PI);
-  ctx.fillText(corner, 0, 0);
-  ctx.restore();
+  ctx.fillText(card.name, W / 2, 26);
 
   // Big center emoji icon.
   ctx.font = "120px 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, H / 2 - 6);
+  ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, H / 2);
 
-  // Name.
-  ctx.fillStyle = "#3a2a18";
-  ctx.font = "bold 26px system-ui, sans-serif";
-  ctx.fillText(card.name, W / 2, H - 40);
+  // Rank + suit — only at the bottom-left (like the real card).
+  ctx.fillStyle = red ? "#c0392b" : "#1c2733";
+  ctx.font = "bold 32px system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "bottom";
+  ctx.fillText(`${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`, 22, H - 22);
 
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 8;
