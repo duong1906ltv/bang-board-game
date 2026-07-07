@@ -361,6 +361,25 @@ function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard 
         return (
           <group key={c.id} position={[o, 0, 0]}>
             <CardMesh card={c} scale={0.46} position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} />
+            {/* a scope over each selectable card so it's easy to pick (Cat Balou / Panic) */}
+            {pickable && (
+              <Html center position={[0, 0.3, 0]} distanceFactor={7} style={{ pointerEvents: "auto" }} zIndexRange={[46, 36]}>
+                <div
+                  onClick={() => onPickCard?.(c.id)}
+                  title="Chọn lá này"
+                  style={{ cursor: "pointer", filter: "drop-shadow(0 0 6px #33d17a)" }}
+                >
+                  <svg viewBox="0 0 100 100" width={42} height={42}>
+                    <circle cx="50" cy="50" r="34" fill="rgba(51,209,122,0.18)" stroke="#33d17a" strokeWidth="8" />
+                    <line x1="50" y1="8" x2="50" y2="28" stroke="#33d17a" strokeWidth="8" strokeLinecap="round" />
+                    <line x1="50" y1="72" x2="50" y2="92" stroke="#33d17a" strokeWidth="8" strokeLinecap="round" />
+                    <line x1="8" y1="50" x2="28" y2="50" stroke="#33d17a" strokeWidth="8" strokeLinecap="round" />
+                    <line x1="72" y1="50" x2="92" y2="50" stroke="#33d17a" strokeWidth="8" strokeLinecap="round" />
+                    <circle cx="50" cy="50" r="6" fill="#33d17a" />
+                  </svg>
+                </div>
+              </Html>
+            )}
             {/* icon badge above the card; tap to see the full card + effect */}
             <Html center position={[0, 0.14, -0.28]} distanceFactor={9} style={{ pointerEvents: "auto" }}>
               <div
