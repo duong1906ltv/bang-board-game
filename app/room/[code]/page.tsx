@@ -761,7 +761,7 @@ function Table({
       {infoCard && (
         <div
           onClick={() => setInfoCard(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -782,7 +782,7 @@ function Table({
       {confirmPlay && (
         <div
           onClick={() => setConfirmPlay(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
         >
           <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 300 }}>
             <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginBottom: 70 }}>
@@ -800,7 +800,7 @@ function Table({
       {charView && (
         <div
           onClick={() => setCharView(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
         >
           <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
             <div style={{ transform: "scale(1.6)", transformOrigin: "top center", marginBottom: 90 }}>
@@ -815,7 +815,7 @@ function Table({
       {info && (
         <div
           onClick={() => setInfo(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
