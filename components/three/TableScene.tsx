@@ -289,8 +289,9 @@ function OpponentHand({ count }: { count: number }) {
             key={i}
             faceDown
             scale={0.5}
-            position={[off, 0.02 + i * 0.002, 0]}
-            rotation={[-Math.PI / 2 + 0.35, 0, off * 0.3]}
+            /* lie flat, clearly above the felt so no part sinks below and gets clipped */
+            position={[off, 0.08 + i * 0.004, -0.1]}
+            rotation={[-Math.PI / 2, 0, off * 0.25]}
           />
         );
       })}
