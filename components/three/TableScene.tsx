@@ -4,7 +4,7 @@
 // so the game logic / socket layer is untouched — this is purely a render layer.
 // The camera sits at "your" seat looking across a round table; your hand is
 // fanned in front of you, opponents are arranged around the far arc.
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
@@ -372,7 +372,50 @@ function FeltCards({ cards, ang, radius }: { cards: Card[]; ang: number; radius:
   );
 }
 
-function Opponents({ players, youSeat, ring, felt, arc }: { players: PlayerPublic[]; youSeat: number; ring: number; felt: number; arc: number }) {
+// A crosshair "scope" floating over a valid Bang! target. Green = available,
+// yellow when hovered. Click to pick this player.
+function TargetMarker({ position, onClick }: { position: [number, number, number]; onClick: () => void }) {
+  const [hover, setHover] = useState(false);
+  const col = hover ? "#ffd24a" : "#33d17a";
+  return (
+    <Html center position={position} distanceFactor={6} style={{ pointerEvents: "auto" }} zIndexRange={[40, 30]}>
+      <div
+        onClick={onClick}
+        onPointerEnter={() => setHover(true)}
+        onPointerLeave={() => setHover(false)}
+        style={{ cursor: "pointer", filter: `drop-shadow(0 0 6px ${col})` }}
+        title="Bắn mục tiêu này"
+      >
+        <svg viewBox="0 0 100 100" width={hover ? 66 : 58} height={hover ? 66 : 58}>
+          <circle cx="50" cy="50" r="34" fill={hover ? "rgba(255,210,74,0.18)" : "rgba(51,209,122,0.12)"} stroke={col} strokeWidth="7" />
+          <line x1="50" y1="6" x2="50" y2="26" stroke={col} strokeWidth="7" strokeLinecap="round" />
+          <line x1="50" y1="74" x2="50" y2="94" stroke={col} strokeWidth="7" strokeLinecap="round" />
+          <line x1="6" y1="50" x2="26" y2="50" stroke={col} strokeWidth="7" strokeLinecap="round" />
+          <line x1="74" y1="50" x2="94" y2="50" stroke={col} strokeWidth="7" strokeLinecap="round" />
+          <circle cx="50" cy="50" r="6" fill={col} />
+        </svg>
+      </div>
+    </Html>
+  );
+}
+
+function Opponents({
+  players,
+  youSeat,
+  ring,
+  felt,
+  arc,
+  targetIds,
+  onPickTarget,
+}: {
+  players: PlayerPublic[];
+  youSeat: number;
+  ring: number;
+  felt: number;
+  arc: number;
+  targetIds?: string[];
+  onPickTarget?: (id: string) => void;
+}) {
   const others = players.filter((p) => p.seat !== youSeat);
   const seatR = felt + 0.2; // avatars just beyond the felt edge
   return (
@@ -383,18 +426,20 @@ function Opponents({ players, youSeat, ring, felt, arc }: { players: PlayerPubli
         const ang = 1.5 * Math.PI - arc / 2 + arc * t;
         const x = ring * Math.cos(ang);
         const z = ring * Math.sin(ang);
+        const ax = seatR * Math.cos(ang);
+        const az = seatR * Math.sin(ang);
+        const targetable = !!targetIds?.includes(p.id);
         return (
           <group key={p.id}>
             <group position={[x, 0.05, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
               <OpponentHand count={p.handCount} />
               <Nameplate p={p} />
             </group>
-            <Avatar
-              position={[seatR * Math.cos(ang), 0, seatR * Math.sin(ang)]}
-              color={AVATAR_COLORS[i % AVATAR_COLORS.length]}
-              dead={!p.alive}
-            />
+            <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} />
             <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.64} />
+            {targetable && onPickTarget && (
+              <TargetMarker position={[ax, 1.15, az]} onClick={() => onPickTarget(p.id)} />
+            )}
           </group>
         );
       })}
@@ -431,7 +476,7 @@ function CenterPiles({ deckCount, discardCount, topDiscard }: { deckCount: numbe
   );
 }
 
-function Scene({ view }: { view: PlayerView }) {
+function Scene({ view, targetIds, onPickTarget }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void }) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
@@ -454,18 +499,26 @@ function Scene({ view }: { view: PlayerView }) {
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} />
     </>
   );
 }
 
-export default function TableScene({ view }: { view: PlayerView }) {
+export default function TableScene({
+  view,
+  targetIds,
+  onPickTarget,
+}: {
+  view: PlayerView;
+  targetIds?: string[];
+  onPickTarget?: (id: string) => void;
+}) {
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
       <Canvas shadows dpr={[1, 2]}>
-        <Scene view={view} />
+        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} />
       </Canvas>
     </div>
   );

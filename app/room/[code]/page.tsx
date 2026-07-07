@@ -535,7 +535,11 @@ function Table({
 
       {threeD ? (
         <div style={{ position: "fixed", inset: 0, zIndex: 40, background: "#141210" }}>
-          <TableScene view={view} />
+          <TableScene
+            view={view}
+            targetIds={aiming ? view.players.filter((p) => canTarget(p)).map((p) => p.id) : []}
+            onPickTarget={fireAt}
+          />
           <button
             className="ghost"
             style={{ position: "fixed", top: 12, right: 12, zIndex: 60, width: "auto", padding: "8px 14px" }}
@@ -751,14 +755,11 @@ function Table({
             </div>
           )}
 
-          {/* aiming: choose a target */}
+          {/* aiming: click a green scope over a target (rendered in the 3D scene) */}
           {aiming && (
-            <div style={{ position: "fixed", left: "50%", top: "40%", transform: "translateX(-50%)", zIndex: 56, width: 260, background: "rgba(20,18,16,0.95)", padding: 14, borderRadius: 12, color: "#f0e2c0", textAlign: "center", fontFamily: "system-ui, sans-serif" }}>
-              <div style={{ marginBottom: 10 }}>🎯 {L(locale, aimText[aiming.defId]?.[0] ?? "Chọn mục tiêu", aimText[aiming.defId]?.[1] ?? "Choose a target")}</div>
-              {view.players.filter((p) => canTarget(p)).map((p) => (
-                <button key={p.id} onClick={() => fireAt(p.id)} style={{ marginBottom: 6 }}>{ROLE_EMOJI[p.role ?? "outlaw"] } {p.name}{p.distance != null ? ` · ${L(locale, "cách", "dist")} ${p.distance}` : ""}</button>
-              ))}
-              <button className="ghost" onClick={() => setAiming(null)}>{L(locale, "Hủy", "Cancel")}</button>
+            <div style={{ position: "fixed", left: "50%", top: "8%", transform: "translateX(-50%)", zIndex: 56, display: "flex", alignItems: "center", gap: 12, background: "rgba(20,18,16,0.92)", padding: "10px 16px", borderRadius: 12, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", maxWidth: "90vw", textAlign: "center" }}>
+              <span>🎯 {L(locale, aimText[aiming.defId]?.[0] ?? "Bấm kính nhắm để chọn mục tiêu", aimText[aiming.defId]?.[1] ?? "Click a scope to pick a target")}</span>
+              <button className="ghost" style={{ width: "auto", padding: "6px 12px" }} onClick={() => setAiming(null)}>{L(locale, "Hủy", "Cancel")}</button>
             </div>
           )}
 
