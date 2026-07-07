@@ -367,24 +367,28 @@ function Tombstone({ position }: { position: [number, number, number] }) {
   );
 }
 
-// A pulsing golden ring laid on the felt under whoever's turn it is.
-function TurnHalo({ position }: { position: [number, number, number] }) {
-  const ref = useRef<THREE.Mesh>(null);
+// A large arrow bobbing above whoever's turn it is, pointing down at them.
+function TurnArrow({ position }: { position: [number, number, number] }) {
+  const ref = useRef<THREE.Group>(null);
   const t = useRef(0);
   useFrame((_, dt) => {
     t.current += dt;
-    const m = ref.current;
-    if (!m) return;
-    const pulse = Math.sin(t.current * 3);
-    const s = 1 + pulse * 0.07;
-    m.scale.set(s, s, 1);
-    (m.material as THREE.MeshStandardMaterial).opacity = 0.55 + pulse * 0.25;
+    if (ref.current) ref.current.position.y = position[1] + Math.abs(Math.sin(t.current * 3)) * 0.28;
   });
+  const mat = <meshStandardMaterial color="#ffcf3a" emissive="#ff9500" emissiveIntensity={0.9} roughness={0.4} />;
   return (
-    <mesh ref={ref} position={position} rotation={[-Math.PI / 2, 0, 0]}>
-      <ringGeometry args={[0.36, 0.54, 48]} />
-      <meshStandardMaterial color="#ffd24a" emissive="#ffb300" emissiveIntensity={1.8} transparent opacity={0.7} side={THREE.DoubleSide} />
-    </mesh>
+    <group ref={ref} position={position}>
+      {/* shaft */}
+      <mesh position={[0, 0.24, 0]}>
+        <cylinderGeometry args={[0.07, 0.07, 0.32, 16]} />
+        {mat}
+      </mesh>
+      {/* head pointing straight down */}
+      <mesh position={[0, -0.02, 0]} rotation={[Math.PI, 0, 0]}>
+        <coneGeometry args={[0.2, 0.3, 20]} />
+        {mat}
+      </mesh>
+    </group>
   );
 }
 
@@ -543,7 +547,7 @@ function Opponents({
             <group position={[x, 0.05, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
               <OpponentHand count={p.handCount} />
             </group>
-            {p.alive && p.isTurn && <TurnHalo position={[ax, 0.03, az]} />}
+            {p.alive && p.isTurn && <TurnArrow position={[ax, 1.75, az]} />}
             {p.alive ? (
               <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} />
             ) : (
@@ -727,20 +731,25 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
     setActive({ card: check.card, blast: check.kind === "dynamite" && check.outcome === "blast", kind: check.kind, outcome: check.outcome, name: check.name });
   }, [check]);
 
-  const DUR = 1.8;
+  const HOLD_END = 4.6; // stay fully visible until here…
+  const DUR = 5.0; // …then fade out by 5s (or dismiss early via the Skip button)
+  const dismiss = () => {
+    if (lightRef.current) lightRef.current.intensity = 0;
+    setActive(null);
+  };
   useFrame((_, dt) => {
     if (!active) return;
     t.current += dt;
-    const p = Math.min(t.current / DUR, 1);
 
-    // Card: rise + turn face-up over the first 0.4s, hold, fade over the last 0.25.
+    // Card: rise + turn face-up over the first 0.4s, then HOLD until HOLD_END,
+    // fade over the last stretch.
     const rise = Math.min(t.current / 0.4, 1);
     const er = 1 - Math.pow(1 - rise, 3);
     if (cardRef.current) {
       cardRef.current.position.set(0, 0.3 + er * (cy - 0.3), 0);
       cardRef.current.rotation.y = (1 - er) * Math.PI * 1.5;
       cardRef.current.scale.setScalar(0.8 + er * 1.3);
-      const op = p < 0.75 ? 1 : 1 - (p - 0.75) / 0.25;
+      const op = t.current < HOLD_END ? 1 : Math.max(0, 1 - (t.current - HOLD_END) / (DUR - HOLD_END));
       cardRef.current.traverse((o) => {
         const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
         if (m) {
@@ -750,9 +759,9 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
       });
     }
 
-    // Blast: an expanding, fading fireball + a flash of light, after the reveal.
+    // Blast: an expanding, fading fireball + a flash of light over a fixed window.
     if (active.blast) {
-      const bp = (t.current - 0.4) / (DUR - 0.4);
+      const bp = (t.current - 0.4) / 1.4;
       const eb = 1 - Math.pow(1 - Math.min(Math.max(bp, 0), 1), 2);
       if (blastRef.current) {
         blastRef.current.visible = bp > 0 && bp < 1;
@@ -762,10 +771,7 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
       if (lightRef.current) lightRef.current.intensity = Math.max(0, 45 * (1 - bp * 1.3));
     }
 
-    if (p >= 1) {
-      if (lightRef.current) lightRef.current.intensity = 0;
-      setActive(null);
-    }
+    if (t.current >= DUR) dismiss();
   });
 
   if (!active) return null;
@@ -785,7 +791,26 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
           <pointLight ref={lightRef} position={[0, cy, 0]} color="#ff8a2a" intensity={0} distance={felt * 9} decay={2} />
         </>
       )}
-      {/* result text is announced by the DOM marquee in the room HUD */}
+      {/* Skip button so players don't have to wait the full 5s. */}
+      <Html center position={[0, Math.max(0.5, cy - 1.0), 0]} distanceFactor={7} style={{ pointerEvents: "auto" }} zIndexRange={[70, 60]}>
+        <button
+          onClick={dismiss}
+          style={{
+            cursor: "pointer",
+            border: "1px solid rgba(240,226,192,0.6)",
+            background: "rgba(20,18,16,0.9)",
+            color: "#f0e2c0",
+            fontFamily: "system-ui, sans-serif",
+            fontWeight: 700,
+            fontSize: 13,
+            padding: "6px 14px",
+            borderRadius: 10,
+            whiteSpace: "nowrap",
+          }}
+        >
+          Bỏ qua ✕
+        </button>
+      </Html>
     </group>
   );
 }
@@ -816,8 +841,6 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
-      {/* halo at your near seat when it's your turn */}
-      {view.turnSeat === view.you.seat && view.you.alive && <TurnHalo position={[0, 0.03, ring * 0.9]} />}
       {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       {/* Draw!-check reveal (any kind) over the table centre */}

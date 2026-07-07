@@ -767,12 +767,14 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   room.pending = pending;
   room.checks = [];
 
-  // Barrel: auto Draw! per Barrel (plus Jourdonnais' innate one). Each Heart
-  // counts as one Missed!.
-  const attempts = barrelAttempts(target);
-  if (attempts > 0) {
+  // Barrel: each Barrel (plus Jourdonnais' innate one) may Draw! once per Missed!
+  // still needed — so vs Slab the Killer (2 needed) a single Barrel draws twice.
+  // Each Heart counts as one Missed!; stop as soon as the hit is fully dodged.
+  const barrels = barrelAttempts(target);
+  if (barrels > 0) {
     room.checks = [];
-    for (let i = 0; i < attempts; i++) {
+    const draws = barrels * pending.missedNeeded;
+    for (let i = 0; i < draws && pending.missedPlayed < pending.missedNeeded; i++) {
       const card = drawCheck(room, target, goodBarrel);
       const heart = !!card && card.suit === "hearts";
       const chk = { name: target.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" };
@@ -977,6 +979,11 @@ export function respond(
     if (type === "missed") {
       const idx = target.hand.findIndex((c) => c.id === cardId && canUseAs(target, c, "missed"));
       if (idx < 0) return { ok: false, error: "Không có lá né hợp lệ" };
+      // Slab the Killer needs 2 Missed!: don't let a target burn a Missed! it can't
+      // complete the dodge with (it would lose the card AND still take the hit).
+      const remaining = pending.missedNeeded - pending.missedPlayed;
+      const available = target.hand.filter((c) => canUseAs(target, c, "missed")).length;
+      if (available < remaining) return { ok: false, error: `Cần đủ ${pending.missedNeeded} Missed! để né` };
       room.discard.push(target.hand.splice(idx, 1)[0]);
       pushLog(room, { kind: "react", a: target.name, card: "Missed!" });
       pending.missedPlayed += 1;
@@ -1441,11 +1448,17 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
 
   if (p.kind === "bang") {
     const mine = meId === p.targetId;
+    // Only offer "Missed!" if the target holds enough to complete the dodge
+    // (2 vs Slab the Killer) — otherwise a lone Missed! would be wasted.
+    const remaining = p.missedNeeded - p.missedPlayed;
+    const missedAvail = me ? me.hand.filter((c) => canUseAs(me, c, "missed")).length : 0;
+    const canDodge = mine && missedAvail >= remaining;
+    const actions: PendingAction[] = mine ? (canDodge ? ["missed", "pass"] : ["pass"]) : [];
     return {
       kind: "bang",
       endsAt: p.endsAt,
       youMustRespond: mine,
-      actions: acts(mine, "missed"),
+      actions,
       missedNeeded: p.missedNeeded,
       missedPlayed: p.missedPlayed,
       actorName: name(p.sourceId),

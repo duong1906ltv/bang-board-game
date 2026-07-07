@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
-import { CARD_DEF_BY_ID, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import {
   L,
@@ -489,7 +489,8 @@ function Table({
     if (key === lastCheckRef.current) return;
     lastCheckRef.current = key;
     const t = checkText(locale, c.kind, c.outcome);
-    setMarquee(`${CHECK_ICON[c.kind] ?? "🎴"} ${c.name} — ${t.kind}: ${t.outcome}`);
+    const cardLabel = c.card ? ` (${rankLabel(c.card.rank)}${SUIT_SYMBOL[c.card.suit]})` : "";
+    setMarquee(`${CHECK_ICON[c.kind] ?? "🎴"} ${c.name} — ${t.kind}${cardLabel}: ${t.outcome}`);
   }, [view.checks, locale]);
 
   const flash = (msg: string) => {

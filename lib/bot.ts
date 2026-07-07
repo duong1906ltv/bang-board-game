@@ -32,6 +32,12 @@ function findUsableAs(p: Player, defId: "bang" | "missed"): Card | undefined {
   return undefined;
 }
 
+// How many cards can serve as `defId` (Calamity Janet may count Bang!⇄Missed!).
+function countUsableAs(p: Player, defId: "bang" | "missed"): number {
+  const alt = p.character?.id === "calamity-janet" ? (defId === "bang" ? "missed" : "bang") : null;
+  return p.hand.filter((c) => c.defId === defId || (alt && c.defId === alt)).length;
+}
+
 // Rough alliance model (bots are omniscient server-side, which is fine for a
 // test harness — it just makes games converge).
 function isEnemy(me: Player, other: Player): boolean {
@@ -108,8 +114,12 @@ function pendingAction(room: Room): (() => boolean) | null {
   if (p.kind === "bang") {
     const me = player(room, p.targetId);
     if (!me?.isBot) return null;
+    // Only dodge if it can complete the full count (2 vs Slab the Killer);
+    // otherwise pass rather than waste a Missed! it can't finish with.
+    const remaining = p.missedNeeded - p.missedPlayed;
+    const usable = countUsableAs(me, "missed");
     const missed = findUsableAs(me, "missed");
-    if (missed) return () => ok(game.respond(code, me.id, "missed", missed.id));
+    if (missed && usable >= remaining) return () => ok(game.respond(code, me.id, "missed", missed.id));
     return () => ok(game.respond(code, me.id, "pass"));
   }
   if (p.kind === "dying") {
