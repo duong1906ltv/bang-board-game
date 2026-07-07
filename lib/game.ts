@@ -1122,20 +1122,27 @@ export function choose(code: string, playerId: string, cardId: string): { ok: bo
 // Sid Ketchum: discard exactly two cards to regain 1 life.
 export function sidHeal(code: string, playerId: string, cardIds: string[]): { ok: boolean; error?: string } {
   const room = rooms.get(code);
-  if (!room || room.phase !== "playing" || room.pending) return { ok: false };
-  const current = room.players[room.turnIndex];
-  if (!current || current.id !== playerId || room.turnPhase === "draw") return { ok: false };
-  if (current.character?.id !== "sid-ketchum") return { ok: false, error: "Chỉ Sid Ketchum dùng được" };
-  if (current.hp >= current.maxHp) return { ok: false, error: "Máu đã đầy" };
+  if (!room || room.phase !== "playing") return { ok: false };
+  // Sid Ketchum may discard 2 cards to regain 1 life AT ANY TIME — on or off his
+  // turn, and even while dying (to save himself). So no turn/phase/pending gate.
+  const sid = room.players.find((p) => p.id === playerId);
+  if (!sid || !sid.alive) return { ok: false };
+  if (sid.character?.id !== "sid-ketchum") return { ok: false, error: "Chỉ Sid Ketchum dùng được" };
+  if (sid.hp >= sid.maxHp) return { ok: false, error: "Máu đã đầy" };
   if (cardIds.length !== 2 || cardIds[0] === cardIds[1]) return { ok: false, error: "Chọn đúng 2 lá khác nhau" };
-  const idxs = cardIds.map((id) => current.hand.findIndex((c) => c.id === id));
+  const idxs = cardIds.map((id) => sid.hand.findIndex((c) => c.id === id));
   if (idxs.some((i) => i < 0)) return { ok: false, error: "Không có lá đó" };
   for (const id of cardIds) {
-    const i = current.hand.findIndex((c) => c.id === id);
-    room.discard.push(current.hand.splice(i, 1)[0]);
+    const i = sid.hand.findIndex((c) => c.id === id);
+    room.discard.push(sid.hand.splice(i, 1)[0]);
   }
-  current.hp = Math.min(current.maxHp, current.hp + 1);
-  pushLog(room, { kind: "heal", a: current.name, n: 1 });
+  sid.hp = Math.min(sid.maxHp, sid.hp + 1);
+  pushLog(room, { kind: "heal", a: sid.name, n: 1 });
+  // If he was dying and this brought him back above 0, he survives — resolve.
+  if (room.pending?.kind === "dying" && room.pending.targetId === sid.id && sid.hp > 0) {
+    clearPending(room);
+    processDeathQueue(room);
+  }
   return { ok: true };
 }
 
@@ -1216,7 +1223,7 @@ function resolveMulti(room: Room) {
     if (r.safe) continue;
     const t = room.players.find((x) => x.id === r.id);
     if (!t || !t.alive) continue;
-    t.hp -= 1;
+    dealDamage(room, t, 1, srcId);
     if (t.hp <= 0) {
       const beers = t.hand.filter((c) => c.defId === "beer").length;
       if (beers >= 1 - t.hp) room.deathQueue.push({ id: t.id, needed: 1 - t.hp, sourceId: srcId });
@@ -1249,7 +1256,11 @@ function processDeathQueue(room: Room) {
 
 // Apply damage; if it drops the target to <=0 HP, open a dying window if they
 // can still be saved by Beer, otherwise kill them.
-function applyDamage(room: Room, target: Player, amount: number, sourceId: string | null, saveable = true) {
+// Decrement HP and apply on-damage side effects (hit log, Bart Cassidy draw,
+// El Gringo steal). Does NOT resolve death — the caller decides how to handle
+// dropping to <=0 HP. Shared by single hits and multi (Indians!/Gatling) so
+// those effects fire no matter how the life point is lost.
+function dealDamage(room: Room, target: Player, amount: number, sourceId: string | null) {
   target.hp -= amount;
   pushLog(room, { kind: "hit", a: target.name, n: amount, hp: Math.max(0, target.hp) });
   // Bart Cassidy: draw a card for each life point lost.
@@ -1268,6 +1279,10 @@ function applyDamage(room: Room, target: Player, amount: number, sourceId: strin
       }
     }
   }
+}
+
+function applyDamage(room: Room, target: Player, amount: number, sourceId: string | null, saveable = true) {
+  dealDamage(room, target, amount, sourceId);
   if (target.hp > 0) return;
   const needed = 1 - target.hp; // Beers required to reach 1 HP
   const beers = target.hand.filter((c) => c.defId === "beer").length;

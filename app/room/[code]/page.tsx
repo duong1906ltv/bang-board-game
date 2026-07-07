@@ -577,7 +577,8 @@ function Table({
   const needsTarget = (defId: string) => TARGETED.includes(defId) || bangLike(defId);
 
   const cardAction = (card: { id: string; defId: string }) => {
-    if (!inPlayPhase) return;
+    // Sid Ketchum can discard-to-heal any time, so his selection isn't gated by
+    // being in your play phase.
     if (sidPicking) {
       const next = sidPick.includes(card.id) ? sidPick.filter((x) => x !== card.id) : [...sidPick, card.id];
       if (next.length === 2) {
@@ -587,6 +588,7 @@ function Table({
       } else setSidPick(next);
       return;
     }
+    if (!inPlayPhase) return;
     // A click discards only in explicit end-of-turn discard mode; otherwise it
     // always plays (or starts aiming), even while over the hand limit.
     if (discarding) return onDiscard(card.id);
@@ -612,8 +614,8 @@ function Table({
   // Tap/drag-up asks for confirmation first (so a stray touch can't play a card);
   // Sid selection and the "no Bang! left" case are handled without a dialog.
   const requestPlay = (card: Card) => {
-    if (!inPlayPhase) return;
     if (sidPicking) return cardAction(card);
+    if (!inPlayPhase) return;
     if (bangLike(card.defId) && !you.canBang) {
       return flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
     }
@@ -951,11 +953,6 @@ function Table({
                 <DrawControls you={you} onDraw={onDraw} aimJesse={() => setAiming({ id: "", defId: "jesse" })} />
               ) : (
                 <>
-                  {isSid && you.hp < you.maxHp && you.hand.length >= 2 && (
-                    <button className="ghost" onClick={() => { setSidPicking((v) => !v); setSidPick([]); }}>
-                      {sidPicking ? L(locale, `Chọn 2 lá (${sidPick.length}/2)`, `Pick 2 (${sidPick.length}/2)`) : L(locale, "Sid: bỏ 2 → +1 máu", "Sid: discard 2 → +1")}
-                    </button>
-                  )}
                   <button
                     onClick={onEndTurn}
                     disabled={overLimit > 0}
@@ -968,6 +965,31 @@ function Table({
                 </>
               )}
             </div>
+          )}
+
+          {/* Sid Ketchum: discard 2 → heal 1, usable ANY time (even off-turn / dying) */}
+          {isSid && you.alive && you.hp < you.maxHp && you.hand.length >= 2 && (
+            <button
+              onClick={() => { setSidPicking((v) => !v); setSidPick([]); }}
+              style={{
+                position: "fixed",
+                left: 12,
+                bottom: 132,
+                zIndex: 57,
+                width: "auto",
+                padding: "8px 12px",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                borderRadius: 10,
+                border: `1px solid ${sidPicking ? "#33d17a" : "rgba(240,226,192,0.5)"}`,
+                background: sidPicking ? "rgba(20,110,50,0.92)" : "rgba(20,18,16,0.88)",
+                color: "#f0e2c0",
+              }}
+            >
+              {sidPicking
+                ? L(locale, `Chạm 2 lá để bỏ (${sidPick.length}/2) · Hủy`, `Tap 2 to discard (${sidPick.length}/2) · Cancel`)
+                : L(locale, "🩹 Sid: bỏ 2 → +1 máu", "🩹 Sid: discard 2 → +1")}
+            </button>
           )}
 
           {/* aiming: click a green scope over a target (rendered in the 3D scene) */}
@@ -1018,7 +1040,7 @@ function Table({
                 <div key={c.id} style={{ pointerEvents: "auto" }}>
                   <DragCard
                     card={c}
-                    canInteract={inPlayPhase}
+                    canInteract={inPlayPhase || sidPicking}
                     canDiscard={overLimit > 0}
                     entering={justDrew.has(c.id)}
                     selected={sidPick.includes(c.id) || aiming?.id === c.id}
