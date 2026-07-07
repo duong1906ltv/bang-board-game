@@ -20,6 +20,7 @@ import {
   Role,
   TurnPhase,
   Winner,
+  LogEntry,
 } from "./types";
 import { buildDeck, Card, CARD_DEF_BY_ID } from "./cards";
 
@@ -72,9 +73,17 @@ export interface Room {
   botTimer: NodeJS.Timeout | null; // paces bot actions so humans can watch
   deck: Card[]; // draw pile (top = end of array)
   discard: Card[]; // discard pile
+  log: LogEntry[]; // action history (oldest → newest, trimmed)
+  logSeq: number; // monotonic id for log entries
 }
 
 const rooms = new Map<string, Room>();
+
+// Append an action-history entry, keeping only the most recent ~40.
+function pushLog(room: Room, e: Omit<LogEntry, "id">) {
+  room.log.push({ ...e, id: room.logSeq++ });
+  if (room.log.length > 40) room.log.shift();
+}
 
 // Bang! plays 4–7 in the base game. This room is capped at 7 as requested.
 export const MIN_PLAYERS = 4;
@@ -175,6 +184,8 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     botTimer: null,
     deck: [],
     discard: [],
+    log: [],
+    logSeq: 0,
   };
   rooms.set(code, room);
   return { room, player };
@@ -450,6 +461,7 @@ export function drawCards(
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return false;
   room.checks = [];
+  const beforeDraw = current.hand.length;
 
   // Kit Carlson: reveal the top 3, pick 2 (the third returns to the deck bottom).
   if (current.character?.id === "kit-carlson") {
@@ -474,6 +486,7 @@ export function drawCards(
     const c2 = drawOne(room);
     if (c2) current.hand.push(c2);
     room.turnPhase = "play";
+    pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
     return true;
   }
 
@@ -483,6 +496,7 @@ export function drawCards(
     const c2 = drawOne(room);
     if (c2) current.hand.push(c2);
     room.turnPhase = "play";
+    pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
     return true;
   }
 
@@ -507,6 +521,7 @@ export function drawCards(
     }
   }
   room.turnPhase = "play";
+  pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
   return true;
 }
 
@@ -514,6 +529,25 @@ export function drawCards(
 // Step 2a scope: blue self-equipment (guns, Mustang, Scope, Barrel). Targeted
 // blue cards (Jail/Dynamite) and brown cards are handled in later steps.
 export function playCard(
+  code: string,
+  playerId: string,
+  cardId: string,
+  targetId?: string,
+  targetCardId?: string
+): { ok: boolean; error?: string } {
+  // Capture card/target names before the play mutates state, then log on success.
+  const room = rooms.get(code);
+  const actor = room?.players[room.turnIndex];
+  const cardName = actor?.hand.find((c) => c.id === cardId)?.name;
+  const targetName = targetId ? room?.players.find((p) => p.id === targetId)?.name : undefined;
+  const res = playCardImpl(code, playerId, cardId, targetId, targetCardId);
+  if (res.ok && room && actor && cardName) {
+    pushLog(room, { kind: "play", a: actor.name, card: cardName, b: targetName });
+  }
+  return res;
+}
+
+function playCardImpl(
   code: string,
   playerId: string,
   cardId: string,
@@ -868,6 +902,7 @@ function beginTurn(room: Room) {
     }
 
     room.turnPhase = "draw";
+    pushLog(room, { kind: "turn", a: cur.name });
     return;
   }
 }
@@ -945,6 +980,7 @@ export function respond(
       if (idx < 0) return { ok: false, error: "Không có Beer đó" };
       room.discard.push(target.hand.splice(idx, 1)[0]);
       target.hp += 1;
+      pushLog(room, { kind: "heal", a: target.name, n: 1 });
       pending.beersNeeded -= 1;
       if (pending.beersNeeded <= 0) {
         clearPending(room);
@@ -1069,6 +1105,7 @@ export function sidHeal(code: string, playerId: string, cardIds: string[]): { ok
     room.discard.push(current.hand.splice(i, 1)[0]);
   }
   current.hp = Math.min(current.maxHp, current.hp + 1);
+  pushLog(room, { kind: "heal", a: current.name, n: 1 });
   return { ok: true };
 }
 
@@ -1184,6 +1221,7 @@ function processDeathQueue(room: Room) {
 // can still be saved by Beer, otherwise kill them.
 function applyDamage(room: Room, target: Player, amount: number, sourceId: string | null, saveable = true) {
   target.hp -= amount;
+  pushLog(room, { kind: "hit", a: target.name, n: amount, hp: Math.max(0, target.hp) });
   // Bart Cassidy: draw a card for each life point lost.
   if (target.character?.id === "bart-cassidy") {
     for (let i = 0; i < amount; i++) {
@@ -1215,6 +1253,7 @@ function applyDamage(room: Room, target: Player, amount: number, sourceId: strin
 function killPlayer(room: Room, target: Player, killerId: string | null = null) {
   target.alive = false;
   target.hp = 0;
+  pushLog(room, { kind: "death", a: target.name, role: target.role ?? undefined });
   const cards = [...target.hand, ...target.equipment];
   target.hand = [];
   target.equipment = [];
@@ -1452,5 +1491,6 @@ export function buildView(room: Room, playerId: string): PlayerView {
     deckCount: room.deck.length,
     discardCount: room.discard.length,
     topDiscard: room.discard.length > 0 ? room.discard[room.discard.length - 1] : null,
+    log: room.log,
   };
 }

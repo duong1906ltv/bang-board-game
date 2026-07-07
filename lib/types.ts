@@ -185,6 +185,19 @@ export interface PlayerView {
   deckCount: number; // cards left in the draw pile
   discardCount: number; // cards in the discard pile
   topDiscard: Card | null; // top card of the discard pile (for the center play area)
+  log: LogEntry[]; // recent action history (oldest → newest)
+}
+
+// One entry in the action history. Formatted per-locale on the client.
+export interface LogEntry {
+  id: number;
+  kind: "play" | "hit" | "heal" | "death" | "draw" | "turn";
+  a?: string; // primary actor name
+  b?: string; // target name
+  card?: string; // card name
+  n?: number; // count (cards drawn, life points)
+  hp?: number; // resulting HP
+  role?: Role; // revealed role (death)
 }
 
 // ─── Socket.IO event payloads ────────────────────────────────────────────────

@@ -65,6 +65,11 @@ const view: PlayerView = {
   deckCount: 40,
   discardCount: 5,
   topDiscard: card("d1", "bang", "Bang!", "clubs", 7),
+  log: [
+    { id: 1, kind: "turn", a: "Bạn" },
+    { id: 2, kind: "play", a: "Bạn", card: "Bang!", b: "Marshal Joe" },
+    { id: 3, kind: "hit", a: "Marshal Joe", n: 1, hp: 4 },
+  ],
 };
 
 export default function Poc3DPage() {

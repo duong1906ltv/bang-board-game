@@ -4,7 +4,7 @@
 // printed; roles, abilities, UI chrome, banners and messages are translated.
 import { useEffect, useState } from "react";
 import type { Role } from "./types";
-import type { PlayerView } from "./types";
+import type { PlayerView, LogEntry } from "./types";
 
 export type Locale = "vi" | "en";
 
@@ -59,6 +59,27 @@ const ROLE_GOAL: Record<Role, [string, string]> = {
   renegade: ["Là người sống sót cuối cùng — Cảnh Sát Trưởng chết cuối.", "Be the last one standing — Sheriff dies last."],
 };
 export const roleLabel = (l: Locale, r: Role) => ROLE_LABEL[r][l === "vi" ? 0 : 1];
+
+// Format one action-history entry for the log panel.
+export function logText(l: Locale, e: LogEntry): string {
+  const vi = l === "vi";
+  switch (e.kind) {
+    case "turn":
+      return vi ? `▶ Tới lượt ${e.a}` : `▶ ${e.a}'s turn`;
+    case "draw":
+      return vi ? `${e.a} rút ${e.n} lá` : `${e.a} drew ${e.n}`;
+    case "play":
+      return (vi ? `${e.a} đánh ${e.card}` : `${e.a} played ${e.card}`) + (e.b ? ` → ${e.b}` : "");
+    case "hit":
+      return vi ? `${e.a} mất ${e.n} máu (còn ${e.hp}❤️)` : `${e.a} took ${e.n} (${e.hp}❤️ left)`;
+    case "heal":
+      return vi ? `${e.a} hồi ${e.n} máu` : `${e.a} healed ${e.n}`;
+    case "death":
+      return (vi ? `☠️ ${e.a} bị loại` : `☠️ ${e.a} eliminated`) + (e.role ? ` — ${roleLabel(l, e.role)}` : "");
+    default:
+      return "";
+  }
+}
 export const roleGoal = (l: Locale, r: Role) => ROLE_GOAL[r][l === "vi" ? 0 : 1];
 
 // --- character abilities (names kept as printed) ---

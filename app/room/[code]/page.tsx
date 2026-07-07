@@ -20,6 +20,7 @@ import {
   checkText,
   actionLabel,
   tError,
+  logText,
 } from "@/lib/i18n";
 
 const MIN_PLAYERS = 4;
@@ -369,6 +370,7 @@ function Table({
   const [sidPicking, setSidPicking] = useState(false);
   const [threeD, setThreeD] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [info, setInfo] = useState<{ title: string; icon: string; body: string } | null>(null);
   const [infoCard, setInfoCard] = useState<Card | null>(null);
@@ -802,6 +804,26 @@ function Table({
             {you.character && <span className="badge" style={{ cursor: "pointer" }} onClick={() => you.character && setInfo({ title: you.character.name, icon: "🎭", body: charAbility(locale, you.character.id) })}>🎭 {you.character.name}</span>}
             <span className="badge">🎯 {you.range}</span>
           </div>
+
+          {/* action history — top-right, collapsible, scrollable */}
+          {view.log.length > 0 && (
+            <div style={{ position: "fixed", top: 56, right: 12, zIndex: 55, width: 220, background: "rgba(20,18,16,0.82)", borderRadius: 10, fontFamily: "system-ui, sans-serif", color: "#f0e2c0", overflow: "hidden" }}>
+              <div
+                onClick={() => setLogOpen((o) => !o)}
+                style={{ padding: "6px 10px", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(240,226,192,0.2)" }}
+              >
+                <span>📜 {L(locale, "Lịch sử", "History")}</span>
+                <span>{logOpen ? "▾" : "▸"}</span>
+              </div>
+              <div style={{ maxHeight: logOpen ? "56vh" : 118, overflowY: "auto", padding: "6px 10px", display: "flex", flexDirection: "column", gap: 3, fontSize: 12, lineHeight: 1.3 }}>
+                {[...view.log].reverse().map((e) => (
+                  <div key={e.id} style={{ opacity: e.kind === "turn" ? 0.7 : 1, fontWeight: e.kind === "death" ? 700 : 400 }}>
+                    {logText(locale, e)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* central actions, just below the deck, on your turn */}
           {you.alive && isMyTurn && !aiming && (
