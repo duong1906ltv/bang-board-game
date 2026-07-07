@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
-import { CARD_DEF_BY_ID, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
 import type { PlayerView, PlayerPublic, CheckView } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
 
@@ -342,39 +342,43 @@ function FeltCards({ cards, ang, radius, onInspect }: { cards: Card[]; ang: numb
       {cards.map((c, i) => {
         const o = (i - (cards.length - 1) / 2) * gap;
         const def = CARD_DEF_BY_ID[c.defId];
-        // Short suffix: gun range, or a distance modifier for Scope/Mustang.
+        // Icon only, plus a number for guns / range modifiers (no card name).
         const suffix =
           def?.kind === "gun" && def.range
-            ? ` 🎯${def.range}`
+            ? `${def.range}`
             : c.defId === "scope"
-            ? " −1"
+            ? "−1"
             : c.defId === "mustang"
-            ? " +1"
+            ? "+1"
             : "";
         return (
           <group key={c.id} position={[o, 0, 0]}>
             <CardMesh card={c} scale={0.46} position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} />
-            {/* small name label above the card; tap to see the full effect */}
+            {/* icon badge above the card; tap to see the full card + effect */}
             <Html center position={[0, 0.14, -0.28]} distanceFactor={9} style={{ pointerEvents: "auto" }}>
               <div
                 title={def?.effect}
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
                 onClick={() => onInspect?.(c)}
                 style={{
                   whiteSpace: "nowrap",
                   fontFamily: "system-ui, sans-serif",
-                  fontSize: 11,
-                  fontWeight: 600,
+                  fontSize: 15,
+                  fontWeight: 700,
                   color: "#fff",
                   background: "rgba(20,18,16,0.8)",
                   border: "1px solid rgba(240,226,192,0.35)",
                   padding: "1px 6px",
-                  borderRadius: 7,
+                  borderRadius: 8,
                   textShadow: "0 1px 2px #000",
                   cursor: "pointer",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
                 }}
               >
-                {c.name}
-                {suffix}
+                {CARD_ICON[c.defId] ?? "🔵"}
+                {suffix && <span style={{ fontSize: 12, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
               </div>
             </Html>
           </group>

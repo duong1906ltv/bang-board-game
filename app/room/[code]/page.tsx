@@ -837,13 +837,15 @@ function Table({
                       {sidPicking ? L(locale, `Chọn 2 lá (${sidPick.length}/2)`, `Pick 2 (${sidPick.length}/2)`) : L(locale, "Sid: bỏ 2 → +1 máu", "Sid: discard 2 → +1")}
                     </button>
                   )}
-                  {overLimit > 0 ? (
-                    <button onClick={() => flash(L(locale, `Chỉ giữ tối đa ${you.hp} lá: kéo bài sang PHẢI để bỏ bớt.`, `Keep at most ${you.hp}: drag cards RIGHT to discard.`))}>
-                      {L(locale, `Chỉ giữ tối đa ${you.hp} lá & kết thúc`, `Keep max ${you.hp} & end turn`)}
-                    </button>
-                  ) : (
-                    <button onClick={onEndTurn}>{L(locale, "Kết thúc lượt →", "End turn →")}</button>
-                  )}
+                  <button
+                    onClick={onEndTurn}
+                    disabled={overLimit > 0}
+                    title={overLimit > 0 ? L(locale, "Kéo bài sang PHẢI để bỏ bớt", "Drag cards RIGHT to discard") : undefined}
+                  >
+                    {overLimit > 0
+                      ? L(locale, `Giữ tối đa ${you.hp} lá (còn dư ${overLimit})`, `Keep max ${you.hp} (${overLimit} over)`)
+                      : L(locale, "Kết thúc lượt →", "End turn →")}
+                  </button>{" "}
                 </>
               )}
             </div>
