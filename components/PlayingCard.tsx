@@ -43,11 +43,11 @@ export function PlayingCard({
   ].join(" ");
 
   return (
-    <div className={cls} onClick={onClick} title={title ?? def?.name}>
+    <div className={cls} onClick={onClick} title={title ?? def?.name} draggable={false} onDragStart={(e) => e.preventDefault()}>
       <div className="pc-name">{card.name}</div>
       <div className="pc-center">
         <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
-        {img && <img className="pc-art" src={img} alt="" />}
+        {img && <img className="pc-art" src={img} alt="" draggable={false} />}
       </div>
       {def?.effect && <div className="pc-desc">{def.effect}</div>}
       <span className="pc-corner">{corner}</span>

@@ -914,7 +914,7 @@ function Table({
           )}
           {inPlayPhase && !aiming && !dragDelta && you.hand.length > 0 && (
             <div style={{ position: "fixed", left: "50%", bottom: 176, transform: "translateX(-50%)", zIndex: 55, color: "rgba(240,226,192,0.85)", fontSize: 13, fontFamily: "system-ui, sans-serif", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", pointerEvents: "none" }}>
-              {sidPicking ? L(locale, `Kéo LÊN 2 lá để bỏ (${sidPick.length}/2)`, `Drag UP 2 cards to discard (${sidPick.length}/2)`) : overLimit > 0 ? L(locale, "Kéo LÊN để đánh · vào 🗑️ để bỏ lá dư", "Drag UP to play · into 🗑️ to discard") : L(locale, "Kéo bài LÊN để đánh", "Drag UP to play")}
+              {sidPicking ? L(locale, `Chạm 2 lá để bỏ (${sidPick.length}/2)`, `Tap 2 cards to discard (${sidPick.length}/2)`) : overLimit > 0 ? L(locale, "Chạm hoặc kéo LÊN để đánh · vào 🗑️ để bỏ lá dư", "Tap or drag UP to play · into 🗑️ to discard") : L(locale, "Chạm hoặc kéo LÊN để đánh", "Tap or drag UP to play")}
             </div>
           )}
         </>
@@ -923,8 +923,9 @@ function Table({
   );
 }
 
-const DRAG_PLAY = 80;
-const DRAG_DISC = 90;
+const DRAG_PLAY = 55;
+const DRAG_DISC = 80;
+const TAP_MAX = 10; // movement under this = a tap
 // Which drop zone a drag delta is over ("play" up / "discard" right).
 function dragZone(d: { dx: number; dy: number } | null, canDiscard: boolean): "play" | "discard" | null {
   if (!d) return null;
@@ -974,11 +975,14 @@ function DragCard({
   const up = () => {
     if (!start.current) return;
     const z = zone;
+    const d = drag;
     start.current = null;
     setDrag(null);
     onDragState?.(null);
-    if (z === "play") onPlay();
-    else if (z === "discard") onDiscard();
+    if (z === "play") return onPlay();
+    if (z === "discard") return onDiscard();
+    // A tap (barely moved) also plays — the easy path.
+    if (d && Math.abs(d.dx) < TAP_MAX && Math.abs(d.dy) < TAP_MAX) onPlay();
   };
   return (
     <div
