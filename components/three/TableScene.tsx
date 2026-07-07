@@ -306,7 +306,7 @@ const AVATAR_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#
 
 // A low-poly seated cowboy: torso + head + hat. Radially symmetric, so no facing
 // needed. Shoulders/head poke above the table so it reads as "someone sitting".
-function Avatar({ position, color, dead }: { position: [number, number, number]; color: string; dead?: boolean }) {
+function Avatar({ position, color, dead, sheriff }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean }) {
   return (
     <group position={position}>
       <mesh position={[0, 0.28, 0]} castShadow>
@@ -326,6 +326,8 @@ function Avatar({ position, color, dead }: { position: [number, number, number];
         <cylinderGeometry args={[0.13, 0.16, 0.14, 24]} />
         <meshStandardMaterial color="#5a3a1c" roughness={0.85} />
       </mesh>
+      {/* Sheriff badge: a gold star pinned on top of the hat */}
+      {sheriff && <SheriffStar radius={0.1} y={0.95} color="#f5c518" />}
     </group>
   );
 }
@@ -460,7 +462,7 @@ function Opponents({
               <OpponentHand count={p.handCount} />
               <Nameplate p={p} />
             </group>
-            <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} />
+            <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} sheriff={p.role === "sheriff"} />
             <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} />
             {targetable && onPickTarget && (
               <TargetMarker position={[ax, 1.15, az]} onClick={() => onPickTarget(p.id)} />
