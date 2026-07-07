@@ -184,15 +184,53 @@ function ReactionPanel({
   const remaining = useCountdown(p.endsAt);
   const you = view.you;
 
+  const [open, setOpen] = useState(true);
+
   const doAction = (a: "missed" | "beer" | "bang" | "pass") => {
     if (a === "pass") return onRespond("pass");
     const card = you.hand.find((c) => c.defId === a);
     onRespond(a, card?.id);
   };
 
+  // Minimized: a small chip so you can look at your hand / other cards, then reopen.
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        style={{
+          position: "fixed",
+          top: "6%",
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 1000,
+          width: "auto",
+          padding: "10px 18px",
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+          background: "var(--accent2)",
+          boxShadow: "0 4px 16px rgba(0,0,0,.5)",
+        }}
+      >
+        <span>{PENDING_EMOJI[p.kind]}</span>
+        <span>{formatPending(locale, p, you.name)}</span>
+        <span style={{ opacity: 0.85 }}>{remaining}s</span>
+        <span style={{ textDecoration: "underline" }}>{L(locale, "Phản ứng", "Respond")}</span>
+      </button>
+    );
+  }
+
   return (
     <div className="modal-overlay">
-      <div className="modal-card" style={{ color: "var(--accent)" }}>
+      <div className="modal-card" style={{ color: "var(--accent)", position: "relative" }}>
+        <button
+          className="ghost"
+          onClick={() => setOpen(false)}
+          style={{ position: "absolute", top: 8, right: 8, width: "auto", padding: "4px 10px", fontSize: "0.8rem" }}
+          title={L(locale, "Thu nhỏ để xem bài", "Minimize to view cards")}
+        >
+          {L(locale, "Xem bài ▾", "View cards ▾")}
+        </button>
         <div className="modal-emoji">{PENDING_EMOJI[p.kind]}</div>
         <p className="modal-ability">{formatPending(locale, p, you.name)}</p>
         {p.kind === "bang" && (
