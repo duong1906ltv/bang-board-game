@@ -329,7 +329,7 @@ function Avatar({ position, color, dead }: { position: [number, number, number];
 
 // Blue "in play" cards (guns, Barrel, Scope, Jail…) laid face-up on the felt in
 // front of a seat, upright toward the camera so the whole table can read them.
-function FeltCards({ cards, ang, radius }: { cards: Card[]; ang: number; radius: number }) {
+function FeltCards({ cards, ang, radius, onInspect }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void }) {
   if (!cards.length) return null;
   const cx = radius * Math.cos(ang);
   const cz = radius * Math.sin(ang);
@@ -344,10 +344,11 @@ function FeltCards({ cards, ang, radius }: { cards: Card[]; ang: number; radius:
         return (
           <group key={c.id} position={[o, 0, 0]}>
             <CardMesh card={c} scale={0.46} position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} />
-            {/* readable name label; hover shows the effect */}
+            {/* name label; tap to see the effect */}
             <Html center position={[0, 0.12, 0.18]} distanceFactor={7} style={{ pointerEvents: "auto" }}>
               <div
                 title={def?.effect}
+                onClick={() => onInspect?.(c)}
                 style={{
                   whiteSpace: "nowrap",
                   fontFamily: "system-ui, sans-serif",
@@ -359,10 +360,10 @@ function FeltCards({ cards, ang, radius }: { cards: Card[]; ang: number; radius:
                   padding: "2px 7px",
                   borderRadius: 8,
                   textShadow: "0 1px 2px #000",
-                  cursor: "help",
+                  cursor: "pointer",
                 }}
               >
-                {CARD_ICON[c.defId] ?? "🔵"} {c.name}
+                {CARD_ICON[c.defId] ?? "🔵"} {c.name} ⓘ
               </div>
             </Html>
           </group>
@@ -407,6 +408,7 @@ function Opponents({
   arc,
   targetIds,
   onPickTarget,
+  onInspect,
 }: {
   players: PlayerPublic[];
   youSeat: number;
@@ -415,6 +417,7 @@ function Opponents({
   arc: number;
   targetIds?: string[];
   onPickTarget?: (id: string) => void;
+  onInspect?: (c: Card) => void;
 }) {
   const others = players.filter((p) => p.seat !== youSeat);
   const seatR = felt + 0.2; // avatars just beyond the felt edge
@@ -436,7 +439,7 @@ function Opponents({
               <Nameplate p={p} />
             </group>
             <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} />
-            <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.64} />
+            <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.64} onInspect={onInspect} />
             {targetable && onPickTarget && (
               <TargetMarker position={[ax, 1.15, az]} onClick={() => onPickTarget(p.id)} />
             )}
@@ -693,7 +696,7 @@ function DynamiteFx({ check, felt }: { check: CheckView | null; felt: number }) 
   );
 }
 
-function Scene({ view, targetIds, onPickTarget }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void }) {
+function Scene({ view, targetIds, onPickTarget, onInspect }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void; onInspect?: (c: Card) => void }) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
@@ -716,9 +719,9 @@ function Scene({ view, targetIds, onPickTarget }: { view: PlayerView; targetIds?
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} />
       {/* your own in-play cards, on the near edge of the felt */}
-      <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} />
+      <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
       {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       {/* dramatic Dynamite Draw!-check reveal over the table centre */}
@@ -731,15 +734,17 @@ export default function TableScene({
   view,
   targetIds,
   onPickTarget,
+  onInspect,
 }: {
   view: PlayerView;
   targetIds?: string[];
   onPickTarget?: (id: string) => void;
+  onInspect?: (c: Card) => void;
 }) {
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
       <Canvas shadows dpr={[1, 2]}>
-        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} />
+        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} />
       </Canvas>
     </div>
   );

@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, ROLE_EMOJI } from "@/lib/types";
-import { SUIT_SYMBOL, rankLabel, type Card } from "@/lib/cards";
+import { SUIT_SYMBOL, rankLabel, CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import {
   L,
@@ -370,6 +370,20 @@ function Table({
   const [threeD, setThreeD] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [notice, setNotice] = useState("");
+  const [info, setInfo] = useState<{ title: string; icon: string; body: string } | null>(null);
+
+  const inspectCard = (c: Card) => {
+    const def = CARD_DEF_BY_ID[c.defId];
+    setInfo({
+      title: `${c.name} · ${rankLabel(c.rank)}${SUIT_SYMBOL[c.suit]}`,
+      icon: CARD_ICON[c.defId] ?? "🃏",
+      body: def?.effect ?? "",
+    });
+  };
+  const showRole = () => {
+    if (!you.role) return;
+    setInfo({ title: roleLabel(locale, you.role), icon: ROLE_EMOJI[you.role], body: roleGoal(locale, you.role) });
+  };
   // Cards freshly added to your hand — animated in for a "draw" effect.
   const [justDrew, setJustDrew] = useState<Set<string>>(new Set());
   const prevHandRef = useRef<string[]>([]);
@@ -539,6 +553,7 @@ function Table({
             view={view}
             targetIds={aiming ? view.players.filter((p) => canTarget(p)).map((p) => p.id) : []}
             onPickTarget={fireAt}
+            onInspect={inspectCard}
           />
           <button
             className="ghost"
@@ -727,13 +742,49 @@ function Table({
         </div>
       )}
 
+      {/* card / role info popup (tap to open, tap anywhere to close) */}
+      {info && (
+        <div
+          onClick={() => setInfo(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 340, width: "100%", background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 14, padding: 20, textAlign: "center", fontFamily: "system-ui, sans-serif" }}
+          >
+            <div style={{ fontSize: 40 }}>{info.icon}</div>
+            <div style={{ fontWeight: 800, fontSize: "1.15rem", margin: "6px 0 10px" }}>{info.title}</div>
+            <p className="muted" style={{ lineHeight: 1.5 }}>{info.body}</p>
+            <button style={{ marginTop: 12 }} onClick={() => setInfo(null)}>{L(locale, "Đóng", "Close")}</button>
+          </div>
+        </div>
+      )}
+
+      {/* end-of-game overlay for the 3D view (2D has its own banner) */}
+      {threeD && view.phase === "result" && view.winner && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, fontFamily: "system-ui, sans-serif", padding: 20 }}>
+          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#f0e2c0", textAlign: "center" }}>{winnerText(locale, view.winner)}</div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+            {view.you.isHost && (
+              <button style={{ width: "auto", padding: "12px 20px" }} onClick={onRestart}>{L(locale, "🔁 Chơi lại / Về phòng chờ", "🔁 Play again / Lobby")}</button>
+            )}
+            <button className="ghost" style={{ width: "auto", padding: "12px 20px" }} onClick={() => setThreeD(false)}>{L(locale, "🃏 Xem bảng 2D", "🃏 View 2D")}</button>
+          </div>
+          {!view.you.isHost && <p className="muted">{L(locale, "Chờ chủ phòng bắt đầu ván mới…", "Waiting for the host…")}</p>}
+        </div>
+      )}
+
       {threeD && (
         <>
-          {/* compact status */}
+          {/* compact status — tap the role to see your objective */}
           <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,18,16,0.82)", padding: "8px 12px", borderRadius: 10, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "70vw" }}>
-            {you.role && <span className="role-badge" style={{ fontSize: "0.85rem" }}>{ROLE_EMOJI[you.role]} {roleLabel(locale, you.role)}</span>}
+            {you.role && (
+              <span className="role-badge" style={{ fontSize: "0.85rem", cursor: "pointer" }} onClick={showRole} title={L(locale, "Xem mục tiêu", "See objective")}>
+                {ROLE_EMOJI[you.role]} {roleLabel(locale, you.role)} ⓘ
+              </span>
+            )}
             <HpPips hp={you.hp} maxHp={you.maxHp} />
-            {you.character && <span className="badge">🎭 {you.character.name}</span>}
+            {you.character && <span className="badge" style={{ cursor: "pointer" }} onClick={() => you.character && setInfo({ title: you.character.name, icon: "🎭", body: charAbility(locale, you.character.id) })}>🎭 {you.character.name}</span>}
             <span className="badge">🎯 {you.range}</span>
           </div>
 
