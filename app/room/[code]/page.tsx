@@ -862,6 +862,7 @@ function Table({
                 {L(locale, "🏠 Phòng chờ", "🏠 Lobby")}
               </button>
             )}
+            <MusicToggle />
             <LangToggle />
           </div>
 
