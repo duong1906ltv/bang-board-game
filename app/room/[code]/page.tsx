@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useRef, type PointerEvent as ReactPointer
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
-import { Character, PlayerView, ROLE_EMOJI } from "@/lib/types";
+import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
 import { CARD_DEF_BY_ID, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import {
@@ -416,6 +416,7 @@ function Table({
   const [infoCard, setInfoCard] = useState<Card | null>(null);
   const [charView, setCharView] = useState<Character | null>(null);
   const [confirmPlay, setConfirmPlay] = useState<Card | null>(null);
+  const [playerInfo, setPlayerInfo] = useState<PlayerPublic | null>(null);
 
   const inspectCard = (c: Card) => setInfoCard(c);
   const showRole = () => {
@@ -571,6 +572,7 @@ function Table({
           targetIds={aiming ? view.players.filter((p) => canTarget(p)).map((p) => p.id) : []}
           onPickTarget={fireAt}
           onInspect={inspectCard}
+          onInspectPlayer={setPlayerInfo}
         />
       </div>
 
@@ -634,6 +636,31 @@ function Table({
               <button style={{ width: "auto", padding: "12px 28px" }} onClick={doConfirmedPlay}>{L(locale, "Đánh bài", "Play")}</button>
               <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={() => setConfirmPlay(null)}>{L(locale, "Hủy", "Cancel")}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* another player's info: role (if revealed) + character card */}
+      {playerInfo && (
+        <div
+          onClick={() => setPlayerInfo(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, fontFamily: "system-ui, sans-serif" }}>
+            <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--text)" }}>
+              {playerInfo.name} {!playerInfo.alive && "☠️"}
+            </div>
+            <div className="role-badge">
+              {playerInfo.role
+                ? `${ROLE_EMOJI[playerInfo.role]} ${roleLabel(locale, playerInfo.role)}`
+                : L(locale, "🎭 Vai ẩn", "🎭 Hidden role")}
+            </div>
+            {playerInfo.character && (
+              <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginTop: 8, marginBottom: 80 }}>
+                <CharacterFace c={playerInfo.character} />
+              </div>
+            )}
+            <button style={{ width: "auto", padding: "10px 24px" }} onClick={() => setPlayerInfo(null)}>{L(locale, "Đóng", "Close")}</button>
           </div>
         </div>
       )}

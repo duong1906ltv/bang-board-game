@@ -251,16 +251,20 @@ function Table({ felt }: { felt: number }) {
   );
 }
 
-function Nameplate({ p, position }: { p: PlayerPublic; position?: [number, number, number] }) {
+function Nameplate({ p, position, onClick }: { p: PlayerPublic; position?: [number, number, number]; onClick?: () => void }) {
   return (
-    <Html center position={position} distanceFactor={6} style={{ pointerEvents: "none" }}>
+    <Html center position={position} distanceFactor={6} style={{ pointerEvents: onClick ? "auto" : "none" }}>
       <div
+        onClick={onClick}
+        title={onClick ? "Xem thông tin" : undefined}
         style={{
           whiteSpace: "nowrap",
           textAlign: "center",
           fontFamily: "system-ui, sans-serif",
           color: "#fff",
           textShadow: "0 1px 3px #000",
+          cursor: onClick ? "pointer" : "default",
+          userSelect: "none",
         }}
       >
         <div style={{ fontWeight: 700, fontSize: 15 }}>
@@ -427,6 +431,7 @@ function Opponents({
   targetIds,
   onPickTarget,
   onInspect,
+  onInspectPlayer,
 }: {
   players: PlayerPublic[];
   youSeat: number;
@@ -436,6 +441,7 @@ function Opponents({
   targetIds?: string[];
   onPickTarget?: (id: string) => void;
   onInspect?: (c: Card) => void;
+  onInspectPlayer?: (p: PlayerPublic) => void;
 }) {
   // Order opponents by turn order relative to the viewer (the player right after
   // you first) so the seating reads the same from everyone's perspective.
@@ -462,7 +468,7 @@ function Opponents({
             </group>
             <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} sheriff={p.role === "sheriff"} />
             {/* name / hp / character floating above the avatar's head */}
-            <Nameplate p={p} position={[ax, 1.35, az]} />
+            <Nameplate p={p} position={[ax, 1.35, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
             <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} />
             {targetable && onPickTarget && (
               <TargetMarker position={[ax, 1.6, az]} onClick={() => onPickTarget(p.id)} />
@@ -720,7 +726,7 @@ function DynamiteFx({ check, felt }: { check: CheckView | null; felt: number }) 
   );
 }
 
-function Scene({ view, targetIds, onPickTarget, onInspect }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void; onInspect?: (c: Card) => void }) {
+function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void; onInspect?: (c: Card) => void; onInspectPlayer?: (p: PlayerPublic) => void }) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
@@ -743,7 +749,7 @@ function Scene({ view, targetIds, onPickTarget, onInspect }: { view: PlayerView;
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
       {/* cards drawn into your hand fly out of the deck toward you */}
@@ -759,16 +765,18 @@ export default function TableScene({
   targetIds,
   onPickTarget,
   onInspect,
+  onInspectPlayer,
 }: {
   view: PlayerView;
   targetIds?: string[];
   onPickTarget?: (id: string) => void;
   onInspect?: (c: Card) => void;
+  onInspectPlayer?: (p: PlayerPublic) => void;
 }) {
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
       <Canvas shadows dpr={[1, 2]}>
-        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} />
+        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} />
       </Canvas>
     </div>
   );
