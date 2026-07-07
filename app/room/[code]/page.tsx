@@ -17,6 +17,7 @@ import {
   charAbility,
   winnerText,
   formatPending,
+  checkText,
   actionLabel,
   tError,
   logText,
@@ -169,6 +170,7 @@ function PendingNote({ view }: { view: PlayerView }) {
 }
 
 const PENDING_EMOJI: Record<string, string> = { bang: "🔫", dying: "💀", multi: "🎯", duel: "⚔️", store: "🏪", kit: "🎴" };
+const CHECK_ICON: Record<string, string> = { dynamite: "🧨", jail: "⛓️", barrel: "🛢️", blackjack: "🎴", "lucky-duke": "🍀" };
 
 function ReactionPanel({
   view,
@@ -474,6 +476,19 @@ function Table({
   // Cards freshly added to your hand — animated in for a "draw" effect.
   const [justDrew, setJustDrew] = useState<Set<string>>(new Set());
   const prevHandRef = useRef<string[]>([]);
+  // Scrolling ticker announcing the latest Draw!-check result.
+  const [marquee, setMarquee] = useState<string | null>(null);
+  const lastCheckRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const c = view.checks[view.checks.length - 1];
+    if (!c) return;
+    const key = c.card?.id ?? `${c.name}-${c.kind}-${c.outcome}`;
+    if (key === lastCheckRef.current) return;
+    lastCheckRef.current = key;
+    const t = checkText(locale, c.kind, c.outcome);
+    setMarquee(`${CHECK_ICON[c.kind] ?? "🎴"} ${c.name} — ${t.kind}: ${t.outcome}`);
+  }, [view.checks, locale]);
 
   const flash = (msg: string) => {
     setNotice(msg);
@@ -624,6 +639,14 @@ function Table({
         />
       </div>
 
+
+      {marquee && (
+        <div className="marquee-wrap">
+          <span key={marquee} className="marquee-track" onAnimationEnd={() => setMarquee(null)}>
+            {marquee}
+          </span>
+        </div>
+      )}
 
       {notice && (
         <div

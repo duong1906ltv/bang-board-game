@@ -623,12 +623,12 @@ function FlyingCards({ hand, felt, camY, camZ }: { hand: Card[]; felt: number; c
   );
 }
 
-// A dramatic Draw!-check reveal for Dynamite, staged over the centre of the
-// table: the revealed card rises and turns face-up, then either explodes (blast)
-// or shows a "safe → pass left" note. Purely visual; it reacts to a new dynamite
-// entry appearing in view.checks so the resolution no longer feels skipped.
-function DynamiteFx({ check, felt }: { check: CheckView | null; felt: number }) {
-  const [active, setActive] = useState<{ card: Card | null; blast: boolean } | null>(null);
+// A dramatic Draw!-check reveal for ANY check (Dynamite / Jail / Barrel /
+// Black Jack / Lucky Duke), staged over the centre of the table: the drawn card
+// rises and turns face-up with a result label, so players feel the draw. A
+// Dynamite blast adds a fireball. Reacts to the newest entry in view.checks.
+function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
+  const [active, setActive] = useState<{ card: Card | null; blast: boolean; kind: string; outcome: string; name: string } | null>(null);
   const lastKey = useRef<string | null>(null);
   const t = useRef(0);
   const cardRef = useRef<THREE.Group>(null);
@@ -638,11 +638,11 @@ function DynamiteFx({ check, felt }: { check: CheckView | null; felt: number }) 
 
   useEffect(() => {
     if (!check) return;
-    const key = check.card?.id ?? `${check.name}-${check.outcome}`;
+    const key = check.card?.id ?? `${check.name}-${check.kind}-${check.outcome}`;
     if (key === lastKey.current) return; // already showed this reveal
     lastKey.current = key;
     t.current = 0;
-    setActive({ card: check.card, blast: check.outcome === "blast" });
+    setActive({ card: check.card, blast: check.kind === "dynamite" && check.outcome === "blast", kind: check.kind, outcome: check.outcome, name: check.name });
   }, [check]);
 
   const DUR = 1.8;
@@ -703,25 +703,7 @@ function DynamiteFx({ check, felt }: { check: CheckView | null; felt: number }) 
           <pointLight ref={lightRef} position={[0, cy, 0]} color="#ff8a2a" intensity={0} distance={felt * 9} decay={2} />
         </>
       )}
-      <Html center position={[0, cy + 0.75, 0]} distanceFactor={5} style={{ pointerEvents: "none" }} zIndexRange={[80, 70]}>
-        <div
-          className="boom-label"
-          style={{
-            whiteSpace: "nowrap",
-            fontFamily: "system-ui, sans-serif",
-            fontWeight: 800,
-            fontSize: 26,
-            color: "#fff",
-            textShadow: active.blast ? "0 2px 10px #ff3b00, 0 0 24px #ff6a00" : "0 2px 6px #000",
-            background: active.blast ? "rgba(120,20,0,0.55)" : "rgba(20,60,30,0.55)",
-            border: `2px solid ${active.blast ? "#ff7a2a" : "#4ad07a"}`,
-            padding: "6px 16px",
-            borderRadius: 12,
-          }}
-        >
-          {active.blast ? "🧨💥 NỔ! −3 ❤️" : "🧨 An toàn → chuyền trái"}
-        </div>
-      </Html>
+      {/* result text is announced by the DOM marquee in the room HUD */}
     </group>
   );
 }
@@ -754,8 +736,8 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer }: { 
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
       {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
-      {/* dramatic Dynamite Draw!-check reveal over the table centre */}
-      <DynamiteFx check={view.checks.find((c) => c.kind === "dynamite") ?? null} felt={felt} />
+      {/* Draw!-check reveal (any kind) over the table centre */}
+      <CheckFx check={view.checks.length ? view.checks[view.checks.length - 1] : null} felt={felt} />
     </>
   );
 }

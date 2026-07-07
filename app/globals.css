@@ -374,6 +374,37 @@ button.danger {
   animation: drawIn 0.5s cubic-bezier(0.2, 0.85, 0.25, 1) both;
 }
 
+/* Draw!-result ticker: a line of text that scrolls across a few times. */
+.marquee-wrap {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(20, 18, 16, 0.55);
+}
+.marquee-track {
+  display: inline-block;
+  white-space: nowrap;
+  padding: 7px 0;
+  font-family: system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: #ffe6b0;
+  text-shadow: 0 1px 3px #000;
+  animation: marqueeRun 4.5s linear 2;
+}
+@keyframes marqueeRun {
+  from {
+    transform: translateX(100vw);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
 /* Dynamite reveal label: punchy pop then settle. */
 @keyframes boom {
   0% {
