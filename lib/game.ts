@@ -1460,7 +1460,8 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
     const r = p.responders.find((x) => x.id === meId);
     const mine = !!r && !r.done;
     const need = p.effect === "indians" ? "bang" : "missed";
-    return { kind: "multi", endsAt: p.endsAt, youMustRespond: mine, actions: acts(mine, need), actorName: name(p.sourceId), effect: p.effect };
+    const waiting = p.responders.filter((x) => !x.done).map((x) => name(x.id));
+    return { kind: "multi", endsAt: p.endsAt, youMustRespond: mine, actions: acts(mine, need), actorName: name(p.sourceId), effect: p.effect, waiting };
   }
   if (p.kind === "duel") {
     const mine = meId === p.turnId;

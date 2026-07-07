@@ -30,8 +30,8 @@ app.prepare().then(() => {
     const room = game.getRoom(code);
     if (!room) return;
     game.refillEmptyHands(room); // Suzy Lafayette
-    ensureDraftTimer(room, code);
-    ensurePendingTimer(room, code);
+    // No draft/reaction countdowns: players take as long as they need. Only bots
+    // are auto-paced (below); human picks/reactions never time out.
     for (const p of room.players) {
       if (p.socketId && p.connected) {
         io.to(p.socketId).emit("view", game.buildView(room, p.id));
@@ -48,30 +48,6 @@ app.prepare().then(() => {
       room.botTimer = null;
       if (bot.step(code)) broadcast(code);
     }, BOT_TICK_MS);
-  }
-
-  // Schedule the 30s draft deadline once, when the draft phase begins. When it
-  // fires, unpicked players are auto-resolved by rank and the game starts.
-  function ensureDraftTimer(room: game.Room, code: string) {
-    if (room.phase === "drafting" && room.draftEndsAt && !room.draftTimer) {
-      const ms = Math.max(0, room.draftEndsAt - Date.now());
-      room.draftTimer = setTimeout(() => {
-        room.draftTimer = null;
-        if (game.draftTimeout(code)) broadcast(code);
-      }, ms);
-    }
-  }
-
-  // Schedule the reaction deadline; on expiry the pending resolves (take the
-  // hit / accept death).
-  function ensurePendingTimer(room: game.Room, code: string) {
-    if (room.pending && !room.pendingTimer) {
-      const ms = Math.max(0, room.pending.endsAt - Date.now());
-      room.pendingTimer = setTimeout(() => {
-        room.pendingTimer = null;
-        if (game.pendingTimeout(code)) broadcast(code);
-      }, ms);
-    }
   }
 
   // Resolve which player a socket belongs to within a room.

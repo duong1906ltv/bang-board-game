@@ -98,7 +98,8 @@ export default function RoomPage() {
   const draw = (source?: "deck" | "discard" | "player", targetId?: string) =>
     socket.emit("drawCards", { code, source, targetId });
   const sidHeal = (cardIds: string[]) => socket.emit("sidHeal", { code, cardIds });
-  const play = (cardId: string, targetId?: string) => socket.emit("playCard", { code, cardId, targetId });
+  const play = (cardId: string, targetId?: string, targetCardId?: string) =>
+    socket.emit("playCard", { code, cardId, targetId, targetCardId });
   const respond = (type: "missed" | "beer" | "bang" | "pass", cardId?: string) =>
     socket.emit("respond", { code, type, cardId });
   const choose = (cardId: string) => socket.emit("choose", { code, cardId });
@@ -140,7 +141,6 @@ export default function RoomPage() {
 function PendingNote({ view }: { view: PlayerView }) {
   const locale = useLocale();
   const p = view.pending!;
-  const remaining = useCountdown(p.endsAt);
   return (
     <div
       style={{
@@ -164,7 +164,11 @@ function PendingNote({ view }: { view: PlayerView }) {
     >
       <span style={{ fontSize: 18 }}>{PENDING_EMOJI[p.kind]}</span>
       <span>{formatPending(locale, p, view.you.name)}</span>
-      <span style={{ opacity: 0.6 }}>{remaining}s</span>
+      {p.kind === "multi" && p.waiting && p.waiting.length > 0 && (
+        <span style={{ opacity: 0.7, fontSize: "0.85rem" }}>
+          · {L(locale, "chờ", "waiting")}: {p.waiting.join(", ")}
+        </span>
+      )}
     </div>
   );
 }
@@ -183,7 +187,6 @@ function ReactionPanel({
 }) {
   const locale = useLocale();
   const p = view.pending!;
-  const remaining = useCountdown(p.endsAt);
   const you = view.you;
 
   const [open, setOpen] = useState(true);
@@ -226,7 +229,6 @@ function ReactionPanel({
       >
         <span>{PENDING_EMOJI[p.kind]}</span>
         <span>{formatPending(locale, p, you.name)}</span>
-        <span style={{ opacity: 0.85 }}>{remaining}s</span>
         <span style={{ textDecoration: "underline" }}>{L(locale, "Phản ứng", "Respond")}</span>
       </button>
     );
@@ -250,7 +252,9 @@ function ReactionPanel({
             {L(locale, `Cần ${(p.missedNeeded ?? 1) - (p.missedPlayed ?? 0)} Missed! để né`, `Need ${(p.missedNeeded ?? 1) - (p.missedPlayed ?? 0)} Missed! to dodge`)}
           </p>
         )}
-        <div className="timer">{remaining}s</div>
+        {p.kind === "multi" && p.waiting && p.waiting.length > 0 && (
+          <p className="muted">{L(locale, "Đang chờ", "Waiting for")}: {p.waiting.join(", ")}</p>
+        )}
 
         {(p.kind === "store" || p.kind === "kit") && (
           <div className="card-row" style={{ justifyContent: "center" }}>
@@ -382,16 +386,14 @@ function Lobby({
 function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => void }) {
   const locale = useLocale();
   const draft = view.draft!;
-  const remaining = useCountdown(draft.endsAt);
 
   return (
     <div className="card wide" style={{ marginTop: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h2 className="section-title">{L(locale, "Chọn nhân vật", "Pick a character")}</h2>
-        <span className="timer" style={{ fontSize: "1.8rem" }}>{remaining}s</span>
       </div>
       <p className="muted">
-        {L(locale, "Chọn 1 trong 2 nhân vật. Hết giờ sẽ tự chọn theo hạng — cùng hạng thì ngẫu nhiên.", "Pick 1 of 2. On timeout the higher-tier one is auto-picked (ties random).")}
+        {L(locale, "Chọn 1 trong 2 nhân vật. Cứ thong thả — không giới hạn thời gian.", "Pick 1 of 2. Take your time — no time limit.")}
       </p>
 
       {view.you.role && (
@@ -441,7 +443,7 @@ function Table({
 }: {
   view: PlayerView;
   onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
-  onPlay: (cardId: string, targetId?: string) => void;
+  onPlay: (cardId: string, targetId?: string, targetCardId?: string) => void;
   onDiscard: (cardId: string) => void;
   onSidHeal: (cardIds: string[]) => void;
   onEndTurn: () => void;
@@ -611,20 +613,22 @@ function Table({
     if (aiming.defId === "jesse") return p.handCount > 0;
     return false;
   };
-  const fireAt = (targetId: string) => {
+  const fireAt = (targetId: string, targetCardId?: string) => {
     if (!aiming) return;
     if (aiming.defId === "jesse") onDraw("player", targetId);
-    else onPlay(aiming.id, targetId);
+    else onPlay(aiming.id, targetId, targetCardId);
     setAiming(null);
   };
+  // Cat Balou / Panic! may hit a specific face-up card on the table.
+  const pickCardMode = aiming?.defId === "cat-balou" || aiming?.defId === "panic";
 
   const aimText: Record<string, [string, string]> = {
     bang: [`Chọn mục tiêu Bang! (trong tầm ${you.range})`, `Choose a Bang! target (range ${you.range})`],
     jail: ["Chọn người để bỏ tù (không phải Sheriff)", "Choose someone to jail (not the Sheriff)"],
-    panic: ["Chọn người ở khoảng cách 1 để rút bài", "Choose someone at distance 1 to take a card"],
+    panic: ["Khoảng cách 1: bấm kính nhắm (lấy 1 lá tay ngẫu nhiên) hoặc bấm lá xanh trên bàn để lấy lá đó", "Distance 1: click the scope (random hand card) or a table card to take it"],
     duel: ["Chọn người để Duel", "Choose someone to Duel"],
     jesse: ["Chọn người để rút 1 lá từ tay họ", "Choose whose hand to draw from"],
-    "cat-balou": ["Chọn người để ép bỏ 1 lá", "Choose someone to discard a card"],
+    "cat-balou": ["Bấm kính nhắm (bỏ 1 lá tay ngẫu nhiên) hoặc bấm lá xanh trên bàn để bỏ lá đó", "Click the scope (random hand card) or a table card to discard it"],
   };
 
   return (
@@ -636,6 +640,8 @@ function Table({
           onPickTarget={fireAt}
           onInspect={inspectCard}
           onInspectPlayer={setPlayerInfo}
+          pickCardMode={pickCardMode}
+          onPickCard={(ownerId, cardId) => fireAt(ownerId, cardId)}
         />
       </div>
 
@@ -1130,14 +1136,4 @@ function HpPips({ hp, maxHp }: { hp: number; maxHp: number }) {
       ))}
     </div>
   );
-}
-
-function useCountdown(endsAt: number | null): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(t);
-  }, []);
-  if (!endsAt) return 0;
-  return Math.max(0, Math.ceil((endsAt - now) / 1000));
 }

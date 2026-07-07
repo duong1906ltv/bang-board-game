@@ -337,7 +337,7 @@ function Avatar({ position, color, dead, sheriff }: { position: [number, number,
 
 // Blue "in play" cards (guns, Barrel, Scope, Jail…) laid face-up on the felt in
 // front of a seat, upright toward the camera so the whole table can read them.
-function FeltCards({ cards, ang, radius, onInspect, color }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string }) {
+function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string; pickable?: boolean; onPickCard?: (cardId: string) => void }) {
   if (!cards.length) return null;
   const cx = radius * Math.cos(ang);
   const cz = radius * Math.sin(ang);
@@ -364,18 +364,19 @@ function FeltCards({ cards, ang, radius, onInspect, color }: { cards: Card[]; an
             {/* icon badge above the card; tap to see the full card + effect */}
             <Html center position={[0, 0.14, -0.28]} distanceFactor={9} style={{ pointerEvents: "auto" }}>
               <div
-                title={def?.effect}
+                title={pickable ? "Chọn lá này" : def?.effect}
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
-                onClick={() => onInspect?.(c)}
+                onClick={() => (pickable && onPickCard ? onPickCard(c.id) : onInspect?.(c))}
                 style={{
                   whiteSpace: "nowrap",
                   fontFamily: "system-ui, sans-serif",
                   fontSize: 12,
                   fontWeight: 700,
                   color: "#fff",
-                  background: "rgba(20,18,16,0.85)",
-                  border: `2px solid ${color ?? "rgba(240,226,192,0.5)"}`,
+                  background: pickable ? "rgba(20,110,50,0.9)" : "rgba(20,18,16,0.85)",
+                  border: `2px solid ${pickable ? "#33d17a" : color ?? "rgba(240,226,192,0.5)"}`,
+                  boxShadow: pickable ? "0 0 8px #33d17a" : undefined,
                   padding: "0 5px",
                   borderRadius: 7,
                   textShadow: "0 1px 2px #000",
@@ -432,6 +433,8 @@ function Opponents({
   onPickTarget,
   onInspect,
   onInspectPlayer,
+  pickCardMode,
+  onPickCard,
 }: {
   players: PlayerPublic[];
   youSeat: number;
@@ -442,6 +445,8 @@ function Opponents({
   onPickTarget?: (id: string) => void;
   onInspect?: (c: Card) => void;
   onInspectPlayer?: (p: PlayerPublic) => void;
+  pickCardMode?: boolean;
+  onPickCard?: (ownerId: string, cardId: string) => void;
 }) {
   // Order opponents by turn order relative to the viewer (the player right after
   // you first) so the seating reads the same from everyone's perspective.
@@ -469,7 +474,7 @@ function Opponents({
             <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={!p.alive} sheriff={p.role === "sheriff"} />
             {/* name / hp / character floating above the avatar's head */}
             <Nameplate p={p} position={[ax, 1.35, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
-            <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} />
+            <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} pickable={!!pickCardMode && targetable} onPickCard={(cid) => onPickCard?.(p.id, cid)} />
             {targetable && onPickTarget && (
               <TargetMarker position={[ax, 1.6, az]} onClick={() => onPickTarget(p.id)} />
             )}
@@ -708,7 +713,7 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
   );
 }
 
-function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void; onInspect?: (c: Card) => void; onInspectPlayer?: (p: PlayerPublic) => void }) {
+function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void; onInspect?: (c: Card) => void; onInspectPlayer?: (p: PlayerPublic) => void; pickCardMode?: boolean; onPickCard?: (ownerId: string, cardId: string) => void }) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
@@ -731,7 +736,7 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer }: { 
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
       {/* cards drawn into your hand fly out of the deck toward you */}
@@ -748,17 +753,21 @@ export default function TableScene({
   onPickTarget,
   onInspect,
   onInspectPlayer,
+  pickCardMode,
+  onPickCard,
 }: {
   view: PlayerView;
   targetIds?: string[];
   onPickTarget?: (id: string) => void;
   onInspect?: (c: Card) => void;
   onInspectPlayer?: (p: PlayerPublic) => void;
+  pickCardMode?: boolean;
+  onPickCard?: (ownerId: string, cardId: string) => void;
 }) {
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
       <Canvas shadows dpr={[1, 2]}>
-        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} />
+        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
       </Canvas>
     </div>
   );

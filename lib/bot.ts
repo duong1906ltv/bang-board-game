@@ -120,7 +120,9 @@ function pendingAction(room: Room): (() => boolean) | null {
     return () => ok(game.respond(code, me.id, "pass"));
   }
   if (p.kind === "multi") {
-    const r = p.responders.find((x) => !x.done);
+    // Simultaneous reaction: any not-yet-done bot may act now, regardless of
+    // which humans are still deciding (there is no timeout to break a stall).
+    const r = p.responders.find((x) => !x.done && !!player(room, x.id)?.isBot);
     if (!r) return null;
     const me = player(room, r.id);
     if (!me?.isBot) return null;

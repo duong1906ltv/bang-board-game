@@ -113,6 +113,7 @@ export interface PendingView {
   targetName?: string; // secondary (bang target / duel B / dying player)
   turnName?: string; // duel: whose turn to discard now
   effect?: "indians" | "gatling"; // multi effect
+  waiting?: string[]; // multi: names of players who haven't reacted yet
 }
 
 // ─── Views sent to clients ───────────────────────────────────────────────────
