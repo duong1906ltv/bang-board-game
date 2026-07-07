@@ -860,22 +860,38 @@ function Table({
             </div>
           )}
 
-          {/* drop zones shown while dragging a card */}
-          {dragDelta && (() => {
-            const z = dragZone(dragDelta, overLimit > 0);
-            return (
-              <>
-                <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: "42vh", zIndex: 52, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", background: z === "play" ? "rgba(46,204,113,0.28)" : "rgba(46,204,113,0.08)", borderBottom: z === "play" ? "3px dashed #2ecc71" : "3px dashed rgba(46,204,113,0.4)", transition: "background .1s" }}>
-                  <span style={{ fontSize: z === "play" ? 34 : 26, fontWeight: 800, color: "#eafff2", textShadow: "0 2px 6px #000", opacity: z === "play" ? 1 : 0.7 }}>▲ {L(locale, "ĐÁNH", "PLAY")}</span>
+          {/* trash bin beside the hand — drag a card onto it to discard (only
+              relevant when over the hand limit) */}
+          {overLimit > 0 && (
+            (() => {
+              const over = dragZone(dragDelta, true) === "discard";
+              return (
+                <div
+                  style={{
+                    position: "fixed",
+                    right: 24,
+                    bottom: 40,
+                    zIndex: 56,
+                    pointerEvents: "none",
+                    width: over ? 84 : 66,
+                    height: over ? 84 : 66,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: over ? 40 : 30,
+                    background: over ? "rgba(231,76,60,0.9)" : "rgba(20,18,16,0.8)",
+                    border: `2px dashed ${over ? "#fff" : "#e74c3c"}`,
+                    boxShadow: over ? "0 0 20px #e74c3c" : "none",
+                    transition: "all .12s",
+                  }}
+                  title={L(locale, "Kéo lá vào đây để bỏ", "Drag a card here to discard")}
+                >
+                  🗑️
                 </div>
-                {overLimit > 0 && (
-                  <div style={{ position: "fixed", top: 0, bottom: 0, right: 0, width: "26vw", zIndex: 53, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", background: z === "discard" ? "rgba(231,76,60,0.32)" : "rgba(231,76,60,0.1)", borderLeft: z === "discard" ? "3px dashed #e74c3c" : "3px dashed rgba(231,76,60,0.4)", transition: "background .1s" }}>
-                    <span style={{ fontSize: z === "discard" ? 30 : 24, fontWeight: 800, color: "#ffecec", textShadow: "0 2px 6px #000", opacity: z === "discard" ? 1 : 0.7 }}>🗑️ {L(locale, "BỎ", "DISCARD")}</span>
-                  </div>
-                )}
-              </>
-            );
-          })()}
+              );
+            })()
+          )}
 
           {/* draggable hand */}
           {you.alive && (
@@ -898,7 +914,7 @@ function Table({
           )}
           {inPlayPhase && !aiming && !dragDelta && you.hand.length > 0 && (
             <div style={{ position: "fixed", left: "50%", bottom: 176, transform: "translateX(-50%)", zIndex: 55, color: "rgba(240,226,192,0.85)", fontSize: 13, fontFamily: "system-ui, sans-serif", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", pointerEvents: "none" }}>
-              {sidPicking ? L(locale, `Kéo LÊN 2 lá để bỏ (${sidPick.length}/2)`, `Drag UP 2 cards to discard (${sidPick.length}/2)`) : overLimit > 0 ? L(locale, "Kéo LÊN để đánh · sang PHẢI để bỏ lá dư", "Drag UP to play · RIGHT to discard") : L(locale, "Kéo bài LÊN để đánh", "Drag UP to play")}
+              {sidPicking ? L(locale, `Kéo LÊN 2 lá để bỏ (${sidPick.length}/2)`, `Drag UP 2 cards to discard (${sidPick.length}/2)`) : overLimit > 0 ? L(locale, "Kéo LÊN để đánh · vào 🗑️ để bỏ lá dư", "Drag UP to play · into 🗑️ to discard") : L(locale, "Kéo bài LÊN để đánh", "Drag UP to play")}
             </div>
           )}
         </>
