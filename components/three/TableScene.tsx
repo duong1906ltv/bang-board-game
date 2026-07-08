@@ -599,9 +599,10 @@ function Avatar({ position, color, dead, sheriff }: { position: [number, number,
   const bodyH = shoulderY - FLOOR_Y;
   return (
     <group position={position}>
-      {/* torso: a tapered column from the floor up to the shoulders */}
+      {/* torso: a slim tapered column from the floor up to the shoulders (kept
+          narrow so it doesn't spill over the felt) */}
       <mesh position={[0, FLOOR_Y + bodyH / 2, 0]} castShadow>
-        <cylinderGeometry args={[0.2, 0.36, bodyH, 20]} />
+        <cylinderGeometry args={[0.16, 0.26, bodyH, 20]} />
         <meshStandardMaterial color={dead ? "#4a4a4a" : color} roughness={0.75} />
       </mesh>
       <mesh position={[0, shoulderY + 0.2, 0]} castShadow>
@@ -826,7 +827,7 @@ function Opponents({
   const others = players
     .filter((p) => p.seat !== youSeat)
     .sort((a, b) => ((a.seat - youSeat + n) % n) - ((b.seat - youSeat + n) % n));
-  const seatR = felt + 0.2; // avatars just beyond the felt edge
+  const seatR = felt + 0.45; // avatars out past the felt so bodies don't cover it
   return (
     <>
       {others.map((p, i) => {
