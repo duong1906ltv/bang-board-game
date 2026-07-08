@@ -753,7 +753,15 @@ function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard 
                 {def?.kind === "gun" && CARD_IMAGE[c.defId] ? (
                   // Guns: show the rifle art (range baked in) instead of the 🔫
                   // emoji, which renders as a green water-pistol on many platforms.
-                  <img src={CARD_IMAGE[c.defId]} alt="" width={32} height={26} draggable={false} style={{ display: "block" }} />
+                  // On a cream tile so the dark rifle stays visible over the dark chip.
+                  <img
+                    src={CARD_IMAGE[c.defId]}
+                    alt=""
+                    width={34}
+                    height={27}
+                    draggable={false}
+                    style={{ display: "block", background: "#fdf9ef", borderRadius: 4, padding: "1px 2px" }}
+                  />
                 ) : (
                   <>
                     {CARD_ICON[c.defId] ?? "🔵"}
