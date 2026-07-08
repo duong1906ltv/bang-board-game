@@ -230,7 +230,8 @@ export interface ClientToServerEvents {
   discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;
   surrender: (data: { code: string }) => void; // concede: remove yourself from the game
-  restart: (data: { code: string }) => void;
+  restart: (data: { code: string }) => void; // back to lobby
+  playAgain: (data: { code: string }) => void; // restart + immediately deal a new game
 }
 
 export interface ServerToClientEvents {

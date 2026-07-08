@@ -144,6 +144,7 @@ export default function RoomPage() {
   const endTurn = () => socket.emit("endTurn", { code });
   const surrender = () => socket.emit("surrender", { code });
   const restart = () => socket.emit("restart", { code });
+  const playAgain = () => socket.emit("playAgain", { code });
 
   if (!view) {
     return (
@@ -162,7 +163,7 @@ export default function RoomPage() {
       {view.phase === "lobby" && <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} />
+        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} />
       )}
 
       {view.pending &&
@@ -483,6 +484,7 @@ function Table({
   onEndTurn,
   onSurrender,
   onRestart,
+  onPlayAgain,
 }: {
   view: PlayerView;
   onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
@@ -492,6 +494,7 @@ function Table({
   onEndTurn: () => void;
   onSurrender: () => void;
   onRestart: () => void;
+  onPlayAgain: () => void;
 }) {
   const locale = useLocale();
   const isMyTurn = view.turnSeat != null && view.turnSeat === view.you.seat && view.you.alive;
@@ -880,14 +883,46 @@ function Table({
 
       {/* end-of-game overlay */}
       {view.phase === "result" && view.winner && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, fontFamily: "system-ui, sans-serif", padding: 20 }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.78)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, fontFamily: "system-ui, sans-serif", padding: 20, overflowY: "auto" }}>
           <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#f0e2c0", textAlign: "center" }}>{winnerText(locale, view.winner)}</div>
+
+          {/* everyone's roles, revealed */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 460 }}>
+            <div style={{ color: "#f0e2c0", opacity: 0.8, fontSize: "0.9rem", textAlign: "center" }}>
+              {L(locale, "Vai trò của mọi người", "Everyone's roles")}
+            </div>
+            {[...view.players].sort((a, b) => a.seat - b.seat).map((p) => (
+              <div
+                key={p.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, background: "rgba(20,18,16,0.9)",
+                  border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px", color: "#f0e2c0",
+                  opacity: p.alive ? 1 : 0.6,
+                }}
+              >
+                <span style={{ fontSize: 20 }}>{p.role ? ROLE_EMOJI[p.role] : "❔"}</span>
+                <span style={{ fontWeight: 700, flex: "0 0 auto" }}>
+                  {p.name}{p.id === view.you.id ? L(locale, " (bạn)", " (you)") : ""}
+                </span>
+                <span style={{ opacity: 0.85, fontSize: "0.9rem" }}>
+                  {p.role ? roleLabel(locale, p.role) : "?"}
+                </span>
+                {p.character && <span style={{ marginLeft: "auto", opacity: 0.7, fontSize: "0.85rem" }}>🎭 {p.character.name}</span>}
+                {!p.alive && <span title={L(locale, "Bị loại", "Eliminated")}>☠️</span>}
+              </div>
+            ))}
+          </div>
+
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-            {view.you.isHost && (
-              <button style={{ width: "auto", padding: "12px 20px" }} onClick={onRestart}>{L(locale, "🔁 Chơi lại / Về phòng chờ", "🔁 Play again / Lobby")}</button>
+            {view.you.isHost ? (
+              <>
+                <button style={{ width: "auto", padding: "12px 24px" }} onClick={onPlayAgain}>{L(locale, "🔁 Chơi lại", "🔁 Play again")}</button>
+                <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={onRestart}>{L(locale, "🏠 Về phòng chờ", "🏠 Back to lobby")}</button>
+              </>
+            ) : (
+              <p className="muted">{L(locale, "Chờ chủ phòng bắt đầu ván mới…", "Waiting for the host…")}</p>
             )}
           </div>
-          {!view.you.isHost && <p className="muted">{L(locale, "Chờ chủ phòng bắt đầu ván mới…", "Waiting for the host…")}</p>}
         </div>
       )}
 

@@ -170,6 +170,12 @@ app.prepare().then(() => {
       if (game.restart(code)) broadcast(code);
     });
 
+    socket.on("playAgain", ({ code }) => {
+      const res = game.playAgain(code);
+      if (res.ok) broadcast(code);
+      else if (res.error) socket.emit("errorMsg", res.error);
+    });
+
     socket.on("disconnect", () => {
       const room = game.disconnect(socket.id);
       if (room) broadcast(room.code);

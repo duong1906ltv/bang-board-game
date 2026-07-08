@@ -1434,6 +1434,14 @@ export function restart(code: string): boolean {
   return true;
 }
 
+// Play again: reset to the lobby and immediately start a fresh game with the same
+// players (re-deal roles + character draft). Falls back to the lobby on error
+// (e.g. someone left and the headcount is now invalid).
+export function playAgain(code: string): { ok: boolean; error?: string } {
+  if (!restart(code)) return { ok: false, error: "Phòng không tồn tại" };
+  return startGame(code);
+}
+
 // --- view building (hidden-info filtering) ---
 
 function visibleRole(p: Player, room: Room): Role | null {
