@@ -10,7 +10,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
 import { PlayingCard } from "@/components/PlayingCard";
-import { CARD_DEF_BY_ID, CARD_ICON, CARD_IMAGE, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
 import type { PlayerView, PlayerPublic, CheckView } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
 
@@ -750,24 +750,10 @@ function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard 
                   WebkitUserSelect: "none",
                 }}
               >
-                {def?.kind === "gun" && CARD_IMAGE[c.defId] ? (
-                  // Guns: show the rifle art (range baked in) instead of the 🔫
-                  // emoji, which renders as a green water-pistol on many platforms.
-                  // On a cream tile so the dark rifle stays visible over the dark chip.
-                  <img
-                    src={CARD_IMAGE[c.defId]}
-                    alt=""
-                    width={34}
-                    height={27}
-                    draggable={false}
-                    style={{ display: "block", background: "#fdf9ef", borderRadius: 4, padding: "1px 2px" }}
-                  />
-                ) : (
-                  <>
-                    {CARD_ICON[c.defId] ?? "🔵"}
-                    {suffix && <span style={{ fontSize: 10, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
-                  </>
-                )}
+                {/* Guns: 🎯 + range (same style as the header range badge) — avoids
+                    the green water-pistol 🔫 emoji and the dark, hard-to-see rifle art. */}
+                {def?.kind === "gun" ? "🎯" : (CARD_ICON[c.defId] ?? "🔵")}
+                {suffix && <span style={{ fontSize: 10, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
               </div>
             </Html>
           </group>
