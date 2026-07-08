@@ -214,5 +214,3 @@ export function buildDeck(): Card[] {
   }
   return deck;
 }
-
-export const DECK_SIZE = CARD_DEFS.reduce((s, d) => s + d.count, 0);

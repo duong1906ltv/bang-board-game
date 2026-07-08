@@ -6,13 +6,6 @@
 
 export type Role = "sheriff" | "deputy" | "outlaw" | "renegade";
 
-export const ROLE_LABELS: Record<Role, string> = {
-  sheriff: "Cảnh Sát Trưởng",
-  deputy: "Cảnh Sát Phó",
-  outlaw: "Tội Phạm",
-  renegade: "Phản Bội",
-};
-
 export const ROLE_EMOJI: Record<Role, string> = {
   sheriff: "⭐",
   deputy: "🎖️",
@@ -84,12 +77,6 @@ export type TurnPhase = "draw" | "play" | "discard";
 
 // Who won, once the game ends.
 export type Winner = "sheriff" | "outlaws" | "renegade";
-
-export const WINNER_LABEL: Record<Winner, string> = {
-  sheriff: "Phe Cảnh Sát thắng! ⭐",
-  outlaws: "Phe Ngoài Vòng Pháp Luật thắng! 🤠",
-  renegade: "Kẻ Phản Bội thắng! 🐍",
-};
 
 // An unresolved action that locks the table until responded to.
 //  - bang:  a target dodges with Missed!(s) or takes the hit
