@@ -189,9 +189,9 @@ function PendingNote({ view }: { view: PlayerView }) {
     <div
       style={{
         position: "fixed",
-        top: "50%",
-        left: 12,
-        transform: "translateY(-50%)",
+        top: 72,
+        left: "50%",
+        transform: "translateX(-50%)",
         zIndex: 1000,
         background: "rgba(20,18,16,0.92)",
         color: "#f0e2c0",
@@ -199,10 +199,10 @@ function PendingNote({ view }: { view: PlayerView }) {
         borderRadius: 12,
         fontFamily: "system-ui, sans-serif",
         display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        alignItems: "flex-start",
-        width: 150,
+        flexDirection: "row",
+        gap: 8,
+        alignItems: "center",
+        maxWidth: "90vw",
         lineHeight: 1.35,
         boxShadow: "0 4px 16px rgba(0,0,0,.5)",
         pointerEvents: "none",
@@ -1121,11 +1121,12 @@ function Table({
             </button>
           )}
 
-          {/* aiming: click a green scope over a target (rendered in the 3D scene) */}
+          {/* aiming: click a green scope over a target (rendered in the 3D scene).
+              Docked to the top-centre, just under the HUD, so it doesn't cover the table. */}
           {aiming && (
-            <div style={{ position: "fixed", left: 12, top: "50%", transform: "translateY(-50%)", zIndex: 56, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10, background: "rgba(20,18,16,0.92)", padding: "10px 14px", borderRadius: 12, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", width: 150, lineHeight: 1.35 }}>
+            <div style={{ position: "fixed", left: "50%", top: 72, transform: "translateX(-50%)", zIndex: 56, display: "flex", flexDirection: "row", alignItems: "center", gap: 12, background: "rgba(20,18,16,0.92)", padding: "8px 14px", borderRadius: 12, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", maxWidth: "90vw", lineHeight: 1.3, boxShadow: "0 4px 16px rgba(0,0,0,.5)" }}>
               <span>🎯 {L(locale, aimText[aiming.defId]?.[0] ?? "Bấm kính nhắm để chọn mục tiêu", aimText[aiming.defId]?.[1] ?? "Click a scope to pick a target")}</span>
-              <button className="ghost" style={{ width: "auto", padding: "6px 12px" }} onClick={() => setAiming(null)}>{L(locale, "Hủy", "Cancel")}</button>
+              <button className="ghost" style={{ width: "auto", padding: "6px 12px", flexShrink: 0 }} onClick={() => setAiming(null)}>{L(locale, "Hủy", "Cancel")}</button>
             </div>
           )}
 
