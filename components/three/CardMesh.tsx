@@ -6,7 +6,7 @@
 // cards show a simple card-back pattern.
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { Card, CARD_DEF_BY_ID, CARD_ICON, SUIT_SYMBOL, rankLabel } from "@/lib/cards";
+import { Card, CARD_DEF_BY_ID, CARD_ICON, CARD_IMAGE, SUIT_SYMBOL, rankLabel } from "@/lib/cards";
 
 // Poker-ish aspect ratio, in world units.
 export const CARD_W = 0.63;
@@ -51,12 +51,6 @@ function drawFace(card: Card): THREE.CanvasTexture {
   ctx.textBaseline = "top";
   ctx.fillText(card.name, W / 2, 26);
 
-  // Big center emoji icon.
-  ctx.font = `120px ${EMOJI_FONT}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, H / 2);
-
   // Rank + suit — only at the bottom-left (like the real card).
   ctx.fillStyle = red ? "#c0392b" : "#1c2733";
   ctx.font = "bold 32px system-ui, sans-serif";
@@ -66,6 +60,28 @@ function drawFace(card: Card): THREE.CanvasTexture {
 
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 8;
+
+  // Center art: prefer the SAME SVG illustration the 2D <PlayingCard> uses so a
+  // card looks identical in hand and on the table. It decodes async, so draw it
+  // when ready and flag the texture for re-upload; fall back to the emoji icon
+  // for cards that have no art yet.
+  const art = CARD_IMAGE[card.defId];
+  if (art) {
+    const img = new Image();
+    img.onload = () => {
+      const boxX = 26, boxY = 92, boxW = W - 52, boxH = 196;
+      const scale = Math.min(boxW / img.width, boxH / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      ctx.drawImage(img, W / 2 - dw / 2, boxY + (boxH - dh) / 2, dw, dh);
+      tex.needsUpdate = true;
+    };
+    img.src = art;
+  } else {
+    ctx.font = `120px ${EMOJI_FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, H / 2);
+  }
   return tex;
 }
 
