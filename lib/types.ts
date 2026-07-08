@@ -89,7 +89,6 @@ export type PendingAction = "missed" | "beer" | "bang" | "pass";
 
 export interface PendingView {
   kind: PendingKind;
-  endsAt: number; // epoch ms deadline (reaction window)
   youMustRespond: boolean; // is it your turn to act right now
   actions: PendingAction[]; // response buttons to show you
   storeCards?: Card[]; // store: revealed cards to pick from
@@ -126,7 +125,6 @@ export interface PlayerPublic {
 
 // Draft state, personalized: `choices` are only ever THIS player's two options.
 export interface DraftView {
-  endsAt: number | null; // epoch ms deadline for the 30s pick window
   choices: Character[]; // your two candidate characters
   youPicked: boolean;
   yourPick: Character | null;

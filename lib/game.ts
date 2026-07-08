@@ -24,17 +24,15 @@ import {
 } from "./types";
 import { buildDeck, Card, CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL } from "./cards";
 
-// An unresolved reaction that locks the table until responded to.
+// An unresolved reaction that locks the table until responded to. There is no
+// deadline: reactions never time out (players take as long as they need).
 type Pending =
-  | { kind: "bang"; targetId: string; sourceId: string; missedNeeded: number; missedPlayed: number; endsAt: number }
-  | { kind: "dying"; targetId: string; sourceId: string | null; beersNeeded: number; endsAt: number }
-  | { kind: "multi"; effect: "indians" | "gatling"; sourceId: string; responders: { id: string; done: boolean; safe: boolean }[]; endsAt: number }
-  | { kind: "duel"; aId: string; bId: string; turnId: string; endsAt: number }
-  | { kind: "store"; sourceId: string; cards: Card[]; order: string[]; endsAt: number }
-  | { kind: "kit"; playerId: string; cards: Card[]; picksLeft: number; endsAt: number };
-
-// Reaction window (ms) for Bang!/dying responses.
-export const REACTION_MS = 15_000;
+  | { kind: "bang"; targetId: string; sourceId: string; missedNeeded: number; missedPlayed: number }
+  | { kind: "dying"; targetId: string; sourceId: string | null; beersNeeded: number }
+  | { kind: "multi"; effect: "indians" | "gatling"; sourceId: string; responders: { id: string; done: boolean; safe: boolean }[] }
+  | { kind: "duel"; aId: string; bId: string; turnId: string }
+  | { kind: "store"; sourceId: string; cards: Card[]; order: string[] }
+  | { kind: "kit"; playerId: string; cards: Card[]; picksLeft: number };
 
 export interface Player {
   id: string;
@@ -64,12 +62,9 @@ export interface Room {
   turnPhase: TurnPhase; // sub-phase of the current player's turn
   bangsThisTurn: number; // Bang!s played by the active player this turn
   pending: Pending | null; // unresolved reaction locking the table
-  pendingTimer: NodeJS.Timeout | null;
   winner: Winner | null; // set when the game ends
   deathQueue: { id: string; needed: number; sourceId: string | null }[]; // players awaiting a Beer-save
   checks: CheckView[]; // recent Draw! reveals (upkeep / Barrel), display-only
-  draftEndsAt: number | null; // epoch ms deadline for the 30s pick window
-  draftTimer: NodeJS.Timeout | null;
   botTimer: NodeJS.Timeout | null; // paces bot actions so humans can watch
   deck: Card[]; // draw pile (top = end of array)
   discard: Card[]; // discard pile
@@ -101,9 +96,8 @@ function logCheck(room: Room, c: { name: string; card: Card | null; kind: string
 export const MIN_PLAYERS = 4;
 export const MAX_PLAYERS = 7;
 
-// Each player is offered 2 characters to choose from, and has 30s to pick.
+// Each player is offered 2 characters to choose from (no time limit to pick).
 export const DRAFT_PER_PLAYER = 2;
-export const DRAFT_MS = 30_000;
 
 // Role distribution by player count (classic Bang! base game).
 const ROLE_SETUP: Record<number, Role[]> = {
@@ -187,12 +181,9 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     turnPhase: "draw",
     bangsThisTurn: 0,
     pending: null,
-    pendingTimer: null,
     winner: null,
     deathQueue: [],
     checks: [],
-    draftEndsAt: null,
-    draftTimer: null,
     botTimer: null,
     deck: [],
     discard: [],
@@ -266,7 +257,6 @@ export function disconnect(socketId: string): Room | null {
       room.players = room.players.filter((p) => p.id !== player.id);
       room.players.forEach((p, i) => (p.seat = i));
       if (room.players.length === 0) {
-        clearDraftTimer(room);
         clearBotTimer(room);
         rooms.delete(room.code);
         return null;
@@ -275,7 +265,6 @@ export function disconnect(socketId: string): Room | null {
         const nextHost = room.players.find((p) => !p.isBot);
         if (!nextHost) {
           // Only bots remain — tear the lobby down.
-          clearDraftTimer(room);
           clearBotTimer(room);
           rooms.delete(room.code);
           return null;
@@ -287,13 +276,6 @@ export function disconnect(socketId: string): Room | null {
     return room;
   }
   return null;
-}
-
-function clearDraftTimer(room: Room) {
-  if (room.draftTimer) {
-    clearTimeout(room.draftTimer);
-    room.draftTimer = null;
-  }
 }
 
 function clearBotTimer(room: Room) {
@@ -331,7 +313,6 @@ export function startGame(code: string): { ok: boolean; error?: string } {
   });
 
   room.phase = "drafting";
-  room.draftEndsAt = Date.now() + DRAFT_MS;
   return { ok: true };
 }
 
@@ -361,8 +342,6 @@ function autoPick(choices: Character[]): Character {
 // Transition drafting -> playing: set HP from characters (Sheriff +1) and give
 // the first turn to the Sheriff.
 function finalizeDraft(room: Room) {
-  clearDraftTimer(room);
-  room.draftEndsAt = null;
   room.players.forEach((p) => {
     if (!p.character) p.character = autoPick(p.draftChoices); // safety net
     const bonus = p.role === "sheriff" ? 1 : 0;
@@ -467,7 +446,7 @@ export function drawCards(
       const c = drawOne(room);
       if (c) cards.push(c);
     }
-    room.pending = { kind: "kit", playerId: current.id, cards, picksLeft: 2, endsAt: Date.now() + REACTION_MS };
+    room.pending = { kind: "kit", playerId: current.id, cards, picksLeft: 2 };
     return true; // stays in draw phase until picks resolve
   }
 
@@ -635,7 +614,7 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
       }
     }
   }
-  room.pending = { kind: "multi", effect, sourceId: current.id, responders, endsAt: Date.now() + REACTION_MS };
+  room.pending = { kind: "multi", effect, sourceId: current.id, responders };
   if (responders.every((r) => r.done)) resolveMulti(room);
   return { ok: true };
 }
@@ -645,7 +624,7 @@ function playDuel(room: Room, current: Player, handIdx: number, targetId?: strin
   const target = room.players.find((p) => p.id === targetId);
   if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
-  room.pending = { kind: "duel", aId: current.id, bId: target.id, turnId: target.id, endsAt: Date.now() + REACTION_MS };
+  room.pending = { kind: "duel", aId: current.id, bId: target.id, turnId: target.id };
   return { ok: true };
 }
 
@@ -660,7 +639,7 @@ function playGeneralStore(room: Room, current: Player, handIdx: number): { ok: b
     const c = drawOne(room);
     if (c) cards.push(c);
   }
-  room.pending = { kind: "store", sourceId: current.id, cards, order, endsAt: Date.now() + REACTION_MS };
+  room.pending = { kind: "store", sourceId: current.id, cards, order };
   return { ok: true };
 }
 
@@ -747,7 +726,6 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
     sourceId: current.id,
     missedNeeded,
     missedPlayed: 0,
-    endsAt: Date.now() + REACTION_MS,
   };
   room.pending = pending;
   room.checks = [];
@@ -962,19 +940,6 @@ function beginTurn(room: Room) {
 
 function clearPending(room: Room) {
   room.pending = null;
-  if (room.pendingTimer) {
-    clearTimeout(room.pendingTimer);
-    room.pendingTimer = null;
-  }
-}
-
-// Reset the current pending's deadline (and force the timer to reschedule).
-function refreshDeadline(room: Room, ms: number) {
-  if (room.pending) room.pending.endsAt = Date.now() + ms;
-  if (room.pendingTimer) {
-    clearTimeout(room.pendingTimer);
-    room.pendingTimer = null;
-  }
 }
 
 const hasHandCard = (p: Player, defId: string, cardId?: string) =>
@@ -1088,7 +1053,6 @@ export function respond(
       room.discard.push(me.hand.splice(idx, 1)[0]);
       pushLog(room, { kind: "react", a: me.name, card: "Bang!" });
       pending.turnId = pending.turnId === pending.aId ? pending.bId : pending.aId; // pass back
-      refreshDeadline(room, REACTION_MS);
       return { ok: true };
     }
     if (type === "pass") {
@@ -1121,8 +1085,6 @@ export function choose(code: string, playerId: string, cardId: string): { ok: bo
     if (pending.order.length === 0) {
       room.discard.push(...pending.cards);
       clearPending(room);
-    } else {
-      refreshDeadline(room, REACTION_MS);
     }
     return { ok: true };
   }
@@ -1139,8 +1101,6 @@ export function choose(code: string, playerId: string, cardId: string): { ok: bo
       room.deck.unshift(...pending.cards); // remaining card(s) to the deck bottom
       clearPending(room);
       room.turnPhase = "play";
-    } else {
-      refreshDeadline(room, REACTION_MS);
     }
     return { ok: true };
   }
@@ -1207,7 +1167,7 @@ function processDeathQueue(room: Room) {
     if (!t || !t.alive || t.hp > 0) { room.deathQueue.shift(); continue; }
     const beers = t.hand.filter((c) => c.defId === "beer").length;
     if (beers >= entry.needed) {
-      room.pending = { kind: "dying", targetId: t.id, sourceId: entry.sourceId, beersNeeded: entry.needed, endsAt: Date.now() + REACTION_MS };
+      room.pending = { kind: "dying", targetId: t.id, sourceId: entry.sourceId, beersNeeded: entry.needed };
       room.deathQueue.shift();
       return; // wait for this player's response
     }
@@ -1251,7 +1211,7 @@ function applyDamage(room: Room, target: Player, amount: number, sourceId: strin
   const beers = target.hand.filter((c) => c.defId === "beer").length;
   // Dynamite damage (saveable=false) cannot be cancelled by Beer.
   if (saveable && beers >= needed) {
-    room.pending = { kind: "dying", targetId: target.id, sourceId, beersNeeded: needed, endsAt: Date.now() + REACTION_MS };
+    room.pending = { kind: "dying", targetId: target.id, sourceId, beersNeeded: needed };
   } else {
     killPlayer(room, target, sourceId);
     checkWin(room);
@@ -1326,7 +1286,6 @@ function checkWin(room: Room) {
 export function restart(code: string): boolean {
   const room = rooms.get(code);
   if (!room) return false;
-  clearDraftTimer(room);
   clearBotTimer(room);
   clearPending(room);
   room.phase = "lobby";
@@ -1336,7 +1295,6 @@ export function restart(code: string): boolean {
   room.winner = null;
   room.deathQueue = [];
   room.checks = [];
-  room.draftEndsAt = null;
   room.deck = [];
   room.discard = [];
   room.players.forEach((p) => {
@@ -1402,7 +1360,6 @@ function toPublic(p: Player, room: Room, viewer: Player | undefined, turnId: str
 
 function buildDraft(room: Room, me: Player | undefined): DraftView {
   return {
-    endsAt: room.draftEndsAt,
     choices: me?.draftChoices ?? [],
     youPicked: me?.hasPicked ?? false,
     yourPick: me?.character ?? null,
@@ -1442,7 +1399,6 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
     const actions: PendingAction[] = mine ? (canDodge ? ["missed", "pass"] : ["pass"]) : [];
     return {
       kind: "bang",
-      endsAt: p.endsAt,
       youMustRespond: mine,
       actions,
       missedNeeded: p.missedNeeded,
@@ -1453,20 +1409,19 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
   }
   if (p.kind === "dying") {
     const mine = meId === p.targetId;
-    return { kind: "dying", endsAt: p.endsAt, youMustRespond: mine, actions: acts(mine, "beer"), actorName: name(p.targetId) };
+    return { kind: "dying", youMustRespond: mine, actions: acts(mine, "beer"), actorName: name(p.targetId) };
   }
   if (p.kind === "multi") {
     const r = p.responders.find((x) => x.id === meId);
     const mine = !!r && !r.done;
     const need = p.effect === "indians" ? "bang" : "missed";
     const waiting = p.responders.filter((x) => !x.done).map((x) => name(x.id));
-    return { kind: "multi", endsAt: p.endsAt, youMustRespond: mine, actions: acts(mine, need), actorName: name(p.sourceId), effect: p.effect, waiting };
+    return { kind: "multi", youMustRespond: mine, actions: acts(mine, need), actorName: name(p.sourceId), effect: p.effect, waiting };
   }
   if (p.kind === "duel") {
     const mine = meId === p.turnId;
     return {
       kind: "duel",
-      endsAt: p.endsAt,
       youMustRespond: mine,
       actions: acts(mine, "bang"),
       actorName: name(p.aId),
@@ -1476,11 +1431,11 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
   }
   if (p.kind === "kit") {
     const mine = meId === p.playerId;
-    return { kind: "kit", endsAt: p.endsAt, youMustRespond: mine, actions: [], storeCards: mine ? p.cards : [], actorName: name(p.playerId) };
+    return { kind: "kit", youMustRespond: mine, actions: [], storeCards: mine ? p.cards : [], actorName: name(p.playerId) };
   }
   // store
   const mine = meId === p.order[0];
-  return { kind: "store", endsAt: p.endsAt, youMustRespond: mine, actions: [], storeCards: p.cards, actorName: name(p.order[0]) };
+  return { kind: "store", youMustRespond: mine, actions: [], storeCards: p.cards, actorName: name(p.order[0]) };
 }
 
 // Build the personalized view for one player: they always see their OWN role,
