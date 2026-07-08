@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
+import { PlayingCard } from "@/components/PlayingCard";
 import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
 import type { PlayerView, PlayerPublic, CheckView } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
@@ -799,7 +800,7 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
   const [active, setActive] = useState<{ card: Card | null; blast: boolean; kind: string; outcome: string; name: string } | null>(null);
   const lastKey = useRef<string | null>(null);
   const t = useRef(0);
-  const cardRef = useRef<THREE.Group>(null);
+  const divRef = useRef<HTMLDivElement>(null);
   const blastRef = useRef<THREE.Mesh>(null);
   const lightRef = useRef<THREE.PointLight>(null);
   const cy = 0.3 + felt * 0.32; // stage height above the felt (lowered toward table centre)
@@ -823,22 +824,14 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
     if (!active) return;
     t.current += dt;
 
-    // Card: rise + turn face-up over the first 0.4s, then HOLD until HOLD_END,
-    // fade over the last stretch.
-    const rise = Math.min(t.current / 0.4, 1);
+    // Card (HTML PlayingCard): pop in over the first 0.35s, HOLD until HOLD_END,
+    // then fade out over the last stretch.
+    const rise = Math.min(t.current / 0.35, 1);
     const er = 1 - Math.pow(1 - rise, 3);
-    if (cardRef.current) {
-      cardRef.current.position.set(0, 0.3 + er * (cy - 0.3), 0);
-      cardRef.current.rotation.y = (1 - er) * Math.PI * 1.5;
-      cardRef.current.scale.setScalar(0.8 + er * 1.3);
+    if (divRef.current) {
       const op = t.current < HOLD_END ? 1 : Math.max(0, 1 - (t.current - HOLD_END) / (DUR - HOLD_END));
-      cardRef.current.traverse((o) => {
-        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-        if (m) {
-          m.transparent = true;
-          m.opacity = op;
-        }
-      });
+      divRef.current.style.opacity = String(op);
+      divRef.current.style.transform = `scale(${(0.6 + er * 0.4).toFixed(3)})`;
     }
 
     // Blast: an expanding, fading fireball + a flash of light over a fixed window.
@@ -860,9 +853,11 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
   return (
     <group>
       {active.card && (
-        <group ref={cardRef}>
-          <CardMesh card={active.card} rotation={[0, 0, 0]} />
-        </group>
+        <Html center position={[0, cy, 0]} distanceFactor={9} style={{ pointerEvents: "none" }} zIndexRange={[68, 60]}>
+          <div ref={divRef} style={{ transform: "scale(0.6)", willChange: "transform, opacity" }}>
+            <PlayingCard card={active.card} />
+          </div>
+        </Html>
       )}
       {active.blast && (
         <>
