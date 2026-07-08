@@ -184,9 +184,9 @@ function PendingNote({ view }: { view: PlayerView }) {
     <div
       style={{
         position: "fixed",
-        top: "7%",
-        left: "50%",
-        transform: "translateX(-50%)",
+        top: "50%",
+        left: 12,
+        transform: "translateY(-50%)",
         zIndex: 1000,
         background: "rgba(20,18,16,0.92)",
         color: "#f0e2c0",
@@ -194,9 +194,10 @@ function PendingNote({ view }: { view: PlayerView }) {
         borderRadius: 12,
         fontFamily: "system-ui, sans-serif",
         display: "flex",
-        gap: 10,
-        alignItems: "center",
-        maxWidth: "92vw",
+        flexDirection: "column",
+        gap: 4,
+        alignItems: "flex-start",
+        maxWidth: "40vw",
         boxShadow: "0 4px 16px rgba(0,0,0,.5)",
         pointerEvents: "none",
       }}
@@ -257,9 +258,9 @@ function ReactionPanel({
         onClick={() => setOpen(true)}
         style={{
           position: "fixed",
-          top: "6%",
-          left: "50%",
-          transform: "translateX(-50%)",
+          top: "50%",
+          left: 12,
+          transform: "translateY(-50%)",
           zIndex: 1000,
           width: "auto",
           padding: "10px 18px",
