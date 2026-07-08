@@ -7,7 +7,7 @@ import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
 import { CARD_DEF_BY_ID, CARD_ICON, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
-import { toggleMusic } from "@/lib/music";
+import { toggleMusic, setMusicVolume, getMusicVolume } from "@/lib/music";
 import {
   L,
   useLocale,
@@ -44,19 +44,39 @@ function LangToggle() {
   );
 }
 
-// Toggle the procedural wild-west background music (starts on this user gesture).
+// Toggle + volume for the procedural wild-west background music (starts on this
+// user gesture).
 function MusicToggle() {
   const locale = useLocale();
   const [on, setOn] = useState(false);
+  const [vol, setVol] = useState(getMusicVolume());
   return (
-    <button
-      className="ghost"
-      style={{ width: "auto", padding: "4px 10px", fontSize: "0.9rem" }}
-      onClick={() => setOn(toggleMusic())}
-      title={L(locale, "Nhạc nền miền Tây", "Wild-west background music")}
-    >
-      {on ? "🎵" : "🔇"}
-    </button>
+    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <button
+        className="ghost"
+        style={{ width: "auto", padding: "4px 10px", fontSize: "0.9rem" }}
+        onClick={() => setOn(toggleMusic())}
+        title={L(locale, "Nhạc nền miền Tây", "Wild-west background music")}
+      >
+        {on ? "🎵" : "🔇"}
+      </button>
+      {on && (
+        <input
+          type="range"
+          min={0}
+          max={0.8}
+          step={0.05}
+          value={vol}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setVol(v);
+            setMusicVolume(v);
+          }}
+          title={L(locale, "Âm lượng nhạc", "Music volume")}
+          style={{ width: 72, accentColor: "#e0a955", cursor: "pointer" }}
+        />
+      )}
+    </span>
   );
 }
 
@@ -122,6 +142,7 @@ export default function RoomPage() {
   const choose = (cardId: string) => socket.emit("choose", { code, cardId });
   const discard = (cardId: string) => socket.emit("discardCard", { code, cardId });
   const endTurn = () => socket.emit("endTurn", { code });
+  const surrender = () => socket.emit("surrender", { code });
   const restart = () => socket.emit("restart", { code });
 
   if (!view) {
@@ -141,7 +162,7 @@ export default function RoomPage() {
       {view.phase === "lobby" && <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onRestart={restart} />
+        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} />
       )}
 
       {view.pending &&
@@ -460,6 +481,7 @@ function Table({
   onDiscard,
   onSidHeal,
   onEndTurn,
+  onSurrender,
   onRestart,
 }: {
   view: PlayerView;
@@ -468,6 +490,7 @@ function Table({
   onDiscard: (cardId: string) => void;
   onSidHeal: (cardIds: string[]) => void;
   onEndTurn: () => void;
+  onSurrender: () => void;
   onRestart: () => void;
 }) {
   const locale = useLocale();
@@ -490,6 +513,7 @@ function Table({
   const [charView, setCharView] = useState<Character | null>(null);
   const [confirmPlay, setConfirmPlay] = useState<Card | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<Card | null>(null);
+  const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [playerInfo, setPlayerInfo] = useState<PlayerPublic | null>(null);
 
   const inspectCard = (c: Card) => setInfoCard(c);
@@ -776,6 +800,26 @@ function Table({
         </div>
       )}
 
+      {/* confirm before surrendering */}
+      {confirmSurrender && (
+        <div
+          onClick={() => setConfirmSurrender(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, maxWidth: 340, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 16, padding: "24px 22px", fontFamily: "system-ui, sans-serif", textAlign: "center" }}>
+            <div style={{ fontSize: 40 }}>🏳️</div>
+            <div style={{ fontWeight: 800, fontSize: "1.15rem", color: "var(--text)" }}>{L(locale, "Đầu hàng?", "Surrender?")}</div>
+            <p className="muted" style={{ lineHeight: 1.5 }}>
+              {L(locale, "Bạn sẽ bị loại khỏi ván, lộ vai và bỏ hết bài. Không thể hoàn tác.", "You'll be eliminated, your role revealed and cards discarded. This can't be undone.")}
+            </p>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button style={{ width: "auto", padding: "12px 28px", background: "#c0392b" }} onClick={() => { setConfirmSurrender(false); onSurrender(); }}>{L(locale, "🏳️ Đầu hàng", "🏳️ Surrender")}</button>
+              <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={() => setConfirmSurrender(false)}>{L(locale, "Hủy", "Cancel")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* another player's info: role (if revealed) + character card */}
       {playerInfo && (
         <div
@@ -866,6 +910,16 @@ function Table({
             )}
             <MusicToggle />
             <LangToggle />
+            {you.alive && view.phase === "playing" && (
+              <button
+                className="ghost"
+                style={{ width: "auto", padding: "4px 10px", fontSize: "0.8rem", borderColor: "#c0392b", color: "#ffb3a7" }}
+                onClick={() => setConfirmSurrender(true)}
+                title={L(locale, "Đầu hàng — rời khỏi ván", "Surrender — leave the game")}
+              >
+                {L(locale, "🏳️ Đầu hàng", "🏳️ Surrender")}
+              </button>
+            )}
           </div>
 
           {/* action history — top-right, collapsible, scrollable, drag-to-resize */}

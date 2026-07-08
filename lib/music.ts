@@ -38,6 +38,7 @@ const CHORDS: number[][] = [
   [G2 * 2, B4, D4 * 2], // G
 ];
 
+let volume = 0.35; // 0..1 master gain; kept across start/stop
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let lp: BiquadFilterNode | null = null;
@@ -92,6 +93,15 @@ export function isMusicPlaying() {
   return playing;
 }
 
+export function getMusicVolume() {
+  return volume;
+}
+
+export function setMusicVolume(v: number) {
+  volume = Math.max(0, Math.min(1, v));
+  if (ctx && master) master.gain.setTargetAtTime(volume, ctx.currentTime, 0.05);
+}
+
 export function toggleMusic(): boolean {
   if (playing) {
     stopMusic();
@@ -107,7 +117,7 @@ function startMusic() {
   if (!AC) return;
   ctx = new AC();
   master = ctx.createGain();
-  master.gain.value = 0.35; // keep it in the background
+  master.gain.value = volume; // keep it in the background
   lp = ctx.createBiquadFilter();
   lp.type = "lowpass";
   lp.frequency.value = 2600;

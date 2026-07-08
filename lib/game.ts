@@ -827,6 +827,50 @@ export function endTurn(code: string, playerId: string): { ok: boolean; error?: 
   return { ok: true };
 }
 
+// Detach a surrendering player from any active pending so the table doesn't stall.
+// Key participants (shooter/target/duelist/store picker/kit) clear the pending;
+// a multi defender is just marked done (undefended) so the multi can resolve.
+function detachFromPending(room: Room, id: string) {
+  const p = room.pending;
+  if (!p) return;
+  switch (p.kind) {
+    case "bang": if (p.targetId === id || p.sourceId === id) clearPending(room); break;
+    case "dying": if (p.targetId === id) clearPending(room); break;
+    case "duel": if (p.aId === id || p.bId === id) clearPending(room); break;
+    case "kit": if (p.playerId === id) { clearPending(room); room.turnPhase = "play"; } break;
+    case "store":
+      p.order = p.order.filter((o) => o !== id);
+      if (p.order.length === 0) { room.discard.push(...p.cards); clearPending(room); }
+      break;
+    case "multi":
+      if (p.sourceId === id) clearPending(room);
+      else { const r = p.responders.find((x) => x.id === id); if (r) { r.done = true; r.safe = false; } }
+      break;
+  }
+}
+
+// A player concedes: remove them from the game (cards to discard, role revealed),
+// resolve any pending they were part of, re-check the win, and pass the turn on if
+// it was theirs.
+export function surrender(code: string, playerId: string): { ok: boolean; error?: string } {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "playing") return { ok: false };
+  const p = room.players.find((x) => x.id === playerId);
+  if (!p || !p.alive) return { ok: false };
+
+  const wasTurn = room.players[room.turnIndex]?.id === p.id;
+  pushLog(room, { kind: "surrender", a: p.name, role: p.role ?? undefined });
+  detachFromPending(room, p.id);
+  killPlayer(room, p, null); // no killer → no death rewards/penalties
+  checkWin(room);
+  if (room.phase === "playing") {
+    if (room.pending?.kind === "multi" && room.pending.responders.every((r) => r.done)) resolveMulti(room);
+    processDeathQueue(room);
+    if (wasTurn && room.phase === "playing" && !room.pending && advanceToNextAlive(room)) beginTurn(room);
+  }
+  return { ok: true };
+}
+
 // Move the turn to the next living player (by seat, wrapping). Returns false if
 // nobody living is found.
 function advanceToNextAlive(room: Room): boolean {

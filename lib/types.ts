@@ -192,7 +192,7 @@ export interface PlayerView {
 // One entry in the action history. Formatted per-locale on the client.
 export interface LogEntry {
   id: number;
-  kind: "play" | "hit" | "heal" | "death" | "draw" | "turn" | "react" | "check" | "discard";
+  kind: "play" | "hit" | "heal" | "death" | "draw" | "turn" | "react" | "check" | "discard" | "surrender";
   a?: string; // primary actor name
   b?: string; // target name
   card?: string; // card name (or the drawn card label for a check, e.g. "5♠")
@@ -229,6 +229,7 @@ export interface ClientToServerEvents {
   choose: (data: { code: string; cardId: string }) => void; // pick a card (General Store)
   discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;
+  surrender: (data: { code: string }) => void; // concede: remove yourself from the game
   restart: (data: { code: string }) => void;
 }
 

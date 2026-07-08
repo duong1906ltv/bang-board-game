@@ -93,6 +93,8 @@ export function logText(l: Locale, e: LogEntry, youName?: string): string {
       return vi ? `${subj(e.a)} hồi ${e.n} máu` : `${subj(e.a)} healed ${e.n}`;
     case "death":
       return (vi ? `☠️ ${subj(e.a)} bị loại` : `☠️ ${subj(e.a)} eliminated`) + (e.role ? ` — ${roleLabel(l, e.role)}` : "");
+    case "surrender":
+      return (vi ? `🏳️ ${subj(e.a)} đầu hàng` : `🏳️ ${subj(e.a)} surrendered`) + (e.role ? ` — ${roleLabel(l, e.role)}` : "");
     default:
       return "";
   }

@@ -160,6 +160,12 @@ app.prepare().then(() => {
       else if (res.error) socket.emit("errorMsg", res.error);
     });
 
+    socket.on("surrender", ({ code }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (!pid) return;
+      if (game.surrender(code, pid).ok) broadcast(code);
+    });
+
     socket.on("restart", ({ code }) => {
       if (game.restart(code)) broadcast(code);
     });
