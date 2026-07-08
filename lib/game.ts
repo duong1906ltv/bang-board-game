@@ -679,6 +679,12 @@ function pickTargetCard(target: Player, targetCardId?: string): { from: "hand" |
   return null;
 }
 
+// Remove and return the card a `pickTargetCard` result points at.
+function takePickedCard(target: Player, pick: { from: "hand" | "equipment"; index: number }): Card {
+  const pile = pick.from === "hand" ? target.hand : target.equipment;
+  return pile.splice(pick.index, 1)[0];
+}
+
 // Panic!: take a card from a player at distance 1 into your hand.
 function playPanic(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): { ok: boolean; error?: string } {
   const target = room.players.find((p) => p.id === targetId);
@@ -687,8 +693,7 @@ function playPanic(room: Room, current: Player, handIdx: number, targetId?: stri
   const pick = pickTargetCard(target, targetCardId);
   if (!pick) return { ok: false, error: "Mục tiêu không có bài" };
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
-  const taken = pick.from === "hand" ? target.hand.splice(pick.index, 1)[0] : target.equipment.splice(pick.index, 1)[0];
-  current.hand.push(taken);
+  current.hand.push(takePickedCard(target, pick));
   return { ok: true };
 }
 
@@ -699,8 +704,7 @@ function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: s
   const pick = pickTargetCard(target, targetCardId);
   if (!pick) return { ok: false, error: "Mục tiêu không có bài" };
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
-  const gone = pick.from === "hand" ? target.hand.splice(pick.index, 1)[0] : target.equipment.splice(pick.index, 1)[0];
-  moveToDiscard(room, gone);
+  moveToDiscard(room, takePickedCard(target, pick));
   return { ok: true };
 }
 
@@ -896,8 +900,9 @@ function beginTurn(room: Room) {
     if (dyn) {
       const card = drawCheck(room, cur, goodDynamite);
       const exploded = !!card && card.suit === "spades" && card.rank >= 2 && card.rank <= 9;
-      room.checks.push({ name: cur.name, card, kind: "dynamite", outcome: exploded ? "blast" : "safe" });
-      logCheck(room, room.checks[room.checks.length - 1]);
+      const chk = { name: cur.name, card, kind: "dynamite", outcome: exploded ? "blast" : "safe" };
+      room.checks.push(chk);
+      logCheck(room, chk);
       cur.equipment = cur.equipment.filter((c) => c.id !== dyn.id);
       if (exploded) {
         room.discard.push(dyn);
@@ -920,8 +925,9 @@ function beginTurn(room: Room) {
     if (jail) {
       const card = drawCheck(room, cur, goodJail);
       const released = !!card && card.suit === "hearts";
-      room.checks.push({ name: cur.name, card, kind: "jail", outcome: released ? "free" : "skip" });
-      logCheck(room, room.checks[room.checks.length - 1]);
+      const chk = { name: cur.name, card, kind: "jail", outcome: released ? "free" : "skip" };
+      room.checks.push(chk);
+      logCheck(room, chk);
       cur.equipment = cur.equipment.filter((c) => c.id !== jail.id);
       room.discard.push(jail);
       if (!released) {

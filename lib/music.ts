@@ -71,10 +71,10 @@ function synth(freq: number, time: number, dur: number, gain: number, type: Osci
 }
 
 function scheduleStep(s: number, time: number) {
-  const m = MELODY[s];
-  if (m) synth(m, time, STEP * 1.7, 0.16, "triangle");
-  const ba = BASS[s];
-  if (ba) synth(ba, time, BEAT * 0.95, 0.2, "sawtooth");
+  const melodyNote = MELODY[s];
+  if (melodyNote) synth(melodyNote, time, STEP * 1.7, 0.16, "triangle");
+  const bassNote = BASS[s];
+  if (bassNote) synth(bassNote, time, BEAT * 0.95, 0.2, "sawtooth");
   if (s % 8 === 0) {
     for (const f of CHORDS[s / 8]) synth(f, time, BEAT * 2, 0.045, "triangle");
   }

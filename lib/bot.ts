@@ -111,6 +111,12 @@ function pendingAction(room: Room): (() => boolean) | null {
   const p = room.pending!;
   const ok = (r: { ok: boolean } | boolean) => (typeof r === "boolean" ? r : r.ok);
 
+  // Play `card` as `type`, or pass when we don't hold a usable one.
+  const respondOrPass = (me: Player, type: "missed" | "beer" | "bang", card?: Card) =>
+    card
+      ? () => ok(game.respond(code, me.id, type, card.id))
+      : () => ok(game.respond(code, me.id, "pass"));
+
   if (p.kind === "bang") {
     const me = player(room, p.targetId);
     if (!me?.isBot) return null;
@@ -126,8 +132,7 @@ function pendingAction(room: Room): (() => boolean) | null {
     const me = player(room, p.targetId);
     if (!me?.isBot) return null;
     const beer = findCard(me, "beer");
-    if (beer) return () => ok(game.respond(code, me.id, "beer", beer.id));
-    return () => ok(game.respond(code, me.id, "pass"));
+    return respondOrPass(me, "beer", beer);
   }
   if (p.kind === "multi") {
     // Simultaneous reaction: any not-yet-done bot may act now, regardless of
@@ -137,16 +142,12 @@ function pendingAction(room: Room): (() => boolean) | null {
     const me = player(room, r.id);
     if (!me?.isBot) return null;
     const need = p.effect === "indians" ? "bang" : "missed";
-    const card = findUsableAs(me, need);
-    if (card) return () => ok(game.respond(code, me.id, need, card.id));
-    return () => ok(game.respond(code, me.id, "pass"));
+    return respondOrPass(me, need, findUsableAs(me, need));
   }
   if (p.kind === "duel") {
     const me = player(room, p.turnId);
     if (!me?.isBot) return null;
-    const bang = findUsableAs(me, "bang");
-    if (bang) return () => ok(game.respond(code, me.id, "bang", bang.id));
-    return () => ok(game.respond(code, me.id, "pass"));
+    return respondOrPass(me, "bang", findUsableAs(me, "bang"));
   }
   if (p.kind === "store") {
     const me = player(room, p.order[0]);

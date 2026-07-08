@@ -45,6 +45,16 @@ export function L(locale: Locale, vi: string, en: string): string {
   return locale === "vi" ? vi : en;
 }
 
+// Render a player's name, substituting "bạn"/"you" for the viewer so text reads
+// naturally. `subj` is the sentence-initial (capitalised) form; `obj` is the
+// mid-sentence form.
+function nameRefs(l: Locale, youName?: string) {
+  const vi = l === "vi";
+  const subj = (n?: string) => (n && n === youName ? (vi ? "Bạn" : "You") : n ?? "");
+  const obj = (n?: string) => (n && n === youName ? (vi ? "bạn" : "you") : n ?? "");
+  return { subj, obj };
+}
+
 // --- roles ---
 const ROLE_LABEL: Record<Role, [string, string]> = {
   sheriff: ["Cảnh Sát Trưởng", "Sheriff"],
@@ -64,9 +74,7 @@ export const roleLabel = (l: Locale, r: Role) => ROLE_LABEL[r][l === "vi" ? 0 : 
 // rendered as "bạn"/"you" for natural phrasing.
 export function logText(l: Locale, e: LogEntry, youName?: string): string {
   const vi = l === "vi";
-  // subject form (sentence start) vs object form (mid-sentence)
-  const subj = (n?: string) => (n && n === youName ? (vi ? "Bạn" : "You") : n ?? "");
-  const obj = (n?: string) => (n && n === youName ? (vi ? "bạn" : "you") : n ?? "");
+  const { subj, obj } = nameRefs(l, youName);
   switch (e.kind) {
     case "turn":
       return vi ? `▶ Đến lượt ${obj(e.a)}` : `▶ ${subj(e.a)}'s turn`;
@@ -134,9 +142,7 @@ export const winnerText = (l: Locale, w: string) => (WINNER[w] ? WINNER[w][l ===
 // --- pending descriptions (built from structured fields) ---
 export function formatPending(l: Locale, p: PlayerView["pending"], youName?: string): string {
   if (!p) return "";
-  const vi = l === "vi";
-  const subj = (n?: string) => (n && n === youName ? (vi ? "Bạn" : "You") : n ?? "");
-  const obj = (n?: string) => (n && n === youName ? (vi ? "bạn" : "you") : n ?? "");
+  const { subj, obj } = nameRefs(l, youName);
   const a = subj(p.actorName);
   const b = obj(p.targetName);
   switch (p.kind) {

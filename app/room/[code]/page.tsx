@@ -383,7 +383,7 @@ function Lobby({
               {p.id === view.you.id && <span className="muted"> {L(locale, "(bạn)", "(you)")}</span>}
             </span>
             {p.isBot ? (
-              <span className="badge">{L(locale, "AI 🤖", "AI 🤖")}</span>
+              <span className="badge">AI 🤖</span>
             ) : (
               p.isHost && <span className="badge">{L(locale, "Chủ phòng ⭐", "Host ⭐")}</span>
             )}
@@ -937,8 +937,7 @@ function Table({
         </div>
       )}
 
-      {(
-        <>
+      <>
           {/* compact status — tap the role to see your objective */}
           <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,18,16,0.82)", padding: "8px 12px", borderRadius: 10, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "70vw" }}>
             {you.role && (
@@ -1157,8 +1156,7 @@ function Table({
               {sidPicking ? L(locale, `Chạm 2 lá để bỏ (${sidPick.length}/2)`, `Tap 2 cards to discard (${sidPick.length}/2)`) : overLimit > 0 ? L(locale, "Chạm hoặc kéo LÊN để đánh · vào 🗑️ để bỏ lá dư", "Tap or drag UP to play · into 🗑️ to discard") : L(locale, "Chạm hoặc kéo LÊN để đánh", "Tap or drag UP to play")}
             </div>
           )}
-        </>
-      )}
+      </>
     </div>
   );
 }

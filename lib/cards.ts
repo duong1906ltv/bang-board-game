@@ -26,12 +26,12 @@ const SUIT_LETTER: Record<string, Suit> = {
 // Rank order used when expanding a "start-end" range (Ace high).
 const RANK_SEQ = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 1];
 
+// Face-card letters <-> numeric rank (number ranks map to themselves).
+const FACE_RANK: Record<string, number> = { A: 1, J: 11, Q: 12, K: 13 };
+const RANK_FACE: Record<number, string> = { 1: "A", 11: "J", 12: "Q", 13: "K" };
+
 export function rankLabel(rank: number): string {
-  if (rank === 1) return "A";
-  if (rank === 11) return "J";
-  if (rank === 12) return "Q";
-  if (rank === 13) return "K";
-  return String(rank);
+  return RANK_FACE[rank] ?? String(rank);
 }
 
 // How a card is used:
@@ -162,12 +162,7 @@ export const CARD_IMAGE: Record<string, string> = CARD_ART;
 function parseCardToken(tok: string): { suit: Suit; rank: number } {
   const suit = SUIT_LETTER[tok.slice(-1)];
   const rankStr = tok.slice(0, -1);
-  let rank: number;
-  if (rankStr === "A") rank = 1;
-  else if (rankStr === "J") rank = 11;
-  else if (rankStr === "Q") rank = 12;
-  else if (rankStr === "K") rank = 13;
-  else rank = parseInt(rankStr, 10);
+  const rank = FACE_RANK[rankStr] ?? parseInt(rankStr, 10);
   if (!suit || Number.isNaN(rank)) throw new Error(`Bad card token: ${tok}`);
   return { suit, rank };
 }

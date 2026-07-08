@@ -58,6 +58,13 @@ app.prepare().then(() => {
   }
 
   io.on("connection", (socket) => {
+    // Apply a game-mutation result: rebroadcast on success, otherwise relay the
+    // error (if any) to just this player.
+    const applyResult = (code: string, res: { ok: boolean; error?: string }) => {
+      if (res.ok) broadcast(code);
+      else if (res.error) socket.emit("errorMsg", res.error);
+    };
+
     socket.on("createRoom", ({ name }, cb) => {
       const { room, player } = game.createRoom(name, socket.id);
       socket.join(room.code);
@@ -118,33 +125,25 @@ app.prepare().then(() => {
     socket.on("sidHeal", ({ code, cardIds }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      const res = game.sidHeal(code, pid, cardIds);
-      if (res.ok) broadcast(code);
-      else if (res.error) socket.emit("errorMsg", res.error);
+      applyResult(code, game.sidHeal(code, pid, cardIds));
     });
 
     socket.on("playCard", ({ code, cardId, targetId, targetCardId }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      const res = game.playCard(code, pid, cardId, targetId, targetCardId);
-      if (res.ok) broadcast(code);
-      else if (res.error) socket.emit("errorMsg", res.error);
+      applyResult(code, game.playCard(code, pid, cardId, targetId, targetCardId));
     });
 
     socket.on("respond", ({ code, type, cardId }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      const res = game.respond(code, pid, type, cardId);
-      if (res.ok) broadcast(code);
-      else if (res.error) socket.emit("errorMsg", res.error);
+      applyResult(code, game.respond(code, pid, type, cardId));
     });
 
     socket.on("choose", ({ code, cardId }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      const res = game.choose(code, pid, cardId);
-      if (res.ok) broadcast(code);
-      else if (res.error) socket.emit("errorMsg", res.error);
+      applyResult(code, game.choose(code, pid, cardId));
     });
 
     socket.on("discardCard", ({ code, cardId }) => {
@@ -155,9 +154,7 @@ app.prepare().then(() => {
     socket.on("endTurn", ({ code }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      const res = game.endTurn(code, pid);
-      if (res.ok) broadcast(code);
-      else if (res.error) socket.emit("errorMsg", res.error);
+      applyResult(code, game.endTurn(code, pid));
     });
 
     socket.on("surrender", ({ code }) => {
@@ -171,9 +168,7 @@ app.prepare().then(() => {
     });
 
     socket.on("playAgain", ({ code }) => {
-      const res = game.playAgain(code);
-      if (res.ok) broadcast(code);
-      else if (res.error) socket.emit("errorMsg", res.error);
+      applyResult(code, game.playAgain(code));
     });
 
     socket.on("disconnect", () => {

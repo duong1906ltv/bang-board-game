@@ -18,6 +18,9 @@ const KIND_BORDER: Record<string, string> = {
   gun: "#b0872f",
 };
 
+// Emoji-capable font stack, shared by the face icon and the card-back logo.
+const EMOJI_FONT = "'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif";
+
 function drawFace(card: Card): THREE.CanvasTexture {
   const W = 256;
   const H = 358;
@@ -49,7 +52,7 @@ function drawFace(card: Card): THREE.CanvasTexture {
   ctx.fillText(card.name, W / 2, 26);
 
   // Big center emoji icon.
-  ctx.font = "120px 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif";
+  ctx.font = `120px ${EMOJI_FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, H / 2);
@@ -78,7 +81,7 @@ function drawBack(): THREE.CanvasTexture {
   ctx.strokeStyle = "#f2d29b";
   roundRect(ctx, 4, 4, 248, 350, 22);
   ctx.stroke();
-  ctx.font = "90px 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif";
+  ctx.font = `90px ${EMOJI_FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("🤠", 128, 179);

@@ -921,7 +921,7 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       {/* Draw!-check reveal (any kind) over the table centre */}
-      <CheckFx check={view.checks.length ? view.checks[view.checks.length - 1] : null} felt={felt} />
+      <CheckFx check={view.checks.at(-1) ?? null} felt={felt} />
     </>
   );
 }
