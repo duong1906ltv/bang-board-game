@@ -57,6 +57,14 @@ app.prepare().then(() => {
     return room.players.find((p) => p.socketId === socketId)?.id ?? null;
   }
 
+  // True only if this socket is the room's host. Guards lifecycle actions
+  // (start/restart/playAgain/addBot/removeBot) so any client that merely knows
+  // the room code can't reset or start someone else's game.
+  function isHost(code: string, socketId: string): boolean {
+    const room = game.getRoom(code);
+    return !!room && playerIdOf(code, socketId) === room.hostId;
+  }
+
   io.on("connection", (socket) => {
     // Apply a game-mutation result: rebroadcast on success, otherwise relay the
     // error (if any) to just this player.
@@ -91,24 +99,21 @@ app.prepare().then(() => {
     });
 
     socket.on("startGame", ({ code }) => {
+      if (!isHost(code, socket.id)) return; // host only
       const res = game.startGame(code);
       if (!res.ok) return socket.emit("errorMsg", res.error || "Không thể bắt đầu");
       broadcast(code);
     });
 
     socket.on("addBot", ({ code }) => {
-      const pid = playerIdOf(code, socket.id);
-      const room = game.getRoom(code);
-      if (!room || pid !== room.hostId) return; // host only
+      if (!isHost(code, socket.id)) return; // host only
       const res = game.addBot(code);
       if (!res.ok) return socket.emit("errorMsg", res.error || "Không thêm được bot");
       broadcast(code);
     });
 
     socket.on("removeBot", ({ code }) => {
-      const pid = playerIdOf(code, socket.id);
-      const room = game.getRoom(code);
-      if (!room || pid !== room.hostId) return; // host only
+      if (!isHost(code, socket.id)) return; // host only
       if (game.removeBot(code)) broadcast(code);
     });
 
@@ -164,10 +169,12 @@ app.prepare().then(() => {
     });
 
     socket.on("restart", ({ code }) => {
+      if (!isHost(code, socket.id)) return; // host only
       if (game.restart(code)) broadcast(code);
     });
 
     socket.on("playAgain", ({ code }) => {
+      if (!isHost(code, socket.id)) return; // host only
       applyResult(code, game.playAgain(code));
     });
 

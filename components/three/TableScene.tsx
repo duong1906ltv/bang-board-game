@@ -131,15 +131,16 @@ function useImageTexture(url: string) {
   const [tex, setTex] = useState<THREE.Texture | null>(null);
   useEffect(() => {
     let alive = true;
+    let loaded: THREE.Texture | null = null;
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("anonymous");
     loader.load(
       url,
-      (t) => { if (alive) setTex(t); },
+      (t) => { loaded = t; if (alive) setTex(t); else t.dispose(); },
       undefined,
       () => { if (alive) setTex(null); } // missing/blocked → keep fallback
     );
-    return () => { alive = false; };
+    return () => { alive = false; loaded?.dispose(); };
   }, [url]);
   return tex;
 }
@@ -190,6 +191,11 @@ function Saloon({ felt }: { felt: number }) {
   const posterTex = useMemo(posterTexture, []);
   const ronaldoTex = useMemo(ronaldoTexture, []);
   const ronaldoImg = useImageTexture(RONALDO_IMG); // real photo if available
+  // Free the canvas-backed textures when the scene unmounts (r3f doesn't).
+  useEffect(
+    () => () => [floorTex, posterTex, ronaldoTex].forEach((t) => t.dispose()),
+    [floorTex, posterTex, ronaldoTex]
+  );
   const roomW = felt * 6.5;
   const roomH = 7;
   const floorY = -1.55;
@@ -269,6 +275,7 @@ function SheriffStar({ radius, y, color, opacity = 1 }: { radius: number; y: num
     shape.closePath();
     return new THREE.ShapeGeometry(shape);
   }, [radius]);
+  useEffect(() => () => geo.dispose(), [geo]);
   return (
     <mesh geometry={geo} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]}>
       <meshStandardMaterial color={color} transparent opacity={opacity} roughness={0.6} metalness={0.3} />

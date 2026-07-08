@@ -4,7 +4,7 @@
 // canvas (guaranteed to render — no external asset/font loading), reusing the
 // same per-card emoji icon + kind colors as the 2D <PlayingCard>. Face-down
 // cards show a simple card-back pattern.
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { Card, CARD_DEF_BY_ID, CARD_ICON, SUIT_SYMBOL, rankLabel } from "@/lib/cards";
 
@@ -113,10 +113,17 @@ export function CardMesh({
   onClick?: () => void;
   scale?: number;
 }) {
+  // Memo by VALUE (defId/suit/rank), not by the `card` object reference: every
+  // socket `view` update produces fresh card objects with identical values, so
+  // keying on the object would rebuild the CanvasTexture on every broadcast.
   const texture = useMemo(
     () => (faceDown || !card ? drawBack() : drawFace(card)),
-    [card, faceDown]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [card?.defId, card?.suit, card?.rank, faceDown]
   );
+  // CanvasTexture holds a GPU allocation that r3f does not free for us: dispose
+  // the previous one whenever it changes or the mesh unmounts.
+  useEffect(() => () => texture.dispose(), [texture]);
   return (
     <mesh position={position} rotation={rotation} scale={scale} onClick={onClick}>
       <planeGeometry args={[CARD_W, CARD_H]} />

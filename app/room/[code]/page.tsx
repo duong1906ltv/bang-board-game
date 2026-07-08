@@ -94,6 +94,7 @@ export default function RoomPage() {
     initLocale();
     const socket = getSocket();
     const playerId = loadIdentity(code);
+    let redirectTimer: ReturnType<typeof setTimeout> | undefined;
 
     function attemptRejoin() {
       if (!playerId) {
@@ -103,7 +104,7 @@ export default function RoomPage() {
       socket.emit("rejoin", { code, playerId }, (res) => {
         if (!res.ok) {
           setError(res.error || "Không vào lại được phòng");
-          setTimeout(() => router.replace("/"), 1200);
+          redirectTimer = setTimeout(() => router.replace("/"), 1200);
         }
       });
     }
@@ -117,6 +118,7 @@ export default function RoomPage() {
       socket.off("view", setView);
       socket.off("errorMsg", setError);
       socket.off("connect", attemptRejoin);
+      clearTimeout(redirectTimer);
     };
   }, [code, router]);
 
@@ -591,10 +593,14 @@ function Table({
     setMarquee(`${CHECK_ICON[c.kind] ?? "🎴"} ${c.name} — ${t.kind}${cardLabel}: ${t.outcome}`);
   }, [view.checks, locale]);
 
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const flash = (msg: string) => {
     setNotice(msg);
-    window.setTimeout(() => setNotice((cur) => (cur === msg ? "" : cur)), 1800);
+    clearTimeout(noticeTimerRef.current); // keep only the latest countdown
+    noticeTimerRef.current = setTimeout(() => setNotice((cur) => (cur === msg ? "" : cur)), 1800);
   };
+  // Clear the pending notice timer if the table unmounts mid-countdown.
+  useEffect(() => () => clearTimeout(noticeTimerRef.current), []);
 
   useEffect(() => {
     const cur = you.hand.map((c) => c.id);
@@ -609,6 +615,10 @@ function Table({
 
   // Drag the bottom-left grip to resize the right-docked 3D history panel: it
   // grows toward the left and down, so the grip follows the pointer naturally.
+  // Holds the teardown for an in-progress resize drag, so an unmount while the
+  // pointer is still held down doesn't leave listeners (and a stale setState
+  // closure) attached to window.
+  const resizeTeardownRef = useRef<(() => void) | null>(null);
   const startLogResize = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -625,10 +635,13 @@ function Table({
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      resizeTeardownRef.current = null;
     };
+    resizeTeardownRef.current = up;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+  useEffect(() => () => resizeTeardownRef.current?.(), []);
 
   // End-of-turn discard mode: once trimmed to the hand limit, end the turn.
   useEffect(() => {
