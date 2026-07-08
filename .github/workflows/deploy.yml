@@ -66,13 +66,19 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
+          # set -e so a failed pull aborts (instead of the final up -d masking it
+          # with the stale local :latest). Prune old images before AND after so the
+          # small EC2 disk never fills up and silently blocks future pulls.
           CMD_ID=$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --targets "Key=tag:Name,Values=${EC2_TAG_NAME}" \
             --parameters 'commands=[
+              "set -e",
+              "docker image prune -af || true",
               "aws ecr get-login-password --region '"${AWS_REGION}"' | docker login --username AWS --password-stdin '"${ECR_REGISTRY}"'",
               "cd /opt/bang && docker compose -f docker-compose.prod.yml --env-file .env pull",
-              "cd /opt/bang && docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate app caddy"
+              "cd /opt/bang && docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate app caddy",
+              "docker image prune -af || true"
             ]' \
             --query 'Command.CommandId' --output text)
           echo "command_id=$CMD_ID" >> $GITHUB_OUTPUT
