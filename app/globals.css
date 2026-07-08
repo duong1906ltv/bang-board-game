@@ -394,7 +394,7 @@ button.danger {
   font-size: 1.05rem;
   color: #ffe6b0;
   text-shadow: 0 1px 3px #000;
-  animation: marqueeRun 4.5s linear 2;
+  animation: marqueeRun 7s linear 3;
 }
 @keyframes marqueeRun {
   from {
