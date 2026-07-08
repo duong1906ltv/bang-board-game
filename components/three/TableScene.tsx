@@ -683,7 +683,7 @@ function TurnArrow({ position }: { position: [number, number, number] }) {
 
 // Blue "in play" cards (guns, Barrel, Scope, Jail…) laid face-up on the felt in
 // front of a seat, upright toward the camera so the whole table can read them.
-function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard, compact }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string; pickable?: boolean; onPickCard?: (cardId: string) => void; compact?: boolean }) {
+function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string; pickable?: boolean; onPickCard?: (cardId: string) => void }) {
   if (!cards.length) return null;
   const cx = radius * Math.cos(ang);
   const cz = radius * Math.sin(ang);
@@ -706,10 +706,7 @@ function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard,
             : "";
         return (
           <group key={c.id} position={[o, 0, 0]}>
-            {/* compact: skip the full card face (used for YOUR own equipment, which
-                sits near the camera and would otherwise loom huge) — the floating
-                icon+range chip below is enough. */}
-            {!compact && <CardMesh card={c} scale={0.46} position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} />}
+            <CardMesh card={c} scale={0.46} position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} />
             {/* a scope over each selectable card so it's easy to pick (Cat Balou / Panic) */}
             {pickable && (
               <Html center position={[0, 0.3, 0]} distanceFactor={7} style={{ pointerEvents: "auto" }} zIndexRange={[46, 36]}>
@@ -1142,7 +1139,7 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
       {/* your own in-play cards, on the near edge of the felt */}
-      <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} compact />
+      <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
       {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       {/* Draw!-check reveal (any kind) over the table centre */}
