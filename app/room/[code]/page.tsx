@@ -1074,9 +1074,10 @@ function Table({
             </div>
           )}
 
-          {/* central actions, just below the deck, on your turn */}
+          {/* central actions, lowered into the empty felt below the piles so they
+              don't cover the deck/discard in the middle of the table */}
           {you.alive && isMyTurn && !aiming && (
-            <div style={{ position: "fixed", left: "50%", top: "53%", transform: "translateX(-50%)", zIndex: 55, width: 240, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ position: "fixed", left: "50%", top: "67%", transform: "translateX(-50%)", zIndex: 55, width: 240, display: "flex", flexDirection: "column", gap: 8 }}>
               {you.turnPhase === "draw" ? (
                 <DrawControls you={you} onDraw={onDraw} aimJesse={() => setAiming({ id: "", defId: "jesse" })} />
               ) : (
