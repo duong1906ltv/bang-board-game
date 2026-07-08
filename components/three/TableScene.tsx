@@ -123,6 +123,174 @@ function ronaldoTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// A carved wooden "SALOON" sign board for the back wall.
+function signTexture() {
+  const c = document.createElement("canvas");
+  c.width = 512;
+  c.height = 150;
+  const ctx = c.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(c);
+  // wood board with horizontal plank seams
+  ctx.fillStyle = "#4a2f16";
+  ctx.fillRect(0, 0, 512, 150);
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
+  ctx.lineWidth = 3;
+  for (let y = 50; y < 150; y += 50) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke();
+  }
+  // gilt border + engraved title
+  ctx.strokeStyle = "#caa24a";
+  ctx.lineWidth = 8;
+  ctx.strokeRect(12, 12, 488, 126);
+  ctx.fillStyle = "#f0d68a";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 84px Georgia, serif";
+  ctx.fillText("SALOON", 256, 80);
+  return new THREE.CanvasTexture(c);
+}
+
+// ── procedural wall / floor decor (self-contained, no external assets) ────────
+// Each piece is built in its local frame facing +z (like the wall posters); when
+// mounted on a side wall the parent <group> is rotated so +z points into the room.
+
+const WOOD = "#5a3a1c";
+const WOOD_DARK = "#3a2410";
+const METAL = "#8a8f96";
+
+// Spoked wagon wheel — the quintessential frontier wall piece.
+function WagonWheel({ r = 0.62 }: { r?: number }) {
+  const spokes = 8;
+  return (
+    <group>
+      <mesh><torusGeometry args={[r, r * 0.06, 8, 30]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
+      <mesh><torusGeometry args={[r * 0.62, r * 0.05, 8, 26]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
+      <mesh rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[r * 0.13, r * 0.13, 0.1, 12]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.7} /></mesh>
+      {Array.from({ length: spokes }).map((_, i) => (
+        <mesh key={i} rotation={[0, 0, (Math.PI / spokes) * i]}>
+          <boxGeometry args={[r * 0.045, r * 1.2, 0.03]} />
+          <meshStandardMaterial color={WOOD} roughness={0.8} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// A hung horseshoe (open end pointing down, "for luck").
+function Horseshoe({ s = 0.22 }: { s?: number }) {
+  return (
+    <mesh rotation={[0, 0, Math.PI * 1.28]}>
+      <torusGeometry args={[s, s * 0.16, 8, 22, Math.PI * 1.45]} />
+      <meshStandardMaterial color={METAL} metalness={0.6} roughness={0.4} />
+    </mesh>
+  );
+}
+
+// A single rifle lying along local +Y (barrel up), for the crossed-rifles trophy.
+function Rifle() {
+  return (
+    <group>
+      <mesh position={[0, 0.2, 0]}><cylinderGeometry args={[0.022, 0.022, 1.15, 10]} /><meshStandardMaterial color="#2b2b2e" metalness={0.7} roughness={0.35} /></mesh>
+      <mesh position={[0, -0.02, 0]}><boxGeometry args={[0.06, 0.36, 0.05]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
+      <mesh position={[0, -0.46, 0]} rotation={[0, 0, 0.16]}><boxGeometry args={[0.1, 0.42, 0.07]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.8} /></mesh>
+    </group>
+  );
+}
+
+// Two rifles crossed — a fitting emblem for a game of gunfights.
+function CrossedRifles() {
+  return (
+    <group>
+      <group rotation={[0, 0, 0.5]}><Rifle /></group>
+      <group rotation={[0, 0, -0.5]}><Rifle /></group>
+    </group>
+  );
+}
+
+// A wall-mounted oil lamp that also casts a warm pool of light on a side wall.
+function WallSconce({ felt }: { felt: number }) {
+  return (
+    <group>
+      <mesh position={[0, -0.02, 0.06]}><boxGeometry args={[0.1, 0.18, 0.1]} /><meshStandardMaterial color="#1a1a1a" metalness={0.5} roughness={0.6} /></mesh>
+      <mesh position={[0, 0.13, 0.08]}><sphereGeometry args={[0.09, 14, 14]} /><meshStandardMaterial color="#fff2d0" emissive="#ffcf8f" emissiveIntensity={2.2} /></mesh>
+      <pointLight position={[0, 0.13, 0.35]} color="#ffcf8f" intensity={7} distance={felt * 3} decay={2} />
+    </group>
+  );
+}
+
+// A short liquor bottle (glass body + neck), colour varied by index.
+function Bottle({ position, tint }: { position: [number, number, number]; tint: string }) {
+  return (
+    <group position={position}>
+      <mesh><cylinderGeometry args={[0.045, 0.045, 0.2, 10]} /><meshStandardMaterial color={tint} roughness={0.25} metalness={0.1} transparent opacity={0.85} /></mesh>
+      <mesh position={[0, 0.15, 0]}><cylinderGeometry args={[0.018, 0.03, 0.1, 8]} /><meshStandardMaterial color={tint} roughness={0.25} /></mesh>
+    </group>
+  );
+}
+
+// A corner bar: a plank counter with a bottle row plus a wall shelf behind it.
+function Bar({ floorY, len = 2.6 }: { floorY: number; len?: number }) {
+  const tints = ["#3e6b3a", "#7a4a1c", "#5a7a86", "#6b3030", "#3e6b3a", "#7a4a1c"];
+  const bottleZ = Array.from({ length: 6 }).map((_, i) => -len / 2 + 0.3 + (i * (len - 0.6)) / 5);
+  return (
+    <group position={[0, floorY, 0]}>
+      {/* counter body + top */}
+      <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[0.6, 1.0, len]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.85} /></mesh>
+      <mesh position={[0, 1.02, 0]}><boxGeometry args={[0.72, 0.06, len + 0.12]} /><meshStandardMaterial color={WOOD} roughness={0.7} /></mesh>
+      {/* bottles on the counter */}
+      {bottleZ.map((z, i) => (<Bottle key={i} position={[0.05, 1.15, z]} tint={tints[i]} />))}
+      {/* back shelf against the wall + its bottles */}
+      <mesh position={[-0.42, 1.55, 0]}><boxGeometry args={[0.18, 0.05, len * 0.85]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
+      {bottleZ.filter((_, i) => i % 2 === 0).map((z, i) => (<Bottle key={i} position={[-0.42, 1.68, z]} tint={tints[(i * 2 + 1) % tints.length]} />))}
+    </group>
+  );
+}
+
+// An upright saloon piano for a back corner.
+function Piano({ floorY }: { floorY: number }) {
+  const keys = 14;
+  return (
+    <group position={[0, floorY, 0]}>
+      <mesh position={[0, 0.62, 0]} castShadow><boxGeometry args={[1.5, 1.24, 0.5]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.5} metalness={0.1} /></mesh>
+      <mesh position={[0, 1.28, 0.02]}><boxGeometry args={[1.6, 0.1, 0.62]} /><meshStandardMaterial color="#2a1a0e" roughness={0.4} /></mesh>
+      {/* upper front panel + keyboard shelf */}
+      <mesh position={[0, 0.82, 0.27]}><boxGeometry args={[1.3, 0.5, 0.04]} /><meshStandardMaterial color="#221208" roughness={0.5} /></mesh>
+      <mesh position={[0, 0.55, 0.3]} rotation={[-0.25, 0, 0]}><boxGeometry args={[1.3, 0.16, 0.06]} /><meshStandardMaterial color="#f2ead6" roughness={0.4} /></mesh>
+      {/* a few black keys hinted as dark ticks */}
+      {Array.from({ length: keys }).map((_, i) => (
+        <mesh key={i} position={[-0.6 + (i * 1.2) / (keys - 1), 0.585, 0.33]} rotation={[-0.25, 0, 0]}>
+          <boxGeometry args={[0.04, 0.09, 0.02]} /><meshStandardMaterial color="#1a1a1a" />
+        </mesh>
+      ))}
+      {/* stool */}
+      <mesh position={[0, 0.34, 0.75]} castShadow><boxGeometry args={[0.6, 0.08, 0.3]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
+    </group>
+  );
+}
+
+// Swinging batwing doors in a wooden frame — the saloon entrance.
+function BatwingDoors() {
+  return (
+    <group>
+      {/* frame */}
+      <mesh position={[-0.52, 0.95, 0]}><boxGeometry args={[0.12, 1.9, 0.16]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
+      <mesh position={[0.52, 0.95, 0]}><boxGeometry args={[0.12, 1.9, 0.16]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
+      <mesh position={[0, 1.92, 0]}><boxGeometry args={[1.2, 0.14, 0.16]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
+      {/* dark night-time opening behind the doors */}
+      <mesh position={[0, 0.95, -0.06]}><planeGeometry args={[0.94, 1.8]} /><meshStandardMaterial color="#1b1206" /></mesh>
+      {/* two half-height swinging doors */}
+      {[-0.235, 0.235].map((x, i) => (
+        <group key={i} position={[x, 0.9, 0.03]}>
+          <mesh><boxGeometry args={[0.42, 0.95, 0.05]} /><meshStandardMaterial color="#6b4526" roughness={0.85} /></mesh>
+          {[-0.28, 0, 0.28].map((y, j) => (
+            <mesh key={j} position={[0, y, 0.03]}><boxGeometry args={[0.38, 0.06, 0.02]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.8} /></mesh>
+          ))}
+        </group>
+      ))}
+    </group>
+  );
+}
+
 // Real Ronaldo photo, if present. Drop a file at public/ronaldo.jpg (same-origin,
 // no CORS issues) OR set RONALDO_IMG to any CORS-enabled URL. Falls back to the
 // canvas poster above when the image is missing or fails to load.
@@ -190,11 +358,12 @@ function Saloon({ felt }: { felt: number }) {
   const floorTex = useMemo(plankTexture, []);
   const posterTex = useMemo(posterTexture, []);
   const ronaldoTex = useMemo(ronaldoTexture, []);
+  const signTex = useMemo(signTexture, []);
   const ronaldoImg = useImageTexture(RONALDO_IMG); // real photo if available
   // Free the canvas-backed textures when the scene unmounts (r3f doesn't).
   useEffect(
-    () => () => [floorTex, posterTex, ronaldoTex].forEach((t) => t.dispose()),
-    [floorTex, posterTex, ronaldoTex]
+    () => () => [floorTex, posterTex, ronaldoTex, signTex].forEach((t) => t.dispose()),
+    [floorTex, posterTex, ronaldoTex, signTex]
   );
   const roomW = felt * 6.5;
   const roomH = 7;
@@ -231,6 +400,42 @@ function Saloon({ felt }: { felt: number }) {
         <planeGeometry args={[1.15, 1.6]} />
         <meshStandardMaterial map={ronaldoImg ?? ronaldoTex} roughness={1} />
       </mesh>
+      {/* ── wall decor ─────────────────────────────────────────────── */}
+      {/* back wall: carved SALOON sign above the posters + lucky horseshoes */}
+      <mesh position={[0, floorY + 3.5, -wall + 0.03]}>
+        <planeGeometry args={[2.6, 0.76]} />
+        <meshStandardMaterial map={signTex} roughness={0.9} />
+      </mesh>
+      {[-wall * 0.5, wall * 0.5].map((x, i) => (
+        <group key={i} position={[x, floorY + 3.25, -wall + 0.06]}>
+          <Horseshoe />
+        </group>
+      ))}
+      {/* left wall: wagon wheel + a lamp sconce; batwing entrance toward the front */}
+      <group position={[-wall + 0.07, floorY + 2.2, -felt * 0.3]} rotation={[0, Math.PI / 2, 0]}>
+        <WagonWheel />
+      </group>
+      <group position={[-wall + 0.07, floorY + 1.9, felt * 1.15]} rotation={[0, Math.PI / 2, 0]}>
+        <WallSconce felt={felt} />
+      </group>
+      <group position={[-wall + 0.1, floorY, felt * 1.7]} rotation={[0, Math.PI / 2, 0]}>
+        <BatwingDoors />
+      </group>
+      {/* right wall: crossed rifles + a lamp sconce */}
+      <group position={[wall - 0.07, floorY + 2.2, -felt * 0.3]} rotation={[0, -Math.PI / 2, 0]}>
+        <CrossedRifles />
+      </group>
+      <group position={[wall - 0.07, floorY + 1.9, felt * 1.15]} rotation={[0, -Math.PI / 2, 0]}>
+        <WallSconce felt={felt} />
+      </group>
+      {/* corners: a bar along the back-left wall, an upright piano back-right */}
+      <group position={[-wall + 0.45, 0, -felt * 1.4]}>
+        <Bar floorY={floorY} len={felt * 1.5} />
+      </group>
+      <group position={[felt * 1.8, 0, -wall + 0.45]}>
+        <Piano floorY={floorY} />
+      </group>
+
       {/* sheriff star painted on the felt (large, subtle, behind the piles) */}
       <SheriffStar radius={felt * 0.42} y={0.04} color="#b8912f" opacity={0.4} />
       {/* hanging lamp over the table */}
