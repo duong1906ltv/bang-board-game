@@ -10,7 +10,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
 import { CardMesh } from "./CardMesh";
 import { PlayingCard } from "@/components/PlayingCard";
-import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, CARD_ICON, CARD_IMAGE, type Card } from "@/lib/cards";
 import type { PlayerView, PlayerPublic, CheckView } from "@/lib/types";
 import { ROLE_EMOJI } from "@/lib/types";
 
@@ -756,8 +756,16 @@ function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard 
                   WebkitUserSelect: "none",
                 }}
               >
-                {CARD_ICON[c.defId] ?? "🔵"}
-                {suffix && <span style={{ fontSize: 10, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
+                {def?.kind === "gun" && CARD_IMAGE[c.defId] ? (
+                  // Guns: show the rifle art (range baked in) instead of the 🔫
+                  // emoji, which renders as a green water-pistol on many platforms.
+                  <img src={CARD_IMAGE[c.defId]} alt="" width={32} height={26} draggable={false} style={{ display: "block" }} />
+                ) : (
+                  <>
+                    {CARD_ICON[c.defId] ?? "🔵"}
+                    {suffix && <span style={{ fontSize: 10, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
+                  </>
+                )}
               </div>
             </Html>
           </group>
