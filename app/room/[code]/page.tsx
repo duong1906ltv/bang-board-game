@@ -479,6 +479,48 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
   );
 }
 
+// One shared popup for showing a card face full-size on a dimmed backdrop. Used
+// for inspecting a card (with its effect text) and for play/discard confirmations
+// (with action buttons). Click the backdrop to dismiss.
+function CardModal({
+  card,
+  onClose,
+  showEffect,
+  actions,
+}: {
+  card: Card;
+  onClose: () => void;
+  showEffect?: boolean;
+  actions?: { label: string; onClick: () => void; ghost?: boolean }[];
+}) {
+  const locale = useLocale();
+  const buttons = actions ?? [{ label: L(locale, "Đóng", "Close"), onClick: onClose }];
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+    >
+      <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 320 }}>
+        <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginBottom: 70 }}>
+          <PlayingCard card={card} />
+        </div>
+        {showEffect && (
+          <p className="muted" style={{ textAlign: "center", lineHeight: 1.5, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px" }}>
+            {CARD_DEF_BY_ID[card.defId]?.effect}
+          </p>
+        )}
+        <div style={{ display: "flex", gap: 12 }}>
+          {buttons.map((b, i) => (
+            <button key={i} className={b.ghost ? "ghost" : ""} style={{ width: "auto", padding: "12px 24px" }} onClick={b.onClick}>
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Table({
   view,
   onDraw,
@@ -749,61 +791,27 @@ function Table({
         </div>
       )}
 
-      {/* card detail popup — shows the actual card face + full effect */}
-      {infoCard && (
-        <div
-          onClick={() => setInfoCard(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 320 }}
-          >
-            <div style={{ transform: "scale(1.6)", transformOrigin: "top center", marginBottom: 60 }}>
-              <PlayingCard card={infoCard} />
-            </div>
-            <p className="muted" style={{ textAlign: "center", lineHeight: 1.5, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px" }}>
-              {CARD_DEF_BY_ID[infoCard.defId]?.effect}
-            </p>
-            <button style={{ width: "auto", padding: "10px 24px" }} onClick={() => setInfoCard(null)}>{L(locale, "Đóng", "Close")}</button>
-          </div>
-        </div>
-      )}
-
-      {/* confirm before playing a card */}
+      {/* one shared card popup: inspect (with effect) or play/discard confirm */}
+      {infoCard && <CardModal card={infoCard} onClose={() => setInfoCard(null)} showEffect />}
       {confirmPlay && (
-        <div
-          onClick={() => setConfirmPlay(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-        >
-          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 300 }}>
-            <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginBottom: 70 }}>
-              <PlayingCard card={confirmPlay} />
-            </div>
-            <div style={{ display: "flex", gap: 12 }}>
-              <button style={{ width: "auto", padding: "12px 28px" }} onClick={doConfirmedPlay}>{L(locale, "Đánh bài", "Play")}</button>
-              <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={() => setConfirmPlay(null)}>{L(locale, "Hủy", "Cancel")}</button>
-            </div>
-          </div>
-        </div>
+        <CardModal
+          card={confirmPlay}
+          onClose={() => setConfirmPlay(null)}
+          actions={[
+            { label: L(locale, "Đánh bài", "Play"), onClick: doConfirmedPlay },
+            { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmPlay(null), ghost: true },
+          ]}
+        />
       )}
-
-      {/* confirm before discarding a card */}
       {confirmDiscard && (
-        <div
-          onClick={() => setConfirmDiscard(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-        >
-          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 300 }}>
-            <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginBottom: 70 }}>
-              <PlayingCard card={confirmDiscard} />
-            </div>
-            <div style={{ display: "flex", gap: 12 }}>
-              <button style={{ width: "auto", padding: "12px 28px" }} onClick={doConfirmedDiscard}>{L(locale, "Bỏ bài", "Discard")}</button>
-              <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={() => setConfirmDiscard(null)}>{L(locale, "Hủy", "Cancel")}</button>
-            </div>
-          </div>
-        </div>
+        <CardModal
+          card={confirmDiscard}
+          onClose={() => setConfirmDiscard(null)}
+          actions={[
+            { label: L(locale, "Bỏ bài", "Discard"), onClick: doConfirmedDiscard },
+            { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmDiscard(null), ghost: true },
+          ]}
+        />
       )}
 
       {/* confirm before surrendering */}
