@@ -69,6 +69,80 @@ function posterTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// A playful "Ronaldo" tribute poster (stylised — no real photo). Drawn on canvas
+// so it stays self-contained: framed portrait in a #7 jersey with "SIUUU ⚽".
+function ronaldoTexture() {
+  const c = document.createElement("canvas");
+  c.width = 200;
+  c.height = 280;
+  const ctx = c.getContext("2d")!;
+  // parchment + frame
+  ctx.fillStyle = "#f0e2c0";
+  ctx.fillRect(0, 0, 200, 280);
+  ctx.strokeStyle = "#8a5a24";
+  ctx.lineWidth = 8;
+  ctx.strokeRect(6, 6, 188, 268);
+  // title
+  ctx.fillStyle = "#7a1f1f";
+  ctx.textAlign = "center";
+  ctx.font = "bold 30px Georgia, serif";
+  ctx.fillText("RONALDO", 100, 40);
+  // green pitch backdrop for the portrait
+  ctx.fillStyle = "#2f6f38";
+  ctx.fillRect(30, 56, 140, 150);
+  // head
+  ctx.fillStyle = "#e6b48c";
+  ctx.beginPath();
+  ctx.ellipse(100, 108, 30, 34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // hair
+  ctx.fillStyle = "#3a2410";
+  ctx.beginPath();
+  ctx.arc(100, 92, 31, Math.PI, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(69, 84, 62, 12);
+  // eyes + big grin
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.arc(90, 106, 3.2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(110, 106, 3.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.ellipse(100, 122, 12, 7, 0, 0, Math.PI * 2); ctx.fill();
+  // red #7 jersey
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.moveTo(64, 206); ctx.lineTo(74, 150); ctx.lineTo(126, 150); ctx.lineTo(136, 206);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 34px Arial, sans-serif";
+  ctx.fillText("7", 100, 190);
+  // tagline
+  ctx.fillStyle = "#7a1f1f";
+  ctx.font = "bold 26px Georgia, serif";
+  ctx.fillText("SIUUU! ⚽", 100, 246);
+  return new THREE.CanvasTexture(c);
+}
+
+// Real Ronaldo photo, if present. Drop a file at public/ronaldo.jpg (same-origin,
+// no CORS issues) OR set RONALDO_IMG to any CORS-enabled URL. Falls back to the
+// canvas poster above when the image is missing or fails to load.
+const RONALDO_IMG = "/ronaldo.jpg";
+function useImageTexture(url: string) {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin("anonymous");
+    loader.load(
+      url,
+      (t) => { if (alive) setTex(t); },
+      undefined,
+      () => { if (alive) setTex(null); } // missing/blocked → keep fallback
+    );
+    return () => { alive = false; };
+  }, [url]);
+  return tex;
+}
+
 // A simple saguaro cactus (trunk + two arms).
 function Cactus({ position }: { position: [number, number, number] }) {
   const mat = <meshStandardMaterial color="#3f7a3a" roughness={0.9} />;
@@ -113,6 +187,8 @@ function Barrel({ position }: { position: [number, number, number] }) {
 function Saloon({ felt }: { felt: number }) {
   const floorTex = useMemo(plankTexture, []);
   const posterTex = useMemo(posterTexture, []);
+  const ronaldoTex = useMemo(ronaldoTexture, []);
+  const ronaldoImg = useImageTexture(RONALDO_IMG); // real photo if available
   const roomW = felt * 6.5;
   const roomH = 7;
   const floorY = -1.55;
@@ -142,6 +218,12 @@ function Saloon({ felt }: { felt: number }) {
           <meshStandardMaterial map={posterTex} roughness={1} />
         </mesh>
       ))}
+      {/* Ronaldo poster, centred between the WANTED posters (real photo if
+          public/ronaldo.jpg exists, otherwise the drawn tribute) */}
+      <mesh position={[0, floorY + 2.5, -wall + 0.02]}>
+        <planeGeometry args={[1.15, 1.6]} />
+        <meshStandardMaterial map={ronaldoImg ?? ronaldoTex} roughness={1} />
+      </mesh>
       {/* sheriff star painted on the felt (large, subtle, behind the piles) */}
       <SheriffStar radius={felt * 0.42} y={0.04} color="#b8912f" opacity={0.4} />
       {/* hanging lamp over the table */}

@@ -7,6 +7,7 @@ on:
       - 'app/**'
       - 'lib/**'
       - 'components/**'
+      - 'public/**'
       - 'server.ts'
       - 'Dockerfile'
       - 'package.json'

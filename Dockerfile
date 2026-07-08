@@ -21,6 +21,7 @@ RUN groupadd -r app && useradd -r -g app app
 # so we ship node_modules + the build output + the source it imports.
 COPY --from=builder --chown=app:app /app/node_modules ./node_modules
 COPY --from=builder --chown=app:app /app/.next ./.next
+COPY --from=builder --chown=app:app /app/public ./public
 COPY --from=builder --chown=app:app /app/app ./app
 COPY --from=builder --chown=app:app /app/lib ./lib
 COPY --from=builder --chown=app:app /app/server.ts ./server.ts
