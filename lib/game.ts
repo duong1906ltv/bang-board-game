@@ -1,9 +1,7 @@
-// In-memory game engine for Bang! — room + character draft.
+// In-memory game engine for Bang! — full game: room lifecycle, role dealing,
+// character draft (deal 2 per player, no time limit; auto-pick by tier rank only
+// as a safety net if a player leaves), the card deck, and combat resolution.
 // Rooms live in a Map for the lifetime of the server process (no DB).
-//
-// SCOPE: room lifecycle, role dealing, and the character draft (deal 2 per
-// player, 30s to pick 1, auto-pick by tier rank on timeout). The card deck and
-// combat resolution are stubbed and will be implemented with the card rules.
 
 import {
   Character,
@@ -734,14 +732,14 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   room.pending = pending;
   room.checks = [];
 
-  // Barrel: each Barrel (plus Jourdonnais' innate one) may Draw! once per Missed!
-  // still needed — so vs Slab the Killer (2 needed) a single Barrel draws twice.
-  // Each Heart counts as one Missed!; stop as soon as the hit is fully dodged.
+  // Barrel: each Barrel (plus Jourdonnais' innate one) may Draw! exactly ONCE
+  // (per the card: "cannot Draw! twice"). Each Heart counts as one Missed!, so
+  // vs Slab the Killer (2 needed) a lone Barrel can supply at most 1 — the target
+  // still needs a real Missed!. Stop as soon as the hit is fully dodged.
   const barrels = barrelAttempts(target);
   if (barrels > 0) {
     room.checks = [];
-    const draws = barrels * pending.missedNeeded;
-    for (let i = 0; i < draws && pending.missedPlayed < pending.missedNeeded; i++) {
+    for (let i = 0; i < barrels && pending.missedPlayed < pending.missedNeeded; i++) {
       const card = drawCheck(room, target, goodBarrel);
       const heart = !!card && card.suit === "hearts";
       const chk = { name: target.name, card, kind: "barrel", outcome: heart ? "hit" : "miss" };

@@ -20,6 +20,7 @@ export function PlayingCard({
   selected,
   dimmed,
   title,
+  hideCorner,
 }: {
   card: Card;
   size?: Size;
@@ -27,6 +28,7 @@ export function PlayingCard({
   selected?: boolean;
   dimmed?: boolean;
   title?: string;
+  hideCorner?: boolean; // for synthetic cards (e.g. from the log) with no real suit/rank
 }) {
   const def = CARD_DEF_BY_ID[card.defId];
   const red = card.suit === "hearts" || card.suit === "diamonds";
@@ -53,7 +55,7 @@ export function PlayingCard({
         )}
       </div>
       {def?.effect && <div className="pc-desc">{def.effect}</div>}
-      <span className="pc-corner">{corner}</span>
+      {!hideCorner && <span className="pc-corner">{corner}</span>}
     </div>
   );
 }

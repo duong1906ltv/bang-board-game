@@ -1,6 +1,6 @@
-// Custom Next.js server that also hosts the Socket.IO game transport.
-// SCOPE: room layer only — create/join/rejoin/start/turn/restart. Card-play
-// events are added with the card layer.
+// Custom Next.js server that also hosts the Socket.IO game transport: it wires
+// every client event (create/join/rejoin, draft, card play, reactions, turn
+// flow, restart) to the in-memory game engine and broadcasts filtered views.
 import { createServer } from "http";
 import next from "next";
 import { Server } from "socket.io";

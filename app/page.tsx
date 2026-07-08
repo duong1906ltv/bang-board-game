@@ -33,14 +33,19 @@ export default function Home() {
     setName(loadName());
   }, []);
 
+  const noResponse = () => setError(L(getLocale(), "Máy chủ không phản hồi, thử lại", "Server didn't respond, try again"));
+
   function create() {
     if (!name.trim()) return setError(L(getLocale(), "Nhập tên trước đã", "Enter your name first"));
     setBusy(true);
     setError("");
     saveName(name.trim());
-    getSocket().emit("createRoom", { name: name.trim() }, ({ code, playerId }) => {
-      saveIdentity(code, playerId);
-      router.push(`/room/${code}`);
+    // .timeout() so a lost/slow connection surfaces an error instead of leaving
+    // the button disabled forever. On success we navigate away (busy stays set).
+    getSocket().timeout(8000).emit("createRoom", { name: name.trim() }, (err, res) => {
+      if (err || !res) { setBusy(false); return noResponse(); }
+      saveIdentity(res.code, res.playerId);
+      router.push(`/room/${res.code}`);
     });
   }
 
@@ -51,8 +56,9 @@ export default function Home() {
     setError("");
     saveName(name.trim());
     const c = code.toUpperCase().trim();
-    getSocket().emit("joinRoom", { code: c, name: name.trim() }, (res) => {
+    getSocket().timeout(8000).emit("joinRoom", { code: c, name: name.trim() }, (err, res) => {
       setBusy(false);
+      if (err || !res) return noResponse();
       if (!res.ok || !res.playerId) return setError(res.error || L(getLocale(), "Không vào được phòng", "Couldn't join the room"));
       saveIdentity(c, res.playerId);
       router.push(`/room/${c}`);

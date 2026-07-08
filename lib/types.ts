@@ -1,6 +1,5 @@
-// Shared types between the server (game engine) and the client (React).
-// SCOPE: room layer + character draft. Card decks and combat are still
-// placeholders — filled in once the concrete card rules are provided.
+// Shared types between the server (game engine) and the client (React):
+// rooms, roles, the character draft, cards, combat, and the socket events.
 
 // ─── Roles (hidden identity, Bang! base game) ────────────────────────────────
 
@@ -26,8 +25,8 @@ export const PUBLIC_ROLES: Role[] = ["sheriff"];
 
 // ─── Characters ──────────────────────────────────────────────────────────────
 
-// Tier rank used only to auto-resolve the draft when a player runs out of time
-// (higher tier wins; A > B > C > D > unranked).
+// Tier rank used only as a draft safety net — if a player leaves before picking,
+// their character is auto-resolved by rank (higher wins; A > B > C > D > unranked).
 export type CharRank = "A" | "B" | "C" | "D" | null;
 
 export interface Character {
@@ -57,7 +56,7 @@ export const CHARACTERS: Character[] = [
   { id: "sid-ketchum", name: "Sid Ketchum", rank: null, maxHp: 4, ability: "Có thể bỏ 2 lá để hồi 1 máu." },
 ];
 
-// Auto-resolve priority for a timed-out draft pick: A > B > C > D > unranked.
+// Auto-resolve priority for the draft safety net: A > B > C > D > unranked.
 export const RANK_PRIORITY: Record<string, number> = { A: 4, B: 3, C: 2, D: 1 };
 export function rankPriority(rank: CharRank): number {
   return rank ? RANK_PRIORITY[rank] ?? 0 : 0;

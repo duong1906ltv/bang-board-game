@@ -101,9 +101,9 @@ export default function RoomPage() {
         router.replace("/");
         return;
       }
-      socket.emit("rejoin", { code, playerId }, (res) => {
-        if (!res.ok) {
-          setError(res.error || "Không vào lại được phòng");
+      socket.timeout(8000).emit("rejoin", { code, playerId }, (err, res) => {
+        if (err || !res?.ok) {
+          setError(res?.error || "Không vào lại được phòng");
           redirectTimer = setTimeout(() => router.replace("/"), 1200);
         }
       });
@@ -123,10 +123,13 @@ export default function RoomPage() {
   }, [code, router]);
 
   function copyCode() {
-    navigator.clipboard?.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+    navigator.clipboard
+      ?.writeText(code)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {}); // clipboard permission denied / not a secure context
   }
 
   const socket = getSocket();
@@ -504,7 +507,7 @@ function CardModal({
     >
       <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 320 }}>
         <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginBottom: 70 }}>
-          <PlayingCard card={card} />
+          <PlayingCard card={card} hideCorner={card.id === "log"} />
         </div>
         {showEffect && (
           <p className="muted" style={{ textAlign: "center", lineHeight: 1.5, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px" }}>
