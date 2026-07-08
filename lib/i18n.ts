@@ -15,11 +15,17 @@ const listeners = new Set<() => void>();
 export function getLocale(): Locale {
   return current;
 }
+// Keep <html lang> in sync with the chosen locale (screen readers / SEO). The
+// server renders lang="vi"; this corrects it on the client once a locale loads.
+function syncHtmlLang() {
+  if (typeof document !== "undefined") document.documentElement.lang = current;
+}
 export function setLocale(l: Locale) {
   current = l;
   try {
     localStorage.setItem("bang:lang", l);
   } catch {}
+  syncHtmlLang();
   listeners.forEach((f) => f());
 }
 export function initLocale() {
@@ -27,6 +33,7 @@ export function initLocale() {
     const s = localStorage.getItem("bang:lang");
     if (s === "en" || s === "vi") current = s;
   } catch {}
+  syncHtmlLang();
 }
 export function useLocale(): Locale {
   const [, force] = useState(0);

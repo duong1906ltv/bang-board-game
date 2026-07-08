@@ -3,6 +3,7 @@
 // A CSS playing-card face used everywhere a Bang! card is shown (hand, table,
 // General Store, Kit Carlson). No copyrighted art — a per-type emoji icon plus
 // an optional image slot (CARD_IMAGE) that can hold your own / AI-generated art.
+import { useState } from "react";
 import { Card, CARD_DEF_BY_ID, CARD_ICON, CARD_IMAGE, SUIT_SYMBOL, rankLabel } from "@/lib/cards";
 
 type Size = "sm" | "md";
@@ -30,10 +31,11 @@ export function PlayingCard({
   title?: string;
   hideCorner?: boolean; // for synthetic cards (e.g. from the log) with no real suit/rank
 }) {
+  const [imgFailed, setImgFailed] = useState(false);
   const def = CARD_DEF_BY_ID[card.defId];
   const red = card.suit === "hearts" || card.suit === "diamonds";
   const corner = `${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`;
-  const img = CARD_IMAGE[card.defId];
+  const img = imgFailed ? undefined : CARD_IMAGE[card.defId];
   const cls = [
     "pcard",
     `pcard-${size}`,
@@ -45,11 +47,20 @@ export function PlayingCard({
   ].join(" ");
 
   return (
-    <div className={cls} onClick={onClick} title={title ?? def?.name} draggable={false} onDragStart={(e) => e.preventDefault()}>
+    <div
+      className={cls}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      title={title ?? def?.name}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+    >
       <div className="pc-name">{card.name}</div>
       <div className="pc-center">
         {img ? (
-          <img className="pc-art" src={img} alt="" draggable={false} />
+          <img className="pc-art" src={img} alt="" draggable={false} onError={() => setImgFailed(true)} />
         ) : (
           <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
         )}

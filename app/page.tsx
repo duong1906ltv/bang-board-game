@@ -75,8 +75,8 @@ export default function Home() {
       <p className="muted">{L(locale, "Game bài Viễn Tây online · 4–7 người", "Wild West card game online · 4–7 players")}</p>
 
       <div className="card">
-        <label>{L(locale, "Tên của bạn", "Your name")}</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Django" maxLength={20} />
+        <label htmlFor="name">{L(locale, "Tên của bạn", "Your name")}</label>
+        <input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Django" maxLength={20} onKeyDown={(e) => e.key === "Enter" && create()} />
 
         <button onClick={create} disabled={busy}>
           {L(locale, "Tạo phòng mới", "Create a room")}
@@ -84,9 +84,10 @@ export default function Home() {
 
         <div style={{ height: 18 }} />
 
-        <label>{L(locale, "Hoặc vào phòng có sẵn", "Or join a room")}</label>
+        <label htmlFor="code">{L(locale, "Hoặc vào phòng có sẵn", "Or join a room")}</label>
         <div className="row">
           <input
+            id="code"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             placeholder={L(locale, "MÃ PHÒNG", "ROOM CODE")}

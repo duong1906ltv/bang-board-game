@@ -505,7 +505,7 @@ function CardModal({
       onClick={onClose}
       style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
     >
-      <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 320 }}>
+      <div role="dialog" aria-modal="true" aria-label={card.name} onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: 320 }}>
         <div style={{ transform: "scale(1.5)", transformOrigin: "top center", marginBottom: 70 }}>
           <PlayingCard card={card} hideCorner={card.id === "log"} />
         </div>
@@ -604,6 +604,19 @@ function Table({
   };
   // Clear the pending notice timer if the table unmounts mid-countdown.
   useEffect(() => () => clearTimeout(noticeTimerRef.current), []);
+
+  // Escape dismisses any open popup and cancels aim / Sid-pick mode — the same
+  // exits the click-outside overlays offer, but for keyboard users.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setInfoCard(null); setInfo(null); setCharView(null); setPlayerInfo(null);
+      setConfirmPlay(null); setConfirmDiscard(null); setConfirmSurrender(false);
+      setAiming(null); setSidPicking(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     const cur = you.hand.map((c) => c.id);
