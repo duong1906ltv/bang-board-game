@@ -438,22 +438,9 @@ function Saloon({ felt }: { felt: number }) {
 
       {/* sheriff star painted on the felt (large, subtle, behind the piles) */}
       <SheriffStar radius={felt * 0.42} y={0.04} color="#b8912f" opacity={0.4} />
-      {/* hanging lamp over the table */}
-      <group position={[0, 2.7, 0]}>
-        <mesh position={[0, 0.75, 0]}>
-          <cylinderGeometry args={[0.015, 0.015, 1.5, 8]} />
-          <meshStandardMaterial color="#1a1a1a" />
-        </mesh>
-        <mesh castShadow>
-          <coneGeometry args={[0.5, 0.42, 24, 1, true]} />
-          <meshStandardMaterial color="#4a3418" side={THREE.DoubleSide} emissive="#ffcf8f" emissiveIntensity={0.5} roughness={0.7} />
-        </mesh>
-        <mesh position={[0, -0.16, 0]}>
-          <sphereGeometry args={[0.09, 16, 16]} />
-          <meshStandardMaterial color="#fff2d0" emissive="#ffe6b0" emissiveIntensity={2.4} />
-        </mesh>
-        <pointLight position={[0, -0.15, 0]} color="#ffe0b0" intensity={24} distance={felt * 6} decay={2} />
-      </group>
+      {/* overhead light over the table (fixture removed; light kept so the felt
+          stays lit) */}
+      <pointLight position={[0, 2.55, 0]} color="#ffe0b0" intensity={24} distance={felt * 6} decay={2} />
       {barrels.map((p, i) => (
         <Barrel key={i} position={p} />
       ))}
