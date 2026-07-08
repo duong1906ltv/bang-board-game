@@ -438,9 +438,6 @@ function Saloon({ felt }: { felt: number }) {
 
       {/* sheriff star painted on the felt (large, subtle, behind the piles) */}
       <SheriffStar radius={felt * 0.42} y={0.04} color="#b8912f" opacity={0.4} />
-      {/* overhead light over the table (fixture removed; light kept so the felt
-          stays lit) */}
-      <pointLight position={[0, 2.55, 0]} color="#ffe0b0" intensity={24} distance={felt * 6} decay={2} />
       {barrels.map((p, i) => (
         <Barrel key={i} position={p} />
       ))}
@@ -1115,9 +1112,9 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
         enablePan={false}
       />
       {/* Bright, warm room lighting. */}
-      <ambientLight intensity={0.85} color="#fff2dc" />
-      <hemisphereLight args={["#fff0d0", "#4a3420", 0.7]} />
-      <directionalLight position={[3, 6, 4]} intensity={0.8} color="#fff3e0" />
+      <ambientLight intensity={1.05} color="#fff2dc" />
+      <hemisphereLight args={["#fff0d0", "#4a3420", 0.85]} />
+      <directionalLight position={[3, 6, 4]} intensity={1.0} color="#fff3e0" />
       <Environment preset="warehouse" />
       <Saloon felt={felt} />
       <Table felt={felt} />
