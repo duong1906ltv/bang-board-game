@@ -802,7 +802,7 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
   const cardRef = useRef<THREE.Group>(null);
   const blastRef = useRef<THREE.Mesh>(null);
   const lightRef = useRef<THREE.PointLight>(null);
-  const cy = 0.3 + felt * 0.5; // stage height above the felt
+  const cy = 0.3 + felt * 0.32; // stage height above the felt (lowered toward table centre)
 
   useEffect(() => {
     if (!check) return;
