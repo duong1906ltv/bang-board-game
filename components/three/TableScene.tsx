@@ -367,7 +367,7 @@ function Saloon({ felt }: { felt: number }) {
   );
   const roomW = felt * 6.5;
   const roomH = 7;
-  const floorY = -1.55;
+  const floorY = FLOOR_Y;
   const wall = roomW / 2 - 0.05; // inner wall distance from centre
   const barrelR = felt * 2.3;
   const barrels: [number, number, number][] = [
@@ -586,30 +586,39 @@ function OpponentHand({ count }: { count: number }) {
 // Distinct shirt colors so seated players read apart.
 const AVATAR_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#c39bd3"];
 
+// Floor level (matches the Saloon shell). Avatars/tombstones are placed with
+// their group origin at the table top (y=0), so the body must reach down to here.
+const FLOOR_Y = -1.55;
+
 // A low-poly seated cowboy: torso + head + hat. Radially symmetric, so no facing
-// needed. Shoulders/head poke above the table so it reads as "someone sitting".
+// needed. The body reaches from the floor up past the table rim — its lower half
+// is hidden behind the table edge, so it reads as "someone sitting at the table"
+// instead of floating above the felt.
 function Avatar({ position, color, dead, sheriff }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean }) {
+  const shoulderY = 0.42; // torso top, just above the table rim (y=0)
+  const bodyH = shoulderY - FLOOR_Y;
   return (
     <group position={position}>
-      <mesh position={[0, 0.28, 0]} castShadow>
-        <cylinderGeometry args={[0.16, 0.26, 0.62, 20]} />
+      {/* torso: a tapered column from the floor up to the shoulders */}
+      <mesh position={[0, FLOOR_Y + bodyH / 2, 0]} castShadow>
+        <cylinderGeometry args={[0.2, 0.36, bodyH, 20]} />
         <meshStandardMaterial color={dead ? "#4a4a4a" : color} roughness={0.75} />
       </mesh>
-      <mesh position={[0, 0.7, 0]} castShadow>
+      <mesh position={[0, shoulderY + 0.2, 0]} castShadow>
         <sphereGeometry args={[0.15, 24, 24]} />
         <meshStandardMaterial color={dead ? "#7a7a7a" : "#e8c39a"} roughness={0.6} />
       </mesh>
       {/* cowboy hat: brim + crown */}
-      <mesh position={[0, 0.8, 0]} castShadow>
+      <mesh position={[0, shoulderY + 0.3, 0]} castShadow>
         <cylinderGeometry args={[0.27, 0.27, 0.02, 24]} />
         <meshStandardMaterial color="#6b4a24" roughness={0.85} />
       </mesh>
-      <mesh position={[0, 0.86, 0]} castShadow>
+      <mesh position={[0, shoulderY + 0.36, 0]} castShadow>
         <cylinderGeometry args={[0.13, 0.16, 0.14, 24]} />
         <meshStandardMaterial color="#5a3a1c" roughness={0.85} />
       </mesh>
       {/* Sheriff badge: a gold star pinned on top of the hat */}
-      {sheriff && <SheriffStar radius={0.1} y={0.95} color="#f5c518" />}
+      {sheriff && <SheriffStar radius={0.1} y={shoulderY + 0.45} color="#f5c518" />}
     </group>
   );
 }
@@ -838,7 +847,7 @@ function Opponents({
             {p.alive ? (
               <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} />
             ) : (
-              <Tombstone position={[ax, 0, az]} />
+              <Tombstone position={[ax, FLOOR_Y, az]} />
             )}
             {/* name / hp / character floating above the avatar's head */}
             <Nameplate p={p} position={[ax, 1.35, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
