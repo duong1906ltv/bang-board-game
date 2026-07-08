@@ -197,7 +197,8 @@ function PendingNote({ view }: { view: PlayerView }) {
         flexDirection: "column",
         gap: 4,
         alignItems: "flex-start",
-        maxWidth: "40vw",
+        width: 150,
+        lineHeight: 1.35,
         boxShadow: "0 4px 16px rgba(0,0,0,.5)",
         pointerEvents: "none",
       }}
@@ -262,17 +263,19 @@ function ReactionPanel({
           left: 12,
           transform: "translateY(-50%)",
           zIndex: 1000,
-          width: "auto",
-          padding: "10px 18px",
+          width: 150,
+          padding: "10px 14px",
           display: "flex",
-          gap: 10,
-          alignItems: "center",
+          flexDirection: "column",
+          gap: 6,
+          alignItems: "flex-start",
+          textAlign: "left",
+          lineHeight: 1.35,
           background: "var(--accent2)",
           boxShadow: "0 4px 16px rgba(0,0,0,.5)",
         }}
       >
-        <span>{PENDING_EMOJI[p.kind]}</span>
-        <span>{formatPending(locale, p, you.name)}</span>
+        <span>{PENDING_EMOJI[p.kind]} {formatPending(locale, p, you.name)}</span>
         <span style={{ textDecoration: "underline" }}>{L(locale, "Phản ứng", "Respond")}</span>
       </button>
     );
@@ -727,9 +730,8 @@ function Table({
         <div
           style={{
             position: "fixed",
-            left: "50%",
-            top: "18%",
-            transform: "translateX(-50%)",
+            left: 12,
+            top: "32%",
             zIndex: 1200,
             background: "rgba(180,40,40,0.95)",
             color: "#fff",
@@ -739,8 +741,8 @@ function Table({
             fontWeight: 600,
             boxShadow: "0 6px 20px rgba(0,0,0,.5)",
             pointerEvents: "none",
-            maxWidth: "80vw",
-            textAlign: "center",
+            width: 150,
+            lineHeight: 1.35,
           }}
         >
           {notice}
@@ -1084,7 +1086,7 @@ function Table({
 
           {/* aiming: click a green scope over a target (rendered in the 3D scene) */}
           {aiming && (
-            <div style={{ position: "fixed", left: "50%", top: "8%", transform: "translateX(-50%)", zIndex: 56, display: "flex", alignItems: "center", gap: 12, background: "rgba(20,18,16,0.92)", padding: "10px 16px", borderRadius: 12, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", maxWidth: "90vw", textAlign: "center" }}>
+            <div style={{ position: "fixed", left: 12, top: "50%", transform: "translateY(-50%)", zIndex: 56, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10, background: "rgba(20,18,16,0.92)", padding: "10px 14px", borderRadius: 12, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", width: 150, lineHeight: 1.35 }}>
               <span>🎯 {L(locale, aimText[aiming.defId]?.[0] ?? "Bấm kính nhắm để chọn mục tiêu", aimText[aiming.defId]?.[1] ?? "Click a scope to pick a target")}</span>
               <button className="ghost" style={{ width: "auto", padding: "6px 12px" }} onClick={() => setAiming(null)}>{L(locale, "Hủy", "Cancel")}</button>
             </div>
