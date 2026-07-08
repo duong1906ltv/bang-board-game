@@ -89,10 +89,6 @@ function tick() {
   }
 }
 
-export function isMusicPlaying() {
-  return playing;
-}
-
 export function getMusicVolume() {
   return volume;
 }
@@ -130,7 +126,7 @@ function startMusic() {
   timer = setInterval(tick, 25);
 }
 
-export function stopMusic() {
+function stopMusic() {
   playing = false;
   if (timer) {
     clearInterval(timer);

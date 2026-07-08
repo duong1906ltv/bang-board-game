@@ -358,21 +358,6 @@ function autoPick(choices: Character[]): Character {
   return top[Math.floor(Math.random() * top.length)];
 }
 
-// Called by the server timer when the 30s window expires: auto-pick for anyone
-// who didn't choose, then start the game.
-export function draftTimeout(code: string): boolean {
-  const room = rooms.get(code);
-  if (!room || room.phase !== "drafting") return false;
-  for (const p of room.players) {
-    if (!p.hasPicked) {
-      p.character = autoPick(p.draftChoices);
-      p.hasPicked = true;
-    }
-  }
-  finalizeDraft(room);
-  return true;
-}
-
 // Transition drafting -> playing: set HP from characters (Sheriff +1) and give
 // the first turn to the Sheriff.
 function finalizeDraft(room: Room) {
@@ -1188,72 +1173,6 @@ export function sidHeal(code: string, playerId: string, cardIds: string[]): { ok
     processDeathQueue(room);
   }
   return { ok: true };
-}
-
-// Timer callback when a reaction window expires.
-export function pendingTimeout(code: string): boolean {
-  const room = rooms.get(code);
-  if (!room || !room.pending) return false;
-  const p = room.pending;
-
-  if (p.kind === "bang") {
-    const t = room.players.find((x) => x.id === p.targetId);
-    clearPending(room);
-    if (t) {
-      applyDamage(room, t, 1, p.sourceId);
-      if (room.phase === "playing") processDeathQueue(room);
-    }
-    return true;
-  }
-  if (p.kind === "dying") {
-    const t = room.players.find((x) => x.id === p.targetId);
-    const srcId = p.sourceId;
-    clearPending(room);
-    if (t) {
-      killPlayer(room, t, srcId);
-      checkWin(room);
-      if (room.phase === "playing") processDeathQueue(room);
-    }
-    return true;
-  }
-  if (p.kind === "multi") {
-    for (const r of p.responders) if (!r.done) { r.done = true; r.safe = false; }
-    resolveMulti(room);
-    return true;
-  }
-  if (p.kind === "duel") {
-    const loser = room.players.find((x) => x.id === p.turnId);
-    const srcId = p.turnId === p.aId ? p.bId : p.aId;
-    clearPending(room);
-    if (loser) {
-      applyDamage(room, loser, 1, srcId);
-      if (room.phase === "playing") processDeathQueue(room);
-    }
-    return true;
-  }
-  if (p.kind === "kit") {
-    // Auto-pick the first available cards; the rest go to the deck bottom.
-    const kit = room.players.find((x) => x.id === p.playerId);
-    while (p.picksLeft > 0 && p.cards.length) {
-      if (kit) kit.hand.push(p.cards.shift()!);
-      p.picksLeft -= 1;
-    }
-    room.deck.unshift(...p.cards);
-    clearPending(room);
-    room.turnPhase = "play";
-    return true;
-  }
-  // store: auto-pick the first card for the current picker, then advance.
-  const picker = room.players.find((x) => x.id === p.order[0]);
-  if (picker && p.cards.length) picker.hand.push(p.cards.shift()!);
-  p.order.shift();
-  if (p.order.length === 0) {
-    room.discard.push(...p.cards);
-    clearPending(room);
-  } else {
-    refreshDeadline(room, REACTION_MS);
-  }
-  return true;
 }
 
 // Resolve a multi (Indians!/Gatling): each undefended responder takes 1 damage;

@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
-import { CARD_DEF_BY_ID, CARD_ICON, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import { toggleMusic, setMusicVolume, getMusicVolume } from "@/lib/music";
 import {
