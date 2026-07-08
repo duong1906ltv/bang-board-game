@@ -211,16 +211,16 @@ function Saloon({ felt }: { felt: number }) {
         <planeGeometry args={[roomW, roomW]} />
         <meshStandardMaterial map={floorTex} roughness={1} />
       </mesh>
-      {/* WANTED posters on the back wall */}
-      {[-1.4, 1.4].map((x, i) => (
-        <mesh key={i} position={[x, floorY + 2.4, -wall + 0.02]}>
+      {/* WANTED posters spread wide on the back wall, lowered to eye level */}
+      {[-wall * 0.62, wall * 0.62].map((x, i) => (
+        <mesh key={i} position={[x, floorY + 1.9, -wall + 0.02]}>
           <planeGeometry args={[1, 1.4]} />
           <meshStandardMaterial map={posterTex} roughness={1} />
         </mesh>
       ))}
-      {/* Ronaldo poster, centred between the WANTED posters (real photo if
-          public/ronaldo.jpg exists, otherwise the drawn tribute) */}
-      <mesh position={[0, floorY + 2.5, -wall + 0.02]}>
+      {/* Ronaldo poster, centred (real photo if public/ronaldo.jpg exists,
+          otherwise the drawn tribute) */}
+      <mesh position={[0, floorY + 1.95, -wall + 0.02]}>
         <planeGeometry args={[1.15, 1.6]} />
         <meshStandardMaterial map={ronaldoImg ?? ronaldoTex} roughness={1} />
       </mesh>
