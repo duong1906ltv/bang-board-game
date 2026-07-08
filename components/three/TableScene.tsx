@@ -352,8 +352,8 @@ function Barrel({ position }: { position: [number, number, number] }) {
   );
 }
 
-// Western saloon shell: plank floor, warm wood walls, a hanging lamp over the
-// table, and a few barrels in the background. Sizes scale with the table.
+// Western saloon shell: plank floor, warm wood walls, wall decor, a bar, a
+// piano, and a few barrels in the background. Sizes scale with the table.
 function Saloon({ felt }: { felt: number }) {
   const floorTex = useMemo(plankTexture, []);
   const posterTex = useMemo(posterTexture, []);
