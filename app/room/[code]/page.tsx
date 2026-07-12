@@ -926,6 +926,31 @@ function Table({
         <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.78)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, fontFamily: "system-ui, sans-serif", padding: 20, overflowY: "auto" }}>
           <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#f0e2c0", textAlign: "center" }}>{winnerText(locale, view.winner)}</div>
 
+          {/* Phần thưởng liên game: thắng đủ 3 ván trong phòng -> link mở phòng thoát bí ẩn */}
+          {view.you.rewardUrl ? (
+            <a
+              href={view.you.rewardUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                width: "auto", padding: "12px 22px", borderRadius: 12, textDecoration: "none",
+                fontWeight: 800, textAlign: "center", color: "#231a0c",
+                background: "linear-gradient(180deg,#ffd873,#e0a83a)",
+                border: "1px solid #b9862a", boxShadow: "0 4px 16px rgba(224,168,58,0.45)",
+              }}
+            >
+              🎁 {L(locale, "Nhận thưởng: Phòng thoát bí ẩn", "Claim reward: Escape Room")}
+              <div style={{ fontSize: "0.72rem", fontWeight: 600, opacity: 0.8, marginTop: 2 }}>
+                {L(locale, "Link riêng của bạn · dùng một lần", "Your personal link · one-time use")}
+              </div>
+            </a>
+          ) : view.you.wins > 0 ? (
+            <div style={{ color: "#f0e2c0", opacity: 0.85, fontSize: "0.95rem", textAlign: "center" }}>
+              🏆 {L(locale, `Chuỗi thắng: ${view.you.wins}/3`, `Wins: ${view.you.wins}/3`)}
+              <span style={{ opacity: 0.7 }}> — {L(locale, "thắng đủ 3 ván để mở phần thưởng", "win 3 to unlock a reward")}</span>
+            </div>
+          ) : null}
+
           {/* everyone's roles, revealed */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 460 }}>
             <div style={{ color: "#f0e2c0", opacity: 0.8, fontSize: "0.9rem", textAlign: "center" }}>

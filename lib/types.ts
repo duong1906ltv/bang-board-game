@@ -159,6 +159,8 @@ export interface PlayerView {
     turnPhase: TurnPhase | null; // your current turn sub-phase (null if not your turn)
     range: number; // how far you can Bang! (weapon range, default 1)
     canBang: boolean; // may you still play a Bang! this turn (limit/Volcanic/Willy)
+    wins: number; // số ván bạn đã thắng trong phòng này (cộng dồn)
+    rewardUrl: string | null; // link phần thưởng escape (chỉ có khi thắng đủ ngưỡng)
   };
   players: PlayerPublic[];
   turnSeat: number | null;

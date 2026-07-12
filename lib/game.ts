@@ -21,6 +21,10 @@ import {
   LogEntry,
 } from "./types";
 import { buildDeck, Card, CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL } from "./cards";
+import { buildEscapeRewardUrl } from "./escapeReward";
+
+// Số ván phải THẮNG (cộng dồn trong cùng một phòng) để mở khoá phần thưởng liên game.
+const REWARD_WIN_THRESHOLD = 3;
 
 // An unresolved reaction that locks the table until responded to. There is no
 // deadline: reactions never time out (players take as long as they need).
@@ -49,6 +53,8 @@ export interface Player {
   alive: boolean;
   hand: Card[];
   equipment: Card[]; // blue cards in play (gun, Mustang, Scope, Jail, Dynamite...)
+  wins: number; // số ván đã thắng trong phòng (cộng dồn, KHÔNG reset khi chơi lại)
+  rewardTicket?: string | null; // link thưởng escape — cấp khi thắng đủ ngưỡng (1 lần)
 }
 
 export interface Room {
@@ -164,6 +170,8 @@ function newPlayer(name: string, socketId: string, isHost: boolean, seat: number
     alive: true,
     hand: [],
     equipment: [],
+    wins: 0,
+    rewardTicket: null,
   };
 }
 
@@ -1284,6 +1292,21 @@ function checkWin(room: Room) {
     clearPending(room);
     room.winner = winner;
     room.phase = "result";
+    awardWins(room, winner);
+  }
+}
+
+// Cộng 1 thắng cho mỗi NGƯỜI (không tính bot) thuộc phe thắng; đủ ngưỡng thì cấp
+// vé thưởng escape MỘT LẦN (giữ nguyên link qua các ván sau).
+function awardWins(room: Room, winner: Winner) {
+  const winningRoles: Role[] =
+    winner === "sheriff" ? ["sheriff", "deputy"] : winner === "outlaws" ? ["outlaw"] : ["renegade"];
+  for (const p of room.players) {
+    if (p.isBot || !p.role || !winningRoles.includes(p.role)) continue;
+    p.wins = (p.wins ?? 0) + 1;
+    if (p.wins >= REWARD_WIN_THRESHOLD && !p.rewardTicket) {
+      p.rewardTicket = buildEscapeRewardUrl();
+    }
   }
 }
 
@@ -1470,6 +1493,8 @@ export function buildView(room: Room, playerId: string): PlayerView {
       turnPhase: isMyTurn ? room.turnPhase : null,
       range: me ? rangeOf(me) : 1,
       canBang: !!(me && (hasEquip(me, "volcanic") || me.character?.id === "willy-the-kid" || room.bangsThisTurn < 1)),
+      wins: me?.wins ?? 0,
+      rewardUrl: me?.rewardTicket ?? null, // chỉ view của CHÍNH người thắng đủ ngưỡng mới có link
     },
     players: bySeat.map((p) => toPublic(p, room, me, turnId)),
     turnSeat: turnPlayer ? turnPlayer.seat : null,

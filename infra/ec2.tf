@@ -42,6 +42,9 @@ resource "aws_instance" "app" {
     ddns_host     = var.ddns_host
     ddns_domain   = var.ddns_domain
     ddns_password = var.ddns_password
+    # Phần thưởng liên game: secret CHUNG với Escape + URL escape để dựng link.
+    reward_secret   = var.reward_secret
+    escape_base_url = var.escape_base_url
   })
 
   user_data_replace_on_change = true

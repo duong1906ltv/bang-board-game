@@ -56,3 +56,19 @@ variable "ddns_password" {
   type        = string
   sensitive   = true
 }
+
+# Secret CHUNG với game Escape để ký vé thưởng (HMAC). Truyền qua TF_VAR_reward_secret;
+# KHÔNG commit. Dùng chuỗi hex/base64url. Phải KHỚP HỆT giá trị bên Escape.
+variable "reward_secret" {
+  description = "Shared HMAC secret for cross-game reward tickets (same value on Escape). Để trống = dùng secret DEV (app tự fallback) — đủ để mn chơi, KHÔNG an toàn cho prod thật."
+  type        = string
+  sensitive   = true
+  default     = "" # bỏ trống -> Terraform không hỏi; app dùng secret dev chung
+}
+
+# URL gốc của game Escape — nơi người thắng bấm link nhận thưởng.
+variable "escape_base_url" {
+  description = "Escape Room public base URL (its `terraform output game_url`)."
+  type        = string
+  default     = "https://escape.room.boardgamehocbai.website"
+}

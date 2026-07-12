@@ -51,7 +51,7 @@ một domain trên Namecheap đã bật Dynamic DNS.
 # 0. Sửa infra/terraform.tfvars → github_repo = "<owner>/<repo>", ddns_host/ddns_domain
 #    (đổi bucket trong infra/backend.tf + scripts/bootstrap-backend.sh nếu tên đã bị chiếm)
 
-# 1. Tạo S3 state bucket + DynamoDB lock (1 lần/account)
+# 1. Tạo S3 state bucket (1 lần/account; khoá state dùng lockfile trên S3)
 export AWS_PROFILE=<profile-của-bạn>
 ./scripts/bootstrap-backend.sh
 

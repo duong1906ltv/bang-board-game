@@ -76,6 +76,8 @@ cat > $APP_DIR/.env <<EOF
 NODE_ENV=production
 PORT=3000
 ECR_IMAGE=$ECR_IMAGE
+REWARD_SECRET=${reward_secret}
+ESCAPE_BASE_URL=${escape_base_url}
 EOF
 chmod 600 $APP_DIR/.env
 
