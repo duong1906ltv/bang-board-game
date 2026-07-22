@@ -226,7 +226,7 @@ export default function VideoChat({ code }: { code: string }) {
   const btn: React.CSSProperties = { width: "auto", padding: "6px 10px", fontSize: "0.85rem" };
 
   return (
-    <div style={{ position: "fixed", left: 12, bottom: 12, zIndex: 40, display: "flex", flexDirection: "column", gap: 8, maxWidth: "min(72vw, 640px)" }}>
+    <div style={{ position: "fixed", left: 12, bottom: 12, zIndex: 45, display: "flex", flexDirection: "column", gap: 8, maxWidth: "min(72vw, 640px)" }}>
       {active && (
         <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: 6, background: "rgba(20,16,12,0.72)", borderRadius: 12, backdropFilter: "blur(4px)" }}>
           <VideoTile stream={localStream} name={L(locale, "Bạn", "You")} muted mirror />
