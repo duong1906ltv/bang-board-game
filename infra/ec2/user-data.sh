@@ -78,6 +78,13 @@ PORT=3000
 ECR_IMAGE=$ECR_IMAGE
 REWARD_SECRET=${reward_secret}
 ESCAPE_BASE_URL=${escape_base_url}
+# WebRTC TURN/STUN (in-game voice/video). TURN_REALM = the app's own domain, which
+# coturn resolves to the current public IP for its relay address. TURN_URL is what
+# the app hands to browsers as the ICE relay.
+TURN_REALM=${ec2_domain}
+TURN_URL=turn:${ec2_domain}:3478
+TURN_USERNAME=${turn_username}
+TURN_CREDENTIAL=${turn_credential}
 EOF
 chmod 600 $APP_DIR/.env
 

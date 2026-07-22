@@ -181,42 +181,44 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
     .sort((a, b) => gunRange(b) - gunRange(a))[0];
   if (gun && gunRange(gun) > game.rangeOf(me)) return play(gun);
 
-  // 2. Defensive blue cards (once each).
+  const unlimited = me.equipment.some((c) => c.defId === "volcanic") || me.character?.id === "willy-the-kid";
+  // House rule: each card type only once per turn. Skip a card the bot has already
+  // played this turn so it never stalls retrying a play the engine will reject.
+  const fresh = (defId: string) => !room.playedDefsThisTurn.includes(defId);
+
+  // 2. Defensive blue cards (one of each in play, once per turn).
   for (const defId of ["barrel", "scope", "mustang"]) {
     const c = findCard(me, defId);
-    if (c && !me.equipment.some((e) => e.defId === defId)) return play(c);
+    if (c && fresh(defId) && !me.equipment.some((e) => e.defId === defId)) return play(c);
   }
 
   // 3. Heal if hurt.
   if (me.hp < me.maxHp) {
     const beer = findCard(me, "beer");
-    if (beer) return play(beer);
+    if (beer && fresh("beer")) return play(beer);
   }
 
-  // 4. Shoot the nearest enemy in range.
-  const unlimited = me.equipment.some((c) => c.defId === "volcanic") || me.character?.id === "willy-the-kid";
-  if (unlimited || room.bangsThisTurn < 1) {
-    const bang = findUsableAs(me, "bang");
-    const target = nearestEnemyInRange(room, me);
-    if (bang && target) return play(bang, target.id);
-  }
+  // 4. Shoot the nearest enemy in range (Bang! has its own limit, not `fresh`).
+  const bang = findUsableAs(me, "bang");
+  const target = nearestEnemyInRange(room, me);
+  if (bang && target && (unlimited || room.bangsThisTurn < 1)) return play(bang, target.id);
 
-  // 5. Area attacks if we have a healthy lead in living enemies.
+  // 5. Area attacks.
   const gatling = findCard(me, "gatling");
-  if (gatling) return play(gatling);
+  if (gatling && fresh("gatling")) return play(gatling);
   const indians = findCard(me, "indians");
-  if (indians) return play(indians);
+  if (indians && fresh("indians")) return play(indians);
 
   // 6. Card advantage (safe draws).
   const stage = findCard(me, "stagecoach");
-  if (stage) return play(stage);
+  if (stage && fresh("stagecoach")) return play(stage);
   const wells = findCard(me, "wells-fargo");
-  if (wells) return play(wells);
+  if (wells && fresh("wells-fargo")) return play(wells);
 
   // 7. Saloon only if it actually heals us.
   if (me.hp < me.maxHp) {
     const saloon = findCard(me, "saloon");
-    if (saloon) return play(saloon);
+    if (saloon && fresh("saloon")) return play(saloon);
   }
 
   // 8. Discard down to the hand limit, then end the turn.

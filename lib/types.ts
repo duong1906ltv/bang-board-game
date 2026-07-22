@@ -158,7 +158,8 @@ export interface PlayerView {
     alive: boolean;
     turnPhase: TurnPhase | null; // your current turn sub-phase (null if not your turn)
     range: number; // how far you can Bang! (weapon range, default 1)
-    canBang: boolean; // may you still play a Bang! this turn (limit/Volcanic/Willy)
+    canBang: boolean; // may you still play a Bang! this turn (once, or unlimited w/ Volcanic/Willy)
+    playedDefsThisTurn: string[]; // house rule: card types already played this turn (each once; Bang!/guns exempt)
     wins: number; // số ván bạn đã thắng trong phòng này (cộng dồn)
     rewardUrl: string | null; // link phần thưởng escape (chỉ có khi thắng đủ ngưỡng)
   };
@@ -218,9 +219,42 @@ export interface ClientToServerEvents {
   surrender: (data: { code: string }) => void; // concede: remove yourself from the game
   restart: (data: { code: string }) => void; // back to lobby
   playAgain: (data: { code: string }) => void; // restart + immediately deal a new game
+
+  // --- WebRTC voice/video (mesh) signaling ---
+  // Turn media on: server registers this socket as media-ready and replies with
+  // `rtcReady` (ICE config + existing media peers). Newcomer initiates offers.
+  rtcJoin: (data: { code: string }) => void;
+  // Turn media off / leave the call (also handled on disconnect).
+  rtcLeave: (data: { code: string }) => void;
+  // Relay an SDP offer/answer or ICE candidate to one specific peer (`to` = their socket id).
+  rtcSignal: (data: { code: string; to: string; data: RtcSignalData }) => void;
+}
+
+// One signaling payload: either a session description (offer/answer) or an ICE
+// candidate. Kept loose on purpose — it is just relayed between browsers.
+export interface RtcSignalData {
+  sdp?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+}
+
+// A media-enabled peer in the room, identified by its socket id.
+export interface RtcPeer {
+  id: string; // socket id
+  name: string; // player display name
 }
 
 export interface ServerToClientEvents {
   view: (view: PlayerView) => void;
   errorMsg: (msg: string) => void;
+
+  // --- WebRTC voice/video (mesh) signaling ---
+  // Sent to the joiner right after `rtcJoin`: ICE servers to use and the peers
+  // already in the call (which the joiner will send offers to).
+  rtcReady: (data: { selfId: string; iceServers: RTCIceServer[]; peers: RtcPeer[] }) => void;
+  // A new peer entered the call; existing peers wait for that peer's offer.
+  rtcPeerJoin: (peer: RtcPeer) => void;
+  // A peer turned media off or disconnected; tear down that connection.
+  rtcPeerLeave: (data: { id: string }) => void;
+  // An incoming SDP/ICE payload relayed from `from` (their socket id).
+  rtcSignal: (data: { from: string; data: RtcSignalData }) => void;
 }

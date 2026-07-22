@@ -45,6 +45,10 @@ resource "aws_instance" "app" {
     # Phần thưởng liên game: secret CHUNG với Escape + URL escape để dựng link.
     reward_secret   = var.reward_secret
     escape_base_url = var.escape_base_url
+    # WebRTC TURN relay creds (coturn). ec2_domain đã có ở local bên dưới.
+    ec2_domain      = local.ec2_domain
+    turn_username   = var.turn_username
+    turn_credential = var.turn_credential
   })
 
   user_data_replace_on_change = true

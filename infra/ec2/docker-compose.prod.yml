@@ -26,6 +26,31 @@ services:
       app:
         condition: service_healthy
 
+  # Self-hosted TURN/STUN relay for the in-game WebRTC voice/video. Only peers
+  # behind strict NAT/firewalls fall back to it; everyone else stays P2P.
+  #
+  # Uses host networking so the UDP relay ports map 1:1 to the instance. Since we
+  # sit behind AWS 1:1 NAT, coturn must advertise the PUBLIC ip as its relay
+  # address — we resolve it at start from the app's own domain (kept current by
+  # the DDNS boot job), so it stays correct even after a stop/start changes the IP.
+  # Ports 3478 (control) + 49160-49200/udp (relay) must be open in the security group.
+  coturn:
+    image: coturn/coturn:4.6
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        turnserver -n --log-file=stdout
+        --realm="$${TURN_REALM}"
+        --lt-cred-mech
+        --user="$${TURN_USERNAME}:$${TURN_CREDENTIAL}"
+        --listening-port=3478
+        --min-port=49160 --max-port=49200
+        --no-tls --no-dtls
+        --external-ip="$$(getent ahostsv4 $${TURN_REALM} | head -n1 | cut -d' ' -f1)"
+
 volumes:
   caddy_data:
   caddy_config:

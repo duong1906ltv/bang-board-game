@@ -72,3 +72,19 @@ variable "escape_base_url" {
   type        = string
   default     = "https://escape.room.boardgamehocbai.website"
 }
+
+# ─── WebRTC TURN relay (coturn) ──────────────────────────────────────────────
+# Long-term credential dùng chung cho relay voice/video trong game. KHÔNG bí mật
+# cao (chỉ để hạn chế lạm dụng bandwidth); có default để không phải khai báo.
+variable "turn_username" {
+  description = "TURN long-term username handed to browsers as the ICE relay credential."
+  type        = string
+  default     = "bang"
+}
+
+variable "turn_credential" {
+  description = "TURN long-term password. Truyền qua TF_VAR_turn_credential để đổi; default chỉ hạn chế lạm dụng."
+  type        = string
+  sensitive   = true
+  default     = "bang-turn"
+}

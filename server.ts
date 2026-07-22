@@ -4,7 +4,7 @@
 import { createServer } from "http";
 import next from "next";
 import { Server } from "socket.io";
-import { ClientToServerEvents, ServerToClientEvents } from "./lib/types";
+import { ClientToServerEvents, ServerToClientEvents, RtcPeer } from "./lib/types";
 import * as game from "./lib/game";
 import * as bot from "./lib/bot";
 
@@ -63,6 +63,43 @@ app.prepare().then(() => {
   function isHost(code: string, socketId: string): boolean {
     const room = game.getRoom(code);
     return !!room && playerIdOf(code, socketId) === room.hostId;
+  }
+
+  // --- WebRTC voice/video signaling ---------------------------------------
+  // Media is peer-to-peer (mesh); the server only relays offer/answer/ICE and
+  // tracks who currently has their camera/mic on, per room. `code -> set of
+  // media-enabled socket ids`.
+  const mediaRooms = new Map<string, Set<string>>();
+
+  // ICE servers handed to browsers at call-join time. Read from env at RUNTIME
+  // (not baked into the client bundle) so TURN credentials can rotate without a
+  // rebuild. STUN is enough on open networks; TURN is the relay fallback for
+  // peers behind strict NAT/firewalls. Set TURN_URL/TURN_USERNAME/TURN_CREDENTIAL
+  // (and optionally STUN_URL) in the app's environment.
+  function iceServers(): RTCIceServer[] {
+    const list: RTCIceServer[] = [{ urls: process.env.STUN_URL || "stun:stun.l.google.com:19302" }];
+    if (process.env.TURN_URL) {
+      list.push({
+        urls: process.env.TURN_URL.split(",").map((u) => u.trim()),
+        username: process.env.TURN_USERNAME,
+        credential: process.env.TURN_CREDENTIAL,
+      });
+    }
+    return list;
+  }
+
+  // Display name for a media peer (falls back gracefully if the player is gone).
+  function nameOf(code: string, socketId: string): string {
+    const room = game.getRoom(code);
+    return room?.players.find((p) => p.socketId === socketId)?.name || "Player";
+  }
+
+  // Remove a socket from a room's call and notify the remaining peers.
+  function leaveMedia(code: string, socketId: string) {
+    const set = mediaRooms.get(code);
+    if (!set || !set.delete(socketId)) return;
+    if (set.size === 0) mediaRooms.delete(code);
+    for (const other of set) io.to(other).emit("rtcPeerLeave", { id: socketId });
   }
 
   io.on("connection", (socket) => {
@@ -178,7 +215,35 @@ app.prepare().then(() => {
       applyResult(code, game.playAgain(code));
     });
 
+    // Enable camera/mic: register this socket and reply with ICE config + the
+    // peers already in the call. The newcomer is the offerer to each of them,
+    // which avoids offer/answer "glare" without any extra coordination.
+    socket.on("rtcJoin", ({ code }) => {
+      code = (code || "").toUpperCase().trim();
+      if (!playerIdOf(code, socket.id)) return; // only seated players may join the call
+      let set = mediaRooms.get(code);
+      if (!set) mediaRooms.set(code, (set = new Set()));
+      const existing: RtcPeer[] = [...set]
+        .filter((id) => id !== socket.id)
+        .map((id) => ({ id, name: nameOf(code, id) }));
+      set.add(socket.id);
+      socket.emit("rtcReady", { selfId: socket.id, iceServers: iceServers(), peers: existing });
+      const me: RtcPeer = { id: socket.id, name: nameOf(code, socket.id) };
+      for (const peer of existing) io.to(peer.id).emit("rtcPeerJoin", me);
+    });
+
+    // Disable camera/mic without leaving the game.
+    socket.on("rtcLeave", ({ code }) => {
+      leaveMedia((code || "").toUpperCase().trim(), socket.id);
+    });
+
+    // Relay one SDP/ICE payload to a single target peer, tagged with the sender.
+    socket.on("rtcSignal", ({ to, data }) => {
+      io.to(to).emit("rtcSignal", { from: socket.id, data });
+    });
+
     socket.on("disconnect", () => {
+      for (const code of mediaRooms.keys()) leaveMedia(code, socket.id);
       const room = game.disconnect(socket.id);
       if (room) broadcast(room.code);
     });

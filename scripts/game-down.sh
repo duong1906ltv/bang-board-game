@@ -13,6 +13,9 @@ export TF_VAR_ddns_password="${TF_VAR_ddns_password:-unused}"
 
 echo "==> terraform destroy${AWS_PROFILE:+ (profile=$AWS_PROFILE)}"
 cd "$INFRA_DIR"
+# Bảo đảm backend khớp cấu hình hiện tại (tự sửa khi backend.tf đổi, ví dụ
+# dynamodb_table -> use_lockfile). -reconfigure vì state không di chuyển.
+terraform init -reconfigure -input=false >/dev/null
 terraform destroy -auto-approve
 
 echo "==> Đã tắt. Chi phí về \$0. Bật lại: ./scripts/game-up.sh"

@@ -30,6 +30,9 @@ const MAX_PLAYERS = 7;
 // 3D table (react-three-fiber). Loaded client-only: Three.js needs the browser.
 const TableScene = dynamic(() => import("@/components/three/TableScene"), { ssr: false });
 
+// In-game voice/video (WebRTC). Client-only: uses getUserMedia / RTCPeerConnection.
+const VideoChat = dynamic(() => import("@/components/VideoChat"), { ssr: false });
+
 function LangToggle() {
   const locale = useLocale();
   return (
@@ -164,6 +167,8 @@ export default function RoomPage() {
     <main className="wrap">
       <Header code={code} copied={copied} onCopy={copyCode} />
       {error && <p className="err">{tError(locale, error)}</p>}
+
+      <VideoChat code={code} />
 
       {view.phase === "lobby" && <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
@@ -678,6 +683,27 @@ function Table({
   const bangLike = (defId: string) => defId === "bang" || (isCalamity && defId === "missed");
   const needsTarget = (defId: string) => TARGETED.includes(defId) || bangLike(defId);
 
+  // House rule: each card type may be played only ONCE per turn. Exempt: gun swaps
+  // (unlimited) and Bang! (its own limit — once, or unlimited w/ Volcanic/Willy).
+  // Returns true (and flashes why) when a play is blocked up front, so we don't let
+  // the player aim into a silent server rejection.
+  const isGun = (defId: string) => CARD_DEF_BY_ID[defId]?.kind === "gun";
+  const blockOneCard = (defId: string) => {
+    if (isGun(defId)) return false;
+    if (bangLike(defId)) {
+      if (!you.canBang) {
+        flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
+        return true;
+      }
+      return false;
+    }
+    if (you.playedDefsThisTurn.includes(defId)) {
+      flash(L(locale, "Lá này đã dùng trong lượt này", "This card was already played this turn."));
+      return true;
+    }
+    return false;
+  };
+
   const cardAction = (card: { id: string; defId: string }) => {
     // Sid Ketchum can discard-to-heal any time, so his selection isn't gated by
     // being in your play phase.
@@ -694,6 +720,7 @@ function Table({
     // A click discards only in explicit end-of-turn discard mode; otherwise it
     // always plays (or starts aiming), even while over the hand limit.
     if (discarding) return onDiscard(card.id);
+    if (blockOneCard(card.defId)) return;
     if (needsTarget(card.defId)) {
       return setAiming((cur) => (cur?.id === card.id ? null : { id: card.id, defId: card.defId }));
     }
@@ -703,11 +730,7 @@ function Table({
   // 3D drag gestures: drag a card UP to play/aim, drag RIGHT to discard.
   const playGesture = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
-    // Bang! is once per turn (unless Volcanic / Willy) — say so up front instead
-    // of letting the player aim into a silent rejection.
-    if (bangLike(card.defId) && !you.canBang) {
-      return flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
-    }
+    if (blockOneCard(card.defId)) return;
     if (needsTarget(card.defId)) {
       return setAiming({ id: card.id, defId: card.defId });
     }
@@ -718,9 +741,7 @@ function Table({
   const requestPlay = (card: Card) => {
     if (sidPicking) return cardAction(card);
     if (!inPlayPhase) return;
-    if (bangLike(card.defId) && !you.canBang) {
-      return flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
-    }
+    if (blockOneCard(card.defId)) return;
     setConfirmPlay(card);
   };
   const doConfirmedPlay = () => {

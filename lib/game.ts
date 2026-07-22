@@ -65,6 +65,7 @@ export interface Room {
   turnIndex: number; // index into players[] whose turn it is (playing phase)
   turnPhase: TurnPhase; // sub-phase of the current player's turn
   bangsThisTurn: number; // Bang!s played by the active player this turn
+  playedDefsThisTurn: string[]; // house rule: each card type only once per turn (Bang!/guns exempt)
   pending: Pending | null; // unresolved reaction locking the table
   winner: Winner | null; // set when the game ends
   deathQueue: { id: string; needed: number; sourceId: string | null }[]; // players awaiting a Beer-save
@@ -186,6 +187,7 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     turnIndex: 0,
     turnPhase: "draw",
     bangsThisTurn: 0,
+    playedDefsThisTurn: [],
     pending: null,
     winner: null,
     deathQueue: [],
@@ -511,6 +513,17 @@ export function drawCards(
 // Play a card from the active player's hand.
 // Step 2a scope: blue self-equipment (guns, Mustang, Scope, Barrel). Targeted
 // blue cards (Jail/Dynamite) and brown cards are handled in later steps.
+// A play that is EXEMPT from the "each card type only once per turn" house rule:
+//  • any gun swap (weapons change freely), and
+//  • a Bang! — including Calamity Janet firing a Missed! as a Bang! — which is
+//    governed by its OWN limit instead (bangsThisTurn: once, or unlimited with
+//    Volcanic / Willy the Kid; see playBang).
+function isExemptPlay(p: Player, card: Card, targetId?: string): boolean {
+  const def = CARD_DEF_BY_ID[card.defId];
+  if (def?.kind === "gun") return true;
+  return card.defId === "bang" || (card.defId === "missed" && p.character?.id === "calamity-janet" && !!targetId);
+}
+
 export function playCard(
   code: string,
   playerId: string,
@@ -521,11 +534,15 @@ export function playCard(
   // Capture card/target names before the play mutates state, then log on success.
   const room = rooms.get(code);
   const actor = room?.players[room.turnIndex];
-  const cardName = actor?.hand.find((c) => c.id === cardId)?.name;
+  const playedCard = actor?.hand.find((c) => c.id === cardId);
+  const cardName = playedCard?.name;
+  const exempt = !!playedCard && !!actor && isExemptPlay(actor, playedCard, targetId);
   const targetName = targetId ? room?.players.find((p) => p.id === targetId)?.name : undefined;
   const res = playCardImpl(code, playerId, cardId, targetId, targetCardId);
-  if (res.ok && room && actor && cardName) {
-    pushLog(room, { kind: "play", a: actor.name, card: cardName, b: targetName });
+  if (res.ok && room) {
+    // Mark this card type as used this turn (exempt plays don't consume a slot).
+    if (!exempt && playedCard) room.playedDefsThisTurn.push(playedCard.defId);
+    if (actor && cardName) pushLog(room, { kind: "play", a: actor.name, card: cardName, b: targetName });
   }
   return res;
 }
@@ -548,6 +565,13 @@ function playCardImpl(
   const card = current.hand[idx];
   const def = CARD_DEF_BY_ID[card.defId];
   if (!def) return { ok: false };
+
+  // House rule: each card type may be played only ONCE per turn. Gun swaps and
+  // Bang! are exempt (see isExemptPlay). The defId is recorded in `playCard` once
+  // the play succeeds, so a rejected play never uses up its once-per-turn slot.
+  if (!isExemptPlay(current, card, _targetId) && room.playedDefsThisTurn.includes(card.defId)) {
+    return { ok: false, error: `Đã dùng ${def.name} trong lượt này` };
+  }
 
   if (def.kind === "gun") {
     // Equip the new gun, discarding any gun already in play (only one allowed).
@@ -900,6 +924,7 @@ function beginTurn(room: Room) {
     const cur = room.players[room.turnIndex];
     if (!cur) return;
     room.bangsThisTurn = 0;
+    room.playedDefsThisTurn = [];
 
     // --- Dynamite ---
     const dyn = cur.equipment.find((c) => c.defId === "dynamite");
@@ -1319,6 +1344,7 @@ export function restart(code: string): boolean {
   room.turnIndex = 0;
   room.turnPhase = "draw";
   room.bangsThisTurn = 0;
+  room.playedDefsThisTurn = [];
   room.winner = null;
   room.deathQueue = [];
   room.checks = [];
@@ -1492,7 +1518,12 @@ export function buildView(room: Room, playerId: string): PlayerView {
       alive: me?.alive ?? true,
       turnPhase: isMyTurn ? room.turnPhase : null,
       range: me ? rangeOf(me) : 1,
-      canBang: !!(me && (hasEquip(me, "volcanic") || me.character?.id === "willy-the-kid" || room.bangsThisTurn < 1)),
+      // Bang! limit: once per turn, or unlimited with Volcanic / Willy the Kid.
+      canBang:
+        isMyTurn &&
+        (room.bangsThisTurn < 1 || (!!me && (hasEquip(me, "volcanic") || me.character?.id === "willy-the-kid"))),
+      // House rule: each card type only once per turn — defIds already used.
+      playedDefsThisTurn: isMyTurn ? [...room.playedDefsThisTurn] : [],
       wins: me?.wins ?? 0,
       rewardUrl: me?.rewardTicket ?? null, // chỉ view của CHÍNH người thắng đủ ngưỡng mới có link
     },

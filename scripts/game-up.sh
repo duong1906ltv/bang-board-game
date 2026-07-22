@@ -22,6 +22,9 @@ fi
 
 echo "==> terraform apply${AWS_PROFILE:+ (profile=$AWS_PROFILE)}"
 cd "$INFRA_DIR"
+# Bảo đảm backend khớp cấu hình hiện tại (tự sửa khi backend.tf đổi, ví dụ
+# dynamodb_table -> use_lockfile). -reconfigure vì state không di chuyển.
+terraform init -reconfigure -input=false >/dev/null
 terraform apply -auto-approve
 
 URL=$(terraform output -raw game_url)
