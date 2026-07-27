@@ -28,7 +28,7 @@ import {
   EventCtx,
   EventEffect,
   EventLevel,
-  eligible,
+  pickBatch,
   GameEventDef,
   mergeEffect,
   pickWeighted,
@@ -72,7 +72,6 @@ export interface Player {
 interface ActiveEvent {
   seq: number; // monotonic id, so the client can tell a NEW event from a repeat
   defId: string; // key into EVENT_BY_ID
-  targetId?: string; // curse target
   turnsLeft: number; // in turns; a round-long effect gets one turn per living player
 }
 
@@ -106,6 +105,8 @@ export interface Room {
 
   // --- random events (see lib/events.ts) ---
   eventLevel: EventLevel; // room setting, survives restart()
+  roundStarterId: string | null; // whoever opens each round — the round boundary marker
+  roundEventDue: boolean; // an event is queued for the next turn start
   events: ActiveEvent[]; // in force now (turn / lasting / curse)
   // Rolling feed of the most recently FIRED events, newest last. A single action
   // can fire more than one (a table event at a round boundary plus that player's
@@ -113,10 +114,9 @@ export interface Room {
   // clients announce every entry they haven't seen yet, by `seq`.
   eventFeed: ActiveEvent[];
   eventSeq: number;
-  recentEventIds: string[]; // last few fired ids, excluded from the next pool
+  usedEventIds: string[]; // every event already seen this game — drawn from like a deck
   turnCounter: number; // turns begun this game (drives the opening-round immunity)
   turnDir: 1 | -1; // play direction (the "reverse" event flips it)
-  revealedRoleIds: string[]; // roles made public by the "role leak" event
 }
 
 const rooms = new Map<string, Room>();
@@ -243,13 +243,14 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     log: [],
     logSeq: 0,
     eventLevel: "on",
+    roundStarterId: null,
+    roundEventDue: false,
     events: [],
     eventFeed: [],
     eventSeq: 0,
-    recentEventIds: [],
+    usedEventIds: [],
     turnCounter: 0,
     turnDir: 1,
-    revealedRoleIds: [],
   };
   rooms.set(code, room);
   return { room, player };
@@ -425,15 +426,18 @@ function finalizeDraft(room: Room) {
   room.winner = null;
   room.pending = null;
   room.phase = "playing";
-  resetEventState(room); // random events start from a clean slate each game
+  // Random events start from a clean slate each game; the Sheriff opens round 1
+  // and therefore marks every later round boundary.
+  resetEventState(room);
+  room.roundStarterId = room.players[room.turnIndex].id;
   beginTurn(room); // Sheriff begins (runs upkeep if they somehow have blue cards)
 }
 
 // --- random events ---------------------------------------------------------
-// ONE scheduler: `rollTurnEvent` fires at the start of EVERY player's turn and
-// what it rolls is that turn's weather — in force until the next turn replaces it.
-// Every enforcement point in this file reads the merged result of `effectFor`, so
-// adding an event never means touching the engine (lib/events.ts).
+// ONE scheduler: `rollRoundEvents` fires at the start of each ROUND — i.e. when play
+// comes back round to the Sheriff — and the 2..4 events it draws stand for that whole
+// round, applying to everyone. Every enforcement point in this file reads the merged result
+// of `activeEffect`, so adding an event never means touching the engine (lib/events.ts).
 
 // Host setting: how often events fire (persists across restart()).
 export function setEventLevel(code: string, level: EventLevel): boolean {
@@ -449,29 +453,27 @@ function resetEventState(room: Room) {
   room.events = [];
   room.eventFeed = [];
   room.eventSeq = 0;
-  room.recentEventIds = [];
+  room.usedEventIds = [];
   room.turnCounter = 0;
   room.turnDir = 1;
-  room.revealedRoleIds = [];
+  room.roundStarterId = null;
+  room.roundEventDue = false;
 }
 
-// The effects in force for `p`: every table-wide event, the current turn's event
-// (it is the "weather" of this turn, so it applies regardless of who is looking),
-// plus any curse aimed specifically at `p`.
-export function effectFor(room: Room, p?: Player | null): EventEffect {
+// The effects in force right now. Every event applies to the whole table, so this
+// takes no player: there is deliberately no way to ask "what applies to HIM".
+export function activeEffect(room: Room): EventEffect {
   const out: EventEffect = {};
   for (const ev of room.events) {
     const def = EVENT_BY_ID[ev.defId];
-    if (!def?.effect) continue;
-    if (def.scope === "curse" && ev.targetId !== p?.id) continue;
-    mergeEffect(out, def.effect);
+    if (def?.effect) mergeEffect(out, def.effect);
   }
   return out;
 }
 
-// Every active effect ticks down one turn per turn started: a turn-long modifier
-// (turnsLeft = 1) is gone by the next turn, while a curse measured in rounds
-// (turnsLeft = rounds × living players) survives exactly that many laps.
+// Every active effect ticks down one turn per turn started. Durations are set in
+// turns because that is what the engine can count: one round = one turn per living
+// player, so a round-long modifier expires exactly as the round closes.
 function tickEvents(room: Room) {
   room.events = room.events.filter((ev) => {
     ev.turnsLeft -= 1;
@@ -481,12 +483,6 @@ function tickEvents(room: Room) {
 
 function aliveBySeat(room: Room): Player[] {
   return [...room.players].sort((a, b) => a.seat - b.seat).filter((p) => p.alive);
-}
-
-// Remember the last few fired ids so the same event can't repeat back to back.
-function noteFired(room: Room, id: string) {
-  room.recentEventIds.push(id);
-  if (room.recentEventIds.length > 3) room.recentEventIds.shift();
 }
 
 // Nobody gets an event until every living player has taken one turn: an event on
@@ -499,54 +495,34 @@ function eventsUnlocked(room: Room): boolean {
   return room.eventLevel !== "off" && room.turnCounter >= aliveBySeat(room).length;
 }
 
-// Resolve a curse's victim. Note "any" deliberately INCLUDES the round opener:
-// events only ever fire on the Sheriff's turn, so excluding the active player
-// would make the Sheriff permanently un-cursable.
-function pickTarget(room: Room, def: GameEventDef): Player | null {
-  const alive = aliveBySeat(room);
-  if (alive.length === 0) return null;
-  switch (def.target) {
-    case "lowestHp": return alive.slice().sort((a, b) => a.hp - b.hp)[0] ?? null;
-    case "mostCards": return alive.slice().sort((a, b) => b.hand.length - a.hand.length)[0] ?? null;
-    case "any":
-    default: return alive[Math.floor(Math.random() * alive.length)];
-  }
-}
-
 // Fire one event: log it, run its one-shot effect, and register any modifier.
 function fireEvent(room: Room, def: GameEventDef, opener: Player) {
-  const target = def.scope === "curse" ? pickTarget(room, def) : null;
-  if (def.scope === "curse" && !target) return; // nobody to curse — skip the roll
-
-  // A table-wide modifier lasts exactly this turn. A curse is specified in ROUNDS
-  // but tracked in turns (one round = one turn per living player), so its victim
-  // gets precisely `rounds` affected turns.
-  const roundLen = Math.max(1, aliveBySeat(room).length);
+  // A modifier stands for one round, and one round is one turn per living player.
   const ev: ActiveEvent = {
     seq: ++room.eventSeq,
     defId: def.id,
-    targetId: target?.id,
-    turnsLeft: def.scope === "curse" ? roundLen * (def.rounds ?? 1) : 1,
+    turnsLeft: Math.max(1, aliveBySeat(room).length),
   };
-  noteFired(room, def.id);
   room.eventFeed.push(ev);
   if (room.eventFeed.length > 8) room.eventFeed.shift();
-  pushLog(room, { kind: "event", event: def.id, a: opener.name, b: target?.name });
+  pushLog(room, { kind: "event", event: def.id, a: opener.name });
   // Instant events keep no modifier — they just happen.
-  if (def.scope !== "instant") room.events.push(ev);
+  if (def.scope === "lasting") room.events.push(ev);
   if (def.onFire) def.onFire(makeCtx(room, opener));
 }
 
-// The one scheduler: exactly one event at the top of each turn.
-function rollTurnEvent(room: Room, current: Player) {
+// The one scheduler: this round's batch of 2..4 compatible events, as the round opens.
+function rollRoundEvents(room: Room, opener: Player) {
   if (!eventsUnlocked(room)) return;
-  // Retire the previous turn's modifier before rolling this turn's, so exactly ONE
-  // table-wide rule change is ever in force. Curses are left alone — they run for a
-  // set number of rounds by design.
-  room.events = room.events.filter((ev) => EVENT_BY_ID[ev.defId]?.scope !== "lasting");
-  const pool = eligible(aliveBySeat(room).length, room.recentEventIds);
-  const def = pickWeighted(pool, Math.random);
-  if (def) fireEvent(room, def, current);
+  // Retire last round's batch before drawing this one. Timers are set from the
+  // headcount at the moment they fired, so deaths mid-round can leave one running a
+  // turn or two long; clearing here is what guarantees the board shows exactly the
+  // events that were announced for THIS round.
+  room.events = [];
+  for (const def of pickBatch(aliveBySeat(room).length, room.usedEventIds, Math.random)) {
+    if (room.phase !== "playing") return; // an instant ended the game mid-batch
+    fireEvent(room, def, opener);
+  }
 }
 
 // The narrow surface an event's `onFire` may touch. Everything that can hurt a
@@ -555,67 +531,45 @@ function rollTurnEvent(room: Room, current: Player) {
 // keeps events fully synchronous: no event can open a reaction window.
 function makeCtx(room: Room, opener: Player): EventCtx {
   const alive = () => aliveBySeat(room);
-  const others = () => alive().filter((p) => p.id !== opener.id);
-  const someOf = (from: Player[], n: number) => shuffle(from).slice(0, n);
+  // Private per-player helpers. They are NOT on EventCtx: keeping every exposed
+  // primitive plural is what stops an event from being written to single anyone out.
   const hurt = (p: Player, n: number) => {
     if (!p.alive || room.phase !== "playing") return;
-    applyDamage(room, p, n, null, false);
+    applyDamage(room, p, n, null, false); // unsaveable, like Dynamite
+  };
+  const heal = (p: Player, n: number) => {
+    if (!p.alive || activeEffect(room).noHeal) return;
+    const before = p.hp;
+    p.hp = Math.min(p.maxHp, p.hp + n);
+    if (p.hp > before) pushLog(room, { kind: "heal", a: p.name, n: p.hp - before });
+  };
+  const draw = (p: Player, n: number) => {
+    let got = 0;
+    for (let i = 0; i < n; i++) {
+      const c = drawOne(room);
+      if (c) { p.hand.push(c); got++; }
+    }
+    if (got) pushLog(room, { kind: "draw", a: p.name, n: got });
+  };
+  const discardRandom = (p: Player, n: number) => {
+    let lost = 0;
+    for (let i = 0; i < n && p.hand.length > 0; i++) {
+      room.discard.push(p.hand.splice(Math.floor(Math.random() * p.hand.length), 1)[0]);
+      lost++;
+    }
+    if (lost) pushLog(room, { kind: "discard", a: p.name, n: lost });
   };
   return {
     opener,
-    alive,
-    others,
-    randomAlive: (n) => someOf(alive(), n),
-    randomOthers: (n) => someOf(others(), n),
-    lowestHp: () => alive().slice().sort((a, b) => a.hp - b.hp)[0] ?? null,
-    mostCards: () => alive().slice().sort((a, b) => b.hand.length - a.hand.length)[0] ?? null,
-
-    damage: hurt,
     damageAll: (n, opts) => {
-      // Snapshot first: killing one player must not change who else is hit.
       for (const p of alive()) {
         if (opts?.onlyAbove != null && p.hp <= opts.onlyAbove) continue;
         hurt(p, n);
       }
     },
-    heal: (p, n) => {
-      if (!p.alive || effectFor(room, p).noHeal) return;
-      const before = p.hp;
-      p.hp = Math.min(p.maxHp, p.hp + n);
-      if (p.hp > before) pushLog(room, { kind: "heal", a: p.name, n: p.hp - before });
-    },
-    healAll: (n) => { for (const p of alive()) makeCtx(room, opener).heal(p, n); },
-    draw: (p, n) => {
-      let got = 0;
-      for (let i = 0; i < n; i++) {
-        const c = drawOne(room);
-        if (c) { p.hand.push(c); got++; }
-      }
-      if (got) pushLog(room, { kind: "draw", a: p.name, n: got });
-    },
-    drawAll: (n) => { for (const p of alive()) makeCtx(room, opener).draw(p, n); },
-    discardRandom: (p, n) => {
-      let lost = 0;
-      for (let i = 0; i < n && p.hand.length > 0; i++) {
-        room.discard.push(p.hand.splice(Math.floor(Math.random() * p.hand.length), 1)[0]);
-        lost++;
-      }
-      if (lost) pushLog(room, { kind: "discard", a: p.name, n: lost });
-    },
-    discardAllRandom: (n) => { for (const p of alive()) makeCtx(room, opener).discardRandom(p, n); },
-    trimToLimit: (p) => {
-      const limit = handLimitOf(room, p);
-      const over = p.hand.length - limit;
-      if (over > 0) makeCtx(room, opener).discardRandom(p, over);
-    },
-    stealRandom: (from, to, n) => {
-      for (let i = 0; i < n && from.hand.length > 0; i++) {
-        to.hand.push(from.hand.splice(Math.floor(Math.random() * from.hand.length), 1)[0]);
-      }
-    },
-
-    swapHands: (a, b) => { const t = a.hand; a.hand = b.hand; b.hand = t; },
-    swapSeats: (a, b) => { const t = a.seat; a.seat = b.seat; b.seat = t; },
+    healAll: (n) => { for (const p of alive()) heal(p, n); },
+    drawAll: (n) => { for (const p of alive()) draw(p, n); },
+    discardAllRandom: (n) => { for (const p of alive()) discardRandom(p, n); },
     passHandsAround: () => {
       const ps = alive();
       if (ps.length < 2) return;
@@ -662,11 +616,6 @@ function makeCtx(room: Room, opener: Player): EventCtx {
       room.discard = [];
     },
     reverseOrder: () => { room.turnDir = room.turnDir === 1 ? -1 : 1; },
-    revealRole: (p) => {
-      if (!p.role || p.role === "sheriff" || room.revealedRoleIds.includes(p.id)) return;
-      room.revealedRoleIds.push(p.id);
-      pushLog(room, { kind: "reveal", a: p.name, role: p.role });
-    },
     generalStore: () => {
       if (room.pending) return; // never overwrite a live reaction
       openGeneralStore(room, opener);
@@ -682,8 +631,9 @@ function toEventView(room: Room, ev: ActiveEvent): EventView {
     id: ev.defId,
     emoji: def?.emoji ?? "🎲",
     scope: def?.scope ?? "instant",
+    // A countdown is meaningful for anything that persists: it says how many turns
+    // of this round the rule still covers. Instants have nothing to count.
     turnsLeft: def && def.scope !== "instant" ? ev.turnsLeft : undefined,
-    targetName: ev.targetId ? room.players.find((p) => p.id === ev.targetId)?.name : undefined,
   };
 }
 
@@ -697,13 +647,18 @@ function toEventView(room: Room, ev: ActiveEvent): EventView {
 const HEAL_DEF_IDS = ["beer", "saloon"];
 
 // Cards a player may keep at the end of their turn.
+// Floored at 1, never 0. A limit of 0 is unsatisfiable for Suzy Lafayette: she
+// draws the instant her hand is empty (refillEmptyHands runs after every action),
+// so discarding her last card immediately puts her back over the limit and the turn
+// can never be ended — an infinite discard/draw loop for bot and human alike.
+// Drought therefore stops biting at 1 life, which costs almost nothing.
 export function handLimitOf(room: Room, p: Player): number {
-  return Math.max(0, p.hp + (effectFor(room, p).handLimitDelta ?? 0));
+  return Math.max(1, p.hp + (activeEffect(room).handLimitDelta ?? 0));
 }
 
 // How many more Bang!s the player may fire this turn (0 = none).
 export function bangBudget(room: Room, p: Player): number {
-  const eff = effectFor(room, p);
+  const eff = activeEffect(room);
   if (eff.noBang) return 0;
   const unlimited = hasEquip(p, "volcanic") || p.character?.id === "willy-the-kid";
   const cap = eff.bangLimit ?? (unlimited ? 99 : 1);
@@ -723,7 +678,7 @@ export function playBlock(room: Room, p: Player, card: Card, targetId?: string):
   if (room.jailedTurn && room.players[room.turnIndex]?.id === p.id) {
     return "Đang bị giam — chỉ được bỏ bài";
   }
-  const eff = effectFor(room, p);
+  const eff = activeEffect(room);
 
   if (eff.bannedDefIds?.includes(card.defId)) return `Sự kiện đang cấm ${def.name}`;
   if (eff.bannedKinds?.includes(def.kind)) return `Sự kiện đang cấm loại lá này`;
@@ -778,7 +733,7 @@ export function rangeOf(p: Player, room?: Room): number {
     if (def?.kind === "gun" && def.range) range = def.range;
   }
   if (!room) return range;
-  const eff = effectFor(room, p);
+  const eff = activeEffect(room);
   if (eff.rangeOverride != null) range = eff.rangeOverride;
   return Math.max(1, range + (eff.rangeDelta ?? 0));
 }
@@ -815,7 +770,7 @@ export function distanceBetween(room: Room, from: Player, to: Player): number {
   if (hasEquip(from, "scope")) dist -= 1;
   if (from.character?.id === "rose-doolan") dist -= 1;
   // Weather events stretch or flatten the whole table (Fog / Open Plains).
-  dist += effectFor(room, from).distanceDelta ?? 0;
+  dist += activeEffect(room).distanceDelta ?? 0;
 
   return Math.max(1, dist);
 }
@@ -838,7 +793,7 @@ export function drawCards(
   const beforeDraw = current.hand.length;
   // How many cards this draw phase yields: 2 by default, overridden by events
   // (Card Rain 3 / Empty Pockets 1) and topped up by additive ones (Gold Rush).
-  const eff = effectFor(room, current);
+  const eff = activeEffect(room);
   const drawTotal = Math.max(0, (eff.drawCount ?? 2) + (eff.extraDraw ?? 0));
 
   // Kit Carlson: reveal the top 3, pick 2 (the third returns to the deck bottom).
@@ -927,7 +882,7 @@ function isBangLike(p: Player, card: Card, targetId?: string): boolean {
 }
 
 function isExemptPlay(room: Room, p: Player, card: Card, targetId?: string): boolean {
-  if (effectFor(room, p).ignoreOncePerTurn) return true; // Frenzy suspends the house rule
+  if (activeEffect(room).ignoreOncePerTurn) return true; // Frenzy suspends the house rule
   const def = CARD_DEF_BY_ID[card.defId];
   if (def?.kind === "gun") return true;
   return isBangLike(p, card, targetId);
@@ -1072,7 +1027,7 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
 function playDuel(room: Room, current: Player, handIdx: number, targetId?: string): { ok: boolean; error?: string } {
   const target = room.players.find((p) => p.id === targetId);
   if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
-  if (effectFor(room, current).protectSheriff && target.role === "sheriff") {
+  if (activeEffect(room).protectSheriff && target.role === "sheriff") {
     return { ok: false, error: "Hiệp Ước: không được bắn Cảnh Sát Trưởng" };
   }
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
@@ -1122,7 +1077,7 @@ function playDraw(room: Room, current: Player, handIdx: number, n: number): { ok
 
 // Saloon: every living player heals 1 (capped at their max).
 function playSaloon(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
-  if (effectFor(room, current).noHeal) return { ok: false, error: "Sự kiện đang cấm hồi máu" };
+  if (activeEffect(room).noHeal) return { ok: false, error: "Sự kiện đang cấm hồi máu" };
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   for (const p of room.players) {
     if (p.alive) p.hp = Math.min(p.maxHp, p.hp + 1);
@@ -1176,7 +1131,7 @@ function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: s
 function playBang(room: Room, current: Player, handIdx: number, targetId?: string): { ok: boolean; error?: string } {
   let target = room.players.find((p) => p.id === targetId);
   if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
-  const eff = effectFor(room, current);
+  const eff = activeEffect(room);
   // Truce: the Sheriff can't be shot while the pact holds.
   if (eff.protectSheriff && target.role === "sheriff") return { ok: false, error: "Hiệp Ước: không được bắn Cảnh Sát Trưởng" };
   const range = rangeOf(current, room);
@@ -1237,7 +1192,7 @@ function playBeer(room: Room, current: Player, handIdx: number): { ok: boolean; 
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   // Happy Hour makes a Beer worth 2 life points.
-  current.hp = Math.min(current.maxHp, current.hp + (effectFor(room, current).beerHeal ?? 1));
+  current.hp = Math.min(current.maxHp, current.hp + (activeEffect(room).beerHeal ?? 1));
   return { ok: true };
 }
 
@@ -1321,17 +1276,33 @@ export function surrender(code: string, playerId: string): { ok: boolean; error?
 // Move the turn to the next living player (by seat, wrapping). Returns false if
 // nobody living is found.
 // Move the turn to the next living player, following `turnDir` (the Reverse event
-// flips it).
+// flips it) and marking the round boundary that schedules events.
 function advanceToNextAlive(room: Room): boolean {
   const n = room.players.length;
   for (let step = 1; step <= n; step++) {
     const idx = (room.turnIndex + step * room.turnDir + n * n) % n;
     if (room.players[idx].alive) {
       room.turnIndex = idx;
+      markRoundBoundary(room);
       return true;
     }
   }
   return false;
+}
+
+// A round ends when play returns to whoever opened it. If that player has died, the
+// marker moves to whoever is up now — otherwise the boundary would be lost for the
+// rest of the game and events would never fire again.
+function markRoundBoundary(room: Room) {
+  const cur = room.players[room.turnIndex];
+  if (!cur) return;
+  const starter = room.players.find((p) => p.id === room.roundStarterId);
+  if (!starter || !starter.alive) {
+    room.roundStarterId = cur.id;
+    room.roundEventDue = true;
+    return;
+  }
+  if (cur.id === starter.id) room.roundEventDue = true;
 }
 
 // The living player to the left (next in play order) of `p` — Dynamite follows the
@@ -1348,7 +1319,7 @@ function leftNeighbor(room: Room, p: Player): Player | null {
 function drawCheck(room: Room, drawer?: Player, isGood?: (c: Card) => boolean): Card | null {
   const first = drawOne(room);
   if (!first) return null;
-  const eff = effectFor(room, drawer);
+  const eff = activeEffect(room);
   const isLuckyDuke = drawer?.character?.id === "lucky-duke";
   // Lucky Duke (or a Lucky Table event) flips two and keeps the better card; Bad
   // Weather flips two and keeps the worse one. Lucky Duke's own skill beats the
@@ -1395,16 +1366,15 @@ function beginTurn(room: Room, resuming = false) {
     // so a turn skipped by Jail doesn't burn two turns off a 3-turn sandstorm.
     tickEvents(room);
   }
-  // Jail and the Oversleep curse both pass the turn on from inside this loop. If
-  // every living player were skippable the loop would spin forever and hang the
-  // server, so cap the hand-offs at one full lap.
+  // Jail passes the turn on from inside this loop. A Jail is discarded as it
+  // resolves so it cannot repeat, but cap the hand-offs at one full lap anyway —
+  // spinning here would hang the server outright and the guard costs nothing.
   let handOffs = 0;
   while (room.phase === "playing") {
     if (handOffs++ > room.players.length) {
       // Everyone is skipped: force the current player to play rather than hang.
       const stuck = room.players[room.turnIndex];
       if (stuck) {
-        room.events = room.events.filter((ev) => ev.targetId !== stuck.id);
         room.turnPhase = "draw";
         pushLog(room, { kind: "turn", a: stuck.name });
       }
@@ -1417,14 +1387,17 @@ function beginTurn(room: Room, resuming = false) {
     room.playedDefsThisTurn = [];
     room.jailedTurn = false;
 
-    // --- This turn's event: rolled before any upkeep, so it also colours this
-    // turn's Dynamite/Jail Draw! checks. ---
-    rollTurnEvent(room, cur);
-    if (room.phase !== "playing") return; // an event ended the game
-    if (!cur.alive) {
-      // The event killed whoever was about to play — pass the turn on.
-      if (!advanceToNextAlive(room)) return;
-      continue;
+    // --- This round's event: rolled as the round opens (the Sheriff's turn), before
+    // any upkeep, so it also colours that turn's Dynamite/Jail Draw! checks. ---
+    if (room.roundEventDue) {
+      room.roundEventDue = false;
+      rollRoundEvents(room, cur);
+      if (room.phase !== "playing") return; // an event ended the game
+      if (!cur.alive) {
+        // The event killed whoever was about to play — pass the turn on.
+        if (!advanceToNextAlive(room)) return;
+        continue;
+      }
     }
 
     // --- Dynamite ---
@@ -1492,16 +1465,6 @@ function beginTurn(room: Room, resuming = false) {
     }
 
     room.turnCounter += 1;
-    // The Oversleep curse costs its victim this turn. Drop the curse as it fires so
-    // it can never take a second turn from the same player.
-    if (effectFor(room, cur).skipTurn) {
-      pushLog(room, { kind: "skip", a: cur.name });
-      room.events = room.events.filter(
-        (ev) => !(ev.targetId === cur.id && EVENT_BY_ID[ev.defId]?.effect?.skipTurn)
-      );
-      if (!advanceToNextAlive(room)) return;
-      continue;
-    }
 
     room.turnPhase = "draw";
     pushLog(room, { kind: "turn", a: cur.name });
@@ -1711,7 +1674,7 @@ export function sidHeal(code: string, playerId: string, cardIds: string[]): { ok
   const sid = room.players.find((p) => p.id === playerId);
   if (!sid || !sid.alive) return { ok: false };
   if (sid.character?.id !== "sid-ketchum") return { ok: false, error: "Chỉ Sid Ketchum dùng được" };
-  if (effectFor(room, sid).noHeal) return { ok: false, error: "Sự kiện đang cấm hồi máu" };
+  if (activeEffect(room).noHeal) return { ok: false, error: "Sự kiện đang cấm hồi máu" };
   if (sid.hp >= sid.maxHp) return { ok: false, error: "Máu đã đầy" };
   if (cardIds.length !== 2 || cardIds[0] === cardIds[1]) return { ok: false, error: "Chọn đúng 2 lá khác nhau" };
   const idxs = cardIds.map((id) => sid.hand.findIndex((c) => c.id === id));
@@ -1780,15 +1743,13 @@ function processDeathQueue(room: Room) {
 // dropping to <=0 HP. Shared by single hits and multi (Indians!/Gatling) so
 // those effects fire no matter how the life point is lost.
 function dealDamage(room: Room, target: Player, amount: number, sourceId: string | null) {
-  const eff = effectFor(room, target);
-  // Ceasefire nullifies damage outright; Guardian Angel shields one player.
-  if (eff.noDamage || eff.immune) {
+  const eff = activeEffect(room);
+  // Ceasefire nullifies damage outright.
+  if (eff.noDamage) {
     pushLog(room, { kind: "hit", a: target.name, n: 0, hp: target.hp });
     return;
   }
-  // Wartime / Piercing Round add to every hit; Marked Man adds to hits this
-  // player receives.
-  amount = Math.max(0, amount + (eff.damageDelta ?? 0) + (eff.incomingDamageDelta ?? 0));
+  amount = Math.max(0, amount + (eff.damageDelta ?? 0)); // Wartime and friends
   if (amount === 0) return;
   target.hp -= amount;
   pushLog(room, { kind: "hit", a: target.name, n: amount, hp: Math.max(0, target.hp) });
@@ -1858,10 +1819,6 @@ function killPlayer(
   if (sam) sam.hand.push(...cards);
   else room.discard.push(...cards);
 
-  // A bounty (the "Wanted" event) pays out on top of the normal rewards.
-  const hadBounty = !!effectFor(room, target).bounty;
-  room.events = room.events.filter((ev) => ev.targetId !== target.id); // curses die with them
-
   // Death rewards / penalty for whoever landed the killing blow.
   const killer = killerId ? room.players.find((p) => p.id === killerId) : null;
   const usable = (p: Player | null | undefined) => (p && p.alive && p.id !== target.id ? p : null);
@@ -1878,7 +1835,6 @@ function killPlayer(
       if (c) p.hand.push(c);
     }
   };
-  if (hadBounty) draw3(actor);
   if (target.role === "outlaw") {
     draw3(actor);
   } else if (actor.role === "sheriff" && target.role === "deputy") {
@@ -1988,7 +1944,6 @@ function visibleRole(p: Player, room: Room): Role | null {
   if (room.phase === "result") return p.role; // all roles revealed at the end
   if (PUBLIC_ROLES.includes(p.role)) return p.role;
   if (!p.alive) return p.role;
-  if (room.revealedRoleIds.includes(p.id)) return p.role; // leaked by an event
   return null;
 }
 

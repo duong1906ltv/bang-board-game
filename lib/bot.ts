@@ -53,7 +53,7 @@ function isEnemy(me: Player, other: Player): boolean {
 // its turn on a shot the engine will refuse.
 function nearestEnemyInRange(room: Room, me: Player): Player | null {
   const range = game.rangeOf(me, room);
-  const truce = !!game.effectFor(room, me).protectSheriff;
+  const truce = !!game.activeEffect(room).protectSheriff;
   let best: Player | null = null;
   let bestDist = Infinity;
   for (const p of room.players) {

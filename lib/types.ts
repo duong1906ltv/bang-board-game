@@ -107,15 +107,14 @@ import type { EventLevel, EventScope } from "./events";
 export type { EventLevel };
 
 // One active (or just-fired) event, as shown to clients. Every event is table-wide
-// (one per round, at the Sheriff's turn), so there is no per-player variant to
-// distinguish. Names/descriptions are localized on the client from `id` (lib/i18n.ts).
+// (one per round, at the Sheriff's turn) and none singles out a player, so there is
+// no target to name. Names/descriptions are localized on the client (lib/i18n.ts).
 export interface EventView {
   seq: number; // monotonic: lets the client detect a NEW event to announce
   id: string;
   emoji: string;
   scope: EventScope;
-  turnsLeft?: number; // lasting / curse only
-  targetName?: string; // curse target
+  turnsLeft?: number; // lasting only — turns of this round the rule still covers
 }
 
 // ─── Views sent to clients ───────────────────────────────────────────────────
@@ -204,16 +203,16 @@ export interface LogEntry {
   id: number;
   kind:
     | "play" | "hit" | "heal" | "death" | "draw" | "turn" | "react"
-    | "check" | "discard" | "surrender" | "event" | "skip" | "reveal";
+    | "check" | "discard" | "surrender" | "event";
   a?: string; // primary actor name
   b?: string; // target name
   card?: string; // card name (or the drawn card label for a check, e.g. "5♠")
   n?: number; // count (cards drawn, life points, cards discarded)
   hp?: number; // resulting HP
-  role?: Role; // revealed role (death / reveal)
+  role?: Role; // revealed role (death)
   checkKind?: string; // Draw! check type (dynamite/jail/barrel/blackjack)
   outcome?: string; // Draw! check outcome key
-  event?: string; // random-event id (kind "event" / "skip")
+  event?: string; // random-event id (kind "event")
 }
 
 // ─── Socket.IO event payloads ────────────────────────────────────────────────

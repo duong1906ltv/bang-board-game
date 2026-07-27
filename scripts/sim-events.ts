@@ -78,20 +78,27 @@ function runGame(level: EventLevel, stats: Stats): "done" | "frozen" | "cap" {
     }
     if (!bot.step(code)) {
       // No bot could act while the game is still live: that is the freeze.
-      report(code, room);
+      report(code, room, "FREEZE");
       return "frozen";
     }
   }
+  // Ran out of steps: bots kept acting but the game never converged. Just as bad as
+  // a freeze from a player's seat, so dump the same state.
+  report(code, room, "NO CONVERGENCE");
   return "cap";
 }
 
 // Dump enough state to debug a freeze without re-running under a debugger.
-function report(code: string, room: game.Room) {
+function report(code: string, room: game.Room, why: string) {
   const cur = room.players[room.turnIndex];
-  console.error(`\n❌ FREEZE in room ${code}`);
+  console.error(`\n❌ ${why} in room ${code} · turns=${room.turnCounter}`);
   console.error(`   phase=${room.phase} turnPhase=${room.turnPhase} turn=${cur?.name} (${cur?.character?.id})`);
   console.error(`   pending=${room.pending ? room.pending.kind : "none"} deck=${room.deck.length} discard=${room.discard.length}`);
   console.error(`   events=${room.events.map((e) => e.defId).join(",") || "none"}`);
+  console.error(`   hp=${room.players.filter((p) => p.alive).map((p) => `${p.name}:${p.hp}`).join(" ")}`);
+  const tally = new Map<string, number>();
+  for (const e of room.log) if (e.kind === "event" && e.event) tally.set(e.event, (tally.get(e.event) ?? 0) + 1);
+  console.error(`   recent event mix: ${[...tally].map(([k, n]) => `${k}x${n}`).join(" ")}`);
   console.error(`   hand=${cur?.hand.map((c) => c.defId).join(",")} limit=${cur ? game.handLimitOf(room, cur) : "?"} hp=${cur?.hp}`);
   console.error(`   alive=${room.players.filter((p) => p.alive).length}/${room.players.length}`);
   console.error(`   log tail:\n${room.log.slice(-8).map((e) => `     ${e.kind} ${e.a ?? ""} ${e.event ?? e.card ?? ""}`).join("\n")}`);

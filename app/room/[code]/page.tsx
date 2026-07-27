@@ -633,8 +633,8 @@ function Lobby({
       <p className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
         {L(
           locale,
-          "Đầu MỖI LƯỢT bàn nhận đúng một sự kiện, có hiệu lực hết lượt đó: cấm bắn, bão cát, mưa bài, đảo chiều… Một số sự kiện là lời nguyền nhắm riêng một người và kéo dài vài vòng. Vòng đầu tiên luôn yên bình.",
-          "EVERY turn opens with exactly one event, in force for that turn: no shooting, sandstorm, card rain, reversed order… A few are curses aimed at one player that last several laps. The opening round is always quiet."
+          "Đầu MỖI VÒNG — đúng lúc tới lượt Cảnh Sát Trưởng — bàn nhận 2–4 sự kiện cùng lúc, áp cho TẤT CẢ mọi người cho tới hết vòng: cấm bắn, bão cát, mưa bài, đảo chiều… Các sự kiện xung đột nhau không bao giờ ra cùng nhau. Vòng đầu tiên luôn yên bình.",
+          "EVERY round — as play returns to the Sheriff — the table draws 2–4 events at once, all applying to EVERYONE until the round ends: no shooting, sandstorm, card rain, reversed order… Conflicting events are never drawn together. The opening round is always quiet."
         )}
       </p>
 
@@ -713,45 +713,47 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
   );
 }
 
-// Full-screen announcement for a newly-fired random event. Keyed on the event's
-// `seq` so the same event firing twice still re-animates, and self-dismissing so
-// it never sits on top of the table.
-function EventBanner({ ev, onDone }: { ev: EventView; onDone: () => void }) {
+// Announcement for the batch of events a new round just drew. One panel listing all
+// of them, not a queue shown one at a time: they take effect simultaneously, so
+// reading them as a group is what tells you what this round actually plays like.
+function EventBanner({ evs, onDone }: { evs: EventView[]; onDone: () => void }) {
   const locale = useLocale();
-  // Short enough that back-to-back events at high density stay in sync with play.
+  // Scaled to the reading load — four rules take longer to take in than one.
   useEffect(() => {
-    const t = window.setTimeout(onDone, 2200);
+    const t = window.setTimeout(onDone, 2400 + evs.length * 700);
     return () => window.clearTimeout(t);
-  }, [onDone]);
-  // A curse singles someone out (amber, personal); everything else is the round's
-  // weather for the whole table (blue).
-  const wide = ev.scope !== "curse";
+  }, [onDone, evs.length]);
   return (
     <div
       style={{
-        position: "fixed", left: "50%", top: "26%", transform: "translateX(-50%)",
-        zIndex: 1120, pointerEvents: "none", width: "min(420px, 92vw)",
-        padding: "16px 20px", borderRadius: 16, textAlign: "center",
+        position: "fixed", left: "50%", top: "18%", transform: "translateX(-50%)",
+        zIndex: 1120, pointerEvents: "none", width: "min(440px, 92vw)",
+        padding: "14px 18px", borderRadius: 16, textAlign: "center",
         fontFamily: "system-ui, sans-serif",
-        background: wide ? "rgba(16,32,52,0.95)" : "rgba(46,30,12,0.95)",
-        border: `1px solid ${wide ? "#5b9bd5" : "#e0a955"}`,
-        boxShadow: `0 10px 40px rgba(0,0,0,0.6), 0 0 24px ${wide ? "rgba(91,155,213,0.35)" : "rgba(224,169,85,0.35)"}`,
+        background: "rgba(16,32,52,0.95)",
+        border: "1px solid #5b9bd5",
+        boxShadow: "0 10px 40px rgba(0,0,0,0.6), 0 0 24px rgba(91,155,213,0.35)",
         animation: "eventPop .45s cubic-bezier(0.2,0.9,0.25,1) both",
       }}
     >
       <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", opacity: 0.65, color: "#f0e2c0" }}>
-        {wide ? L(locale, "Sự kiện của lượt này", "This turn's event") : L(locale, "Lời nguyền", "Curse")}
+        {L(locale, `Sự kiện của vòng này · ${evs.length}`, `This round's events · ${evs.length}`)}
       </div>
-      <div style={{ fontSize: 44, lineHeight: 1.1, marginTop: 4 }}>{ev.emoji}</div>
-      <div style={{ fontSize: "1.25rem", fontWeight: 800, color: wide ? "#bfe0ff" : "#ffd873" }}>
-        {eventName(locale, ev.id)}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+        {evs.map((ev) => (
+          <div key={ev.seq} style={{ display: "flex", gap: 10, alignItems: "flex-start", textAlign: "left" }}>
+            <span style={{ fontSize: 26, lineHeight: 1.1, flex: "0 0 auto" }}>{ev.emoji}</span>
+            <span>
+              <span style={{ display: "block", fontSize: "1rem", fontWeight: 800, color: "#bfe0ff" }}>
+                {eventName(locale, ev.id)}
+              </span>
+              <span style={{ display: "block", fontSize: 12.5, lineHeight: 1.4, color: "#f0e2c0", opacity: 0.85 }}>
+                {eventDesc(locale, ev.id)}
+              </span>
+            </span>
+          </div>
+        ))}
       </div>
-      <div style={{ fontSize: 13.5, lineHeight: 1.5, color: "#f0e2c0", opacity: 0.9, marginTop: 6 }}>
-        {eventDesc(locale, ev.id)}
-      </div>
-      {ev.targetName && (
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#ff9f80", marginTop: 6 }}>🎯 {ev.targetName}</div>
-      )}
     </div>
   );
 }
@@ -778,13 +780,12 @@ function EventChips({ events }: { events: EventView[] }) {
             style={{
               width: "auto", padding: "3px 8px", fontSize: "0.78rem", fontWeight: 700,
               borderRadius: 8, color: "#f0e2c0",
-              background: ev.scope === "curse" ? "rgba(46,30,12,0.92)" : "rgba(16,32,52,0.92)",
-              border: `1px solid ${ev.scope === "curse" ? "rgba(224,169,85,0.7)" : "rgba(91,155,213,0.7)"}`,
+              background: "rgba(16,32,52,0.92)",
+              border: "1px solid rgba(91,155,213,0.7)",
             }}
             title={eventDesc(locale, ev.id)}
           >
             {ev.emoji} {eventName(locale, ev.id)}
-            {ev.targetName ? ` → ${ev.targetName}` : ""}
             {ev.turnsLeft ? ` ·${ev.turnsLeft}` : ""}
           </button>
         ))}
@@ -949,22 +950,17 @@ function Table({
     setMarquee(`${CHECK_ICON[c.kind] ?? "🎴"} ${c.name} — ${t.kind}${cardLabel}: ${t.outcome}`);
   }, [view.checks, locale]);
 
-  // Random events waiting to be announced. A queue, not a single slot: one action
-  // can fire a table event AND that player's turn event, and both deserve a banner.
-  // `seq` is the watermark, so a view arriving mid-banner never re-announces.
-  const [eventQueue, setEventQueue] = useState<EventView[]>([]);
+  // The batch a new round just drew, held for the banner. A whole round's events
+  // arrive in one view update, so "everything above the seq watermark" IS the batch —
+  // and the watermark means a view landing mid-banner never re-announces it.
+  const [eventBatch, setEventBatch] = useState<EventView[]>([]);
   const seenSeqRef = useRef<number>(0);
   useEffect(() => {
     const fresh = view.eventFeed.filter((e) => e.seq > seenSeqRef.current);
     if (fresh.length === 0) return;
     seenSeqRef.current = fresh[fresh.length - 1].seq;
-    // At the Mayhem density events fire faster than banners can play out; showing
-    // a backlog would put the announcements minutes behind the table, so only the
-    // two most recent are ever queued.
-    setEventQueue((q) => [...q, ...fresh].slice(-2));
+    setEventBatch(fresh);
   }, [view.eventFeed]);
-  const eventBanner = eventQueue[0] ?? null;
-  const dismissEventBanner = () => setEventQueue((q) => q.slice(1));
 
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const flash = (msg: string) => {
@@ -1187,7 +1183,9 @@ function Table({
         </div>
       )}
 
-      {eventBanner && <EventBanner key={eventBanner.seq} ev={eventBanner} onDone={dismissEventBanner} />}
+      {eventBatch.length > 0 && (
+        <EventBanner key={eventBatch[0].seq} evs={eventBatch} onDone={() => setEventBatch([])} />
+      )}
 
       {notice && (
         <div
@@ -1474,7 +1472,7 @@ function Table({
                         // rather than report a play, so they need to be findable when
                         // you scroll back asking "why couldn't I shoot?".
                         fontWeight: e.kind === "death" || e.kind === "event" ? 700 : 400,
-                        color: e.kind === "event" ? "#7ec8ff" : e.kind === "skip" ? "#c9a227" : undefined,
+                        color: e.kind === "event" ? "#7ec8ff" : undefined,
                       }}
                     >
                       {idx >= 0 && def && e.card ? (
