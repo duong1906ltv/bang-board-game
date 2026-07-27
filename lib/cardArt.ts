@@ -67,6 +67,9 @@ const rifle = (barrel: number) =>
 // unfinished set of illustrations degrades instead of breaking.
 export const CARD_PHOTO_IDS = [
   "bang", "missed", "beer", "indians", "volcanic", "duel", "panic", "gatling",
+  "cat-balou", "general-store", "saloon", "stagecoach", "wells-fargo",
+  "remington", "rev-carabine", "winchester", "barrel", "dynamite", "jail",
+  "scope", "mustang", "schofield",
 ];
 
 export const CARD_PHOTO: Record<string, string> = Object.fromEntries(

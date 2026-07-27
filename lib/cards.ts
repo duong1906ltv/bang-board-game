@@ -113,13 +113,13 @@ export const CARD_DEFS: CardDef[] = [
     effect: "Có thể chơi bao nhiêu lá Bang! tùy thích. Tầm bắn cơ bản 1.",
     notes: ["Rule 6"] },
   { id: "schofield", it: "Schofeld", name: "Schofield", kind: "gun", count: 3, spec: "JC QC KS", range: 2,
-    effect: "", notes: ["Rule 6"] },
+    effect: "Tầm bắn cơ bản 2.", notes: ["Rule 6"] },
   { id: "remington", it: "Remington", name: "Remington", kind: "gun", count: 1, spec: "KC", range: 3,
-    effect: "", notes: ["Rule 6"] },
+    effect: "Tầm bắn cơ bản 3.", notes: ["Rule 6"] },
   { id: "rev-carabine", it: "Rev. Carabine", name: "Rev. Carabine", kind: "gun", count: 1, spec: "AC", range: 4,
-    effect: "", notes: ["Rule 6"] },
+    effect: "Tầm bắn cơ bản 4.", notes: ["Rule 6"] },
   { id: "winchester", it: "Winchester", name: "Winchester", kind: "gun", count: 1, spec: "8S", range: 5,
-    effect: "", notes: ["Rule 6"] },
+    effect: "Tầm bắn cơ bản 5.", notes: ["Rule 6"] },
 ];
 
 // Lookup by slug.
@@ -209,6 +209,11 @@ export interface Card {
   name: string; // English name (denormalized for the client)
   suit: Suit;
   rank: number; // 1..13 (A=1, J=11, Q=12, K=13)
+  // Who put this card into play. Only Dynamite needs it: it drifts from player to
+  // player, so when it finally goes off the engine still has to know who lit it in
+  // order to pay out the Outlaw bounty. Held on the card instance rather than on the
+  // room, so discarding it and playing it again re-attributes correctly.
+  playedBy?: string;
 }
 
 // Build the full deck from the explicit per-card specs.
