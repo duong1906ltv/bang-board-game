@@ -41,7 +41,7 @@ const REWARD_WIN_THRESHOLD = 3;
 // deadline: reactions never time out (players take as long as they need).
 type Pending =
   | { kind: "bang"; targetId: string; sourceId: string; missedNeeded: number; missedPlayed: number }
-  | { kind: "dying"; targetId: string; sourceId: string | null; beersNeeded: number }
+  | { kind: "dying"; targetId: string; sourceId: string | null; creditId?: string | null; beersNeeded: number }
   | { kind: "multi"; effect: "indians" | "gatling"; sourceId: string; responders: { id: string; done: boolean; safe: boolean }[] }
   | { kind: "duel"; aId: string; bId: string; turnId: string }
   | { kind: "store"; sourceId: string; cards: Card[]; order: string[] }
@@ -86,6 +86,11 @@ export interface Room {
   // The active player failed their Jail check: they serve the turn without playing
   // anything, but still have to discard down to their hand limit before it passes.
   jailedTurn: boolean;
+  // Set when a player's own upkeep (their exploding Dynamite) knocked them to 0 and
+  // we are waiting on their Beer answer. Their turn has NOT been set up yet — the
+  // Jail check and the draw phase still have to run — so whoever resolves that
+  // pending has to hand control back via resumeUpkeep().
+  upkeepFor: string | null;
   bangsThisTurn: number; // Bang!s played by the active player this turn
   playsThisTurn: number; // cards played by the active player this turn (for maxPlays events)
   playedDefsThisTurn: string[]; // house rule: each card type only once per turn (Bang!/guns exempt)
@@ -224,6 +229,7 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     turnIndex: 0,
     turnPhase: "draw",
     jailedTurn: false,
+    upkeepFor: null,
     bangsThisTurn: 0,
     playsThisTurn: 0,
     playedDefsThisTurn: [],
@@ -789,8 +795,9 @@ function barrelAttempts(p: Player): number {
 }
 
 // Distance the viewer `from` sees to player `to`, counting only living players
-// around the circle. Mustang/Paul Regret add +1 to how far others see the
-// target; Scope/Rose Doolan subtract 1 from what the viewer sees. Minimum 1.
+// around the circle. Mustang and Paul Regret each add +1 to how far others see
+// the target; Scope and Rose Doolan each subtract 1 from what the viewer sees.
+// Both pairs stack (Paul Regret + Mustang = +2). Minimum 1.
 export function distanceBetween(room: Room, from: Player, to: Player): number {
   if (from.id === to.id) return 0;
   const alive = [...room.players].sort((a, b) => a.seat - b.seat).filter((p) => p.alive);
@@ -800,10 +807,13 @@ export function distanceBetween(room: Room, from: Player, to: Player): number {
   const raw = Math.abs(i - j);
   let dist = Math.min(raw, alive.length - raw);
 
-  // Target seen farther (Mustang, Paul Regret's ability).
-  if (hasEquip(to, "mustang") || to.character?.id === "paul-regret") dist += 1;
-  // Viewer sees farther/closer (Scope, Rose Doolan's ability).
-  if (hasEquip(from, "scope") || from.character?.id === "rose-doolan") dist -= 1;
+  // Target seen farther. Mustang and Paul Regret's ability stack: a Paul Regret
+  // holding a Mustang is seen at +2.
+  if (hasEquip(to, "mustang")) dist += 1;
+  if (to.character?.id === "paul-regret") dist += 1;
+  // Viewer sees closer. Scope and Rose Doolan's ability stack the same way.
+  if (hasEquip(from, "scope")) dist -= 1;
+  if (from.character?.id === "rose-doolan") dist -= 1;
   // Weather events stretch or flatten the whole table (Fog / Open Plains).
   dist += effectFor(room, from).distanceDelta ?? 0;
 
@@ -1003,6 +1013,9 @@ function playCardImpl(
     // Self-equip (Mustang / Scope / Barrel / Dynamite): at most one of each.
     if (hasEquip(current, card.defId)) return { ok: false, error: `Đã có ${def.name} trên bàn` };
     current.hand.splice(idx, 1);
+    // Remember who lit the fuse: the Dynamite will have moved on by the time it
+    // goes off, but the bounty for the Outlaw it kills is still theirs.
+    if (card.defId === "dynamite") card.playedBy = current.id;
     current.equipment.push(card);
     return { ok: true };
   }
@@ -1292,6 +1305,7 @@ export function surrender(code: string, playerId: string): { ok: boolean; error?
   if (!p || !p.alive) return { ok: false };
 
   const wasTurn = room.players[room.turnIndex]?.id === p.id;
+  if (room.upkeepFor === p.id) room.upkeepFor = null; // don't resume a quitter's turn
   pushLog(room, { kind: "surrender", a: p.name, role: p.role ?? undefined });
   detachFromPending(room, p.id);
   killPlayer(room, p, null); // no killer → no death rewards/penalties
@@ -1369,11 +1383,18 @@ const goodBarrel = (c: Card) => c.suit === "hearts"; // counts as Missed!
 // players skipped by Jail), then leave them in the draw phase — unless Jail makes
 // them skip, in which case play passes on. Fully synchronous (no reaction window,
 // since Dynamite damage cannot be saved by Beer in this variant).
-function beginTurn(room: Room) {
-  room.checks = [];
-  // Turn-scope events end here; lasting/curse timers tick exactly once per call,
-  // so a turn skipped by Jail doesn't burn two turns off a 3-turn sandstorm.
-  tickEvents(room);
+// `resuming` picks a turn's upkeep back up after it was interrupted mid-way by a
+// Beer prompt (see upkeepFor). It must NOT re-run the once-per-turn bookkeeping:
+// ticking the event timers a second time would burn two turns off a 3-turn
+// sandstorm, and wiping `checks` would erase the Dynamite reveal the players are
+// still being shown.
+function beginTurn(room: Room, resuming = false) {
+  if (!resuming) {
+    room.checks = [];
+    // Turn-scope events end here; lasting/curse timers tick exactly once per call,
+    // so a turn skipped by Jail doesn't burn two turns off a 3-turn sandstorm.
+    tickEvents(room);
+  }
   // Jail and the Oversleep curse both pass the turn on from inside this loop. If
   // every living player were skippable the loop would spin forever and hang the
   // server, so cap the hand-offs at one full lap.
@@ -1417,7 +1438,18 @@ function beginTurn(room: Room) {
       cur.equipment = cur.equipment.filter((c) => c.id !== dyn.id);
       if (exploded) {
         room.discard.push(dyn);
-        applyDamage(room, cur, 3, null, false); // unsaveable: Beer can't cancel Dynamite
+        // Saveable: Beer DOES rescue you from a fatal Dynamite, both in the official
+        // rules and per the note printed on our own Beer card. The engine used to
+        // pass saveable=false, so anyone who blew up at <=3 hp died without even
+        // being asked, while holding the Beer the card text promised would save them.
+        applyDamage(room, cur, 3, null, true, dyn.playedBy ?? null);
+        // They can survive on Beer — stop here and wait for the answer. The rest of
+        // their upkeep (Jail, then the draw phase) has not run yet, so it must be
+        // picked up again by resumeUpkeep() once the pending clears.
+        if (room.pending) {
+          room.upkeepFor = cur.id;
+          return;
+        }
         if (!cur.alive) {
           if (room.phase !== "playing") return; // game ended
           if (!advanceToNextAlive(room)) return;
@@ -1474,6 +1506,25 @@ function beginTurn(room: Room) {
     room.turnPhase = "draw";
     pushLog(room, { kind: "turn", a: cur.name });
     return;
+  }
+}
+
+// Hand control back to a turn whose upkeep stopped half-done waiting on a Beer
+// answer. Called from every place a `dying` pending can clear, because the turn is
+// otherwise left in limbo: no Jail check, no turn phase, no `turn` log line.
+function resumeUpkeep(room: Room) {
+  const id = room.upkeepFor;
+  if (!id || room.pending || room.phase !== "playing") return;
+  room.upkeepFor = null;
+  const p = room.players.find((x) => x.id === id);
+  if (!p) return;
+  if (p.alive) {
+    // Survived on Beer: carry on with their own turn. The Dynamite is already gone
+    // from their equipment, so re-entering can't explode it twice.
+    beginTurn(room, true);
+  } else if (advanceToNextAlive(room)) {
+    // Took the death: the turn was theirs, so it has to move on to the next player.
+    beginTurn(room);
   }
 }
 
@@ -1548,14 +1599,16 @@ export function respond(
       if (pending.beersNeeded <= 0) {
         clearPending(room);
         processDeathQueue(room);
+        resumeUpkeep(room); // their own turn may still be waiting to be set up
       }
       return { ok: true };
     }
     if (type === "pass") {
       clearPending(room);
-      killPlayer(room, target, pending.sourceId);
+      killPlayer(room, target, pending.sourceId, pending.creditId ?? null);
       checkWin(room);
       if (room.phase === "playing") processDeathQueue(room);
+      resumeUpkeep(room); // if it was their turn, it has to move on
       return { ok: true };
     }
     return { ok: false };
@@ -1673,6 +1726,7 @@ export function sidHeal(code: string, playerId: string, cardIds: string[]): { ok
   if (room.pending?.kind === "dying" && room.pending.targetId === sid.id && sid.hp > 0) {
     clearPending(room);
     processDeathQueue(room);
+    resumeUpkeep(room);
   }
   return { ok: true };
 }
@@ -1756,21 +1810,43 @@ function dealDamage(room: Room, target: Player, amount: number, sourceId: string
   }
 }
 
-function applyDamage(room: Room, target: Player, amount: number, sourceId: string | null, saveable = true) {
+function applyDamage(
+  room: Room,
+  target: Player,
+  amount: number,
+  sourceId: string | null,
+  saveable = true,
+  // Indirect credit (Dynamite): earns the Outlaw bounty without counting as the
+  // attacker. Kept separate from sourceId because sourceId also drives El Gringo's
+  // steal, and El Gringo must NOT rob whoever's Dynamite happened to go off.
+  creditId: string | null = null
+) {
   dealDamage(room, target, amount, sourceId);
   if (target.hp > 0) return;
   const needed = 1 - target.hp; // Beers required to reach 1 HP
   const beers = target.hand.filter((c) => c.defId === "beer").length;
-  // Dynamite damage (saveable=false) cannot be cancelled by Beer.
   if (saveable && beers >= needed) {
-    room.pending = { kind: "dying", targetId: target.id, sourceId, beersNeeded: needed };
+    // Death is deferred until they answer, so the credit has to ride along on the
+    // pending — otherwise passing on the Beer would pay nobody.
+    room.pending = { kind: "dying", targetId: target.id, sourceId, creditId, beersNeeded: needed };
   } else {
-    killPlayer(room, target, sourceId);
+    killPlayer(room, target, sourceId, creditId);
     checkWin(room);
   }
 }
 
-function killPlayer(room: Room, target: Player, killerId: string | null = null) {
+// `creditId` is an INDIRECT kill: the player who set up the death without dealing
+// the blow — today only whoever played the Dynamite that went off. It pays the
+// bounty on an Outlaw, but deliberately does NOT carry the Sheriff-shoots-Deputy
+// penalty: lighting a fuse three turns ago is not the same act as shooting your own
+// Deputy, and it would be a nasty surprise to lose your whole hand to a card that
+// drifted away from you long before it exploded.
+function killPlayer(
+  room: Room,
+  target: Player,
+  killerId: string | null = null,
+  creditId: string | null = null
+) {
   target.alive = false;
   target.hp = 0;
   pushLog(room, { kind: "death", a: target.name, role: target.role ?? undefined });
@@ -1788,23 +1864,27 @@ function killPlayer(room: Room, target: Player, killerId: string | null = null) 
 
   // Death rewards / penalty for whoever landed the killing blow.
   const killer = killerId ? room.players.find((p) => p.id === killerId) : null;
-  if (killer && killer.alive && killer.id !== target.id) {
-    if (hadBounty) {
-      for (let i = 0; i < 3; i++) {
-        const c = drawOne(room);
-        if (c) killer.hand.push(c);
-      }
+  const usable = (p: Player | null | undefined) => (p && p.alive && p.id !== target.id ? p : null);
+  // An indirect kill (the Dynamite you lit) counts exactly like landing the blow:
+  // it earns the Outlaw bounty AND carries the Sheriff-kills-Deputy penalty. Losing
+  // your whole hand to a card that drifted away from you turns ago is harsh, but
+  // that is the intended rule here — the Sheriff is answerable for the Dynamite he
+  // put in play, whoever it goes off on.
+  const actor = usable(killer) ?? usable(creditId ? room.players.find((p) => p.id === creditId) : null);
+  if (!actor) return;
+  const draw3 = (p: Player) => {
+    for (let i = 0; i < 3; i++) {
+      const c = drawOne(room);
+      if (c) p.hand.push(c);
     }
-    if (target.role === "outlaw") {
-      for (let i = 0; i < 3; i++) {
-        const c = drawOne(room);
-        if (c) killer.hand.push(c);
-      }
-    } else if (killer.role === "sheriff" && target.role === "deputy") {
-      room.discard.push(...killer.hand, ...killer.equipment);
-      killer.hand = [];
-      killer.equipment = [];
-    }
+  };
+  if (hadBounty) draw3(actor);
+  if (target.role === "outlaw") {
+    draw3(actor);
+  } else if (actor.role === "sheriff" && target.role === "deputy") {
+    room.discard.push(...actor.hand, ...actor.equipment);
+    actor.hand = [];
+    actor.equipment = [];
   }
 }
 
@@ -1868,6 +1948,8 @@ export function restart(code: string): boolean {
   room.phase = "lobby";
   room.turnIndex = 0;
   room.turnPhase = "draw";
+  room.jailedTurn = false;
+  room.upkeepFor = null; // a half-finished upkeep must never survive into a new game
   room.bangsThisTurn = 0;
   room.playsThisTurn = 0;
   room.playedDefsThisTurn = [];
