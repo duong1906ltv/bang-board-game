@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
@@ -8,6 +9,7 @@ import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
 import { CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import { toggleMusic, setMusicVolume, getMusicVolume } from "@/lib/music";
+import { getFx, setFx, getIntroSeen, setIntroSeen } from "@/lib/prefs";
 import {
   L,
   useLocale,
@@ -83,6 +85,189 @@ function MusicToggle() {
   );
 }
 
+// ─── Nút Cài đặt (⚙️): bật/tắt hiệu ứng đồ hoạ ────────────────────────────────
+// Panel sổ xuống, đóng khi bấm ra ngoài (pattern lấy từ escape room).
+//
+// Nút nằm trong HUD (`position:fixed; zIndex:55`) — một stacking context, nên một
+// panel `position:absolute` con sẽ bị KẸP vào mức 55 và bị các phần tử HUD sau nó
+// trong DOM (banner 56, hàng lá 55) vẽ đè. Vì vậy panel được PORTAL ra body để
+// zIndex 1300 đứng thật trên thang chung (scene 40 < cam/mic 45 < HUD 55 < modal).
+function SettingsMenu({ fx, onToggleFx }: { fx: boolean; onToggleFx: () => void }) {
+  const locale = useLocale();
+  const [open, setOpen] = useState(false);
+  // Portal chỉ dựng được sau khi mount (SSR không có document).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  return (
+    <span>
+      <button
+        className="ghost"
+        style={{ width: "auto", padding: "4px 10px", fontSize: "0.9rem" }}
+        onClick={() => setOpen((o) => !o)}
+        title={L(locale, "Cài đặt hiển thị", "Display settings")}
+      >
+        ⚙️
+      </button>
+      {open && mounted && createPortal(
+        <>
+          {/* lớp bắt click ra ngoài để đóng panel */}
+          <div style={{ position: "fixed", inset: 0, zIndex: 1300 }} onClick={() => setOpen(false)} />
+          <div
+            style={{
+              // Neo dưới HUD (HUD ở top:12 cao ~40px) vì portal đã rời khỏi nút.
+              position: "fixed",
+              top: 62,
+              left: 12,
+              zIndex: 1301,
+              minWidth: 240,
+              maxWidth: "calc(100vw - 24px)",
+              padding: 12,
+              background: "rgba(16,13,10,0.98)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+              textAlign: "left",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                opacity: 0.6,
+                marginBottom: 8,
+              }}
+            >
+              {L(locale, "Cài đặt", "Settings")}
+            </div>
+            <button
+              className="ghost"
+              style={{ width: "100%", padding: "8px 10px", fontSize: 13 }}
+              onClick={onToggleFx}
+            >
+              {fx
+                ? L(locale, "✨ Hiệu ứng: BẬT", "✨ Effects: ON")
+                : L(locale, "○ Hiệu ứng: TẮT", "○ Effects: OFF")}
+            </button>
+            <div style={{ fontSize: 11, opacity: 0.6, marginTop: 8, lineHeight: 1.45 }}>
+              {L(
+                locale,
+                "Ánh sáng loé đèn dầu + viền tối quanh bàn. Tắt đi nếu máy chạy chậm.",
+                "Lamp bloom + vignette around the table. Turn off if the game runs slow."
+              )}
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+    </span>
+  );
+}
+
+// ─── Màn briefing khi vào ván ─────────────────────────────────────────────────
+// Nhắc vai + mục tiêu + ability nhân vật + cách điều khiển, trước khi vào bàn.
+// Chỉ hiện lần đầu mỗi máy (localStorage) — sau đó mở lại bằng badge vai ⓘ.
+function Briefing({
+  role,
+  character,
+  onClose,
+}: {
+  role: NonNullable<PlayerView["you"]["role"]>;
+  character: Character | null;
+  onClose: () => void;
+}) {
+  const locale = useLocale();
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1400,
+        background: "rgba(0,0,0,0.78)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          maxWidth: 520,
+          maxHeight: "90%",
+          overflowY: "auto",
+          padding: 28,
+          background: "var(--panel)",
+          border: "1px solid var(--border)",
+          borderRadius: 16,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "3.5rem", lineHeight: 1 }}>{ROLE_EMOJI[role]}</div>
+          <div style={{ fontSize: "1.7rem", fontWeight: 800, margin: "6px 0 2px" }}>
+            {roleLabel(locale, role)}
+          </div>
+        </div>
+        <p style={{ lineHeight: 1.7, color: "var(--text)", fontSize: 15, marginTop: 12 }}>
+          🎯 {roleGoal(locale, role)}
+        </p>
+        {character && (
+          <p style={{ lineHeight: 1.7, color: "var(--muted)", fontSize: 14, marginTop: 10 }}>
+            🎭 <b style={{ color: "var(--accent)" }}>{character.name}</b> —{" "}
+            {charAbility(locale, character.id)}
+          </p>
+        )}
+        <div
+          style={{
+            marginTop: 18,
+            padding: "12px 14px",
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              opacity: 0.6,
+            }}
+          >
+            {L(locale, "Cách chơi", "Controls")}
+          </div>
+          <div style={{ fontSize: 13.5, lineHeight: 1.5, color: "var(--muted)" }}>
+            {L(locale, "• Bấm lá trên tay để xem, rồi xác nhận để chơi.", "• Click a card in hand to inspect, then confirm to play.")}
+          </div>
+          <div style={{ fontSize: 13.5, lineHeight: 1.5, color: "var(--muted)" }}>
+            {L(locale, "• Lá cần mục tiêu: bấm người chơi quanh bàn để nhắm.", "• Targeted cards: click a player around the table to aim.")}
+          </div>
+          <div style={{ fontSize: 13.5, lineHeight: 1.5, color: "var(--muted)" }}>
+            {L(locale, "• Bấm badge 🎭 / ⓘ trên HUD để xem lại nhân vật và vai.", "• Use the 🎭 / ⓘ badges in the HUD to review your character and role.")}
+          </div>
+          <div style={{ fontSize: 13.5, lineHeight: 1.5, color: "var(--muted)" }}>
+            {L(locale, "• Máy chạy chậm? Vào ⚙️ tắt hiệu ứng đồ hoạ.", "• Running slow? Turn off effects in ⚙️.")}
+          </div>
+        </div>
+        <button style={{ width: "auto", alignSelf: "center", marginTop: 18, padding: "10px 28px" }} onClick={onClose}>
+          {L(locale, "Vào bàn", "Enter the table")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
@@ -92,6 +277,9 @@ export default function RoomPage() {
   const [view, setView] = useState<PlayerView | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  // Webcam feeds keyed by playerId, published by VideoChat and painted onto the
+  // matching seat in the 3D table.
+  const [feeds, setFeeds] = useState<Map<string, MediaStream>>(new Map());
 
   useEffect(() => {
     initLocale();
@@ -168,12 +356,12 @@ export default function RoomPage() {
       <Header code={code} copied={copied} onCopy={copyCode} />
       {error && <p className="err">{tError(locale, error)}</p>}
 
-      <VideoChat code={code} />
+      <VideoChat code={code} onFeeds={setFeeds} />
 
       {view.phase === "lobby" && <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} />
+        <Table view={view} feeds={feeds} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} />
       )}
 
       {view.pending &&
@@ -533,6 +721,7 @@ function CardModal({
 
 function Table({
   view,
+  feeds,
   onDraw,
   onPlay,
   onDiscard,
@@ -543,6 +732,7 @@ function Table({
   onPlayAgain,
 }: {
   view: PlayerView;
+  feeds: Map<string, MediaStream>; // playerId -> webcam stream
   onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
   onPlay: (cardId: string, targetId?: string, targetCardId?: string) => void;
   onDiscard: (cardId: string) => void;
@@ -567,22 +757,37 @@ function Table({
   const [logSize, setLogSize] = useState<{ w: number; h: number }>({ w: 240, h: 300 });
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
   const [notice, setNotice] = useState("");
-  const [info, setInfo] = useState<{ title: string; icon: string; body: string } | null>(null);
   const [infoCard, setInfoCard] = useState<Card | null>(null);
   const [charView, setCharView] = useState<Character | null>(null);
   const [confirmPlay, setConfirmPlay] = useState<Card | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<Card | null>(null);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [playerInfo, setPlayerInfo] = useState<PlayerPublic | null>(null);
+  // Hiệu ứng đồ hoạ 3D — đọc localStorage sau khi mount (tránh lệch SSR/CSR).
+  const [fx, setFxState] = useState(true);
+  // Briefing đầu ván: chỉ tự mở lần đầu trên máy này.
+  const [briefing, setBriefing] = useState(false);
+  useEffect(() => {
+    setFxState(getFx());
+    if (!getIntroSeen()) setBriefing(true);
+  }, []);
+  const toggleFx = () => {
+    setFxState((cur) => {
+      setFx(!cur);
+      return !cur;
+    });
+  };
+  const closeBriefing = () => {
+    setIntroSeen();
+    setBriefing(false);
+  };
 
   const inspectCard = (c: Card) => setInfoCard(c);
   // Open a card mentioned in the log as the same card-face popup as a table card.
   const showLogCard = (def: { id: string; name: string }) =>
     setInfoCard({ id: "log", defId: def.id, name: def.name, suit: "spades", rank: 1 });
-  const showRole = () => {
-    if (!you.role) return;
-    setInfo({ title: roleLabel(locale, you.role), icon: ROLE_EMOJI[you.role], body: roleGoal(locale, you.role) });
-  };
+  // Mở lại màn briefing (vai + mục tiêu + ability + cách chơi).
+  const showRole = () => setBriefing(true);
   // Cards freshly added to your hand — animated in for a "draw" effect.
   const [justDrew, setJustDrew] = useState<Set<string>>(new Set());
   const prevHandRef = useRef<string[]>([]);
@@ -615,7 +820,7 @@ function Table({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setInfoCard(null); setInfo(null); setCharView(null); setPlayerInfo(null);
+      setInfoCard(null); setCharView(null); setPlayerInfo(null); closeBriefing();
       setConfirmPlay(null); setConfirmDiscard(null); setConfirmSurrender(false);
       setAiming(null); setSidPicking(false);
     };
@@ -806,6 +1011,8 @@ function Table({
           onInspectPlayer={setPlayerInfo}
           pickCardMode={pickCardMode}
           onPickCard={(ownerId, cardId) => fireAt(ownerId, cardId)}
+          fx={fx}
+          feeds={feeds}
         />
       </div>
 
@@ -924,22 +1131,9 @@ function Table({
         </div>
       )}
 
-      {/* role / character info popup */}
-      {info && (
-        <div
-          onClick={() => setInfo(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 340, width: "100%", background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 14, padding: 20, textAlign: "center", fontFamily: "system-ui, sans-serif" }}
-          >
-            <div style={{ fontSize: 40 }}>{info.icon}</div>
-            <div style={{ fontWeight: 800, fontSize: "1.15rem", margin: "6px 0 10px" }}>{info.title}</div>
-            <p className="muted" style={{ lineHeight: 1.5 }}>{info.body}</p>
-            <button style={{ marginTop: 12 }} onClick={() => setInfo(null)}>{L(locale, "Đóng", "Close")}</button>
-          </div>
-        </div>
+      {/* briefing: vai + mục tiêu + ability + cách chơi (tự mở ván đầu, mở lại qua badge vai) */}
+      {briefing && you.role && (
+        <Briefing role={you.role} character={you.character} onClose={closeBriefing} />
       )}
 
       {/* end-of-game overlay */}
@@ -1030,6 +1224,7 @@ function Table({
             )}
             <MusicToggle />
             <LangToggle />
+            <SettingsMenu fx={fx} onToggleFx={toggleFx} />
             {you.alive && view.phase === "playing" && (
               <button
                 className="ghost"

@@ -16,12 +16,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSocket } from "@/lib/socketClient";
-import { RtcSignalData } from "@/lib/types";
+import { RtcPeer, RtcSignalData } from "@/lib/types";
 import { L, useLocale } from "@/lib/i18n";
 
 // Per-peer bookkeeping kept in a ref (not state) so callbacks never go stale.
 interface PeerRecord {
   pc: RTCPeerConnection;
+  playerId: string;
   name: string;
   remoteSet: boolean; // has setRemoteDescription completed?
   pending: RTCIceCandidateInit[]; // ICE candidates that arrived before the answer/offer
@@ -29,7 +30,8 @@ interface PeerRecord {
 
 // What the UI renders: one tile per remote peer.
 interface Tile {
-  id: string;
+  id: string; // socket id
+  playerId: string; // seat identity — used to place this feed on the 3D table
   name: string;
   stream: MediaStream | null;
 }
@@ -57,7 +59,16 @@ function VideoTile({ stream, name, muted, mirror }: { stream: MediaStream | null
   );
 }
 
-export default function VideoChat({ code }: { code: string }) {
+export default function VideoChat({
+  code,
+  onFeeds,
+}: {
+  code: string;
+  // Publishes `playerId -> stream` upward so the 3D table can paint each feed
+  // onto the matching seat. This component stays the sole owner of the peer
+  // connections; it only shares the resulting streams.
+  onFeeds?: (feeds: Map<string, MediaStream>) => void;
+}) {
   const locale = useLocale();
   const [active, setActive] = useState(false); // is media on?
   const [micOn, setMicOn] = useState(true);
@@ -71,10 +82,12 @@ export default function VideoChat({ code }: { code: string }) {
   const peersRef = useRef<Map<string, PeerRecord>>(new Map());
   const iceServersRef = useRef<RTCIceServer[]>([]);
 
-  const upsertTile = useCallback((t: Tile) => {
+  // Merge one peer's fields into the tile list. Partial on purpose: callers that
+  // only learned the seat identity must not clobber a stream already attached.
+  const upsertTile = useCallback((t: Partial<Tile> & { id: string }) => {
     setTiles((prev) => {
       const i = prev.findIndex((p) => p.id === t.id);
-      if (i === -1) return [...prev, t];
+      if (i === -1) return [...prev, { playerId: "", name: "", stream: null, ...t }];
       const next = prev.slice();
       next[i] = { ...next[i], ...t };
       return next;
@@ -131,12 +144,22 @@ export default function VideoChat({ code }: { code: string }) {
     const send = (to: string, data: RtcSignalData) => socket.emit("rtcSignal", { code, to, data });
 
     // Build (or fetch) the connection to one peer. `initiator` sends the offer.
-    function ensurePeer(peerId: string, name: string, initiator: boolean): PeerRecord {
+    function ensurePeer(peerId: string, playerId: string, name: string, initiator: boolean): PeerRecord {
       const existing = peersRef.current.get(peerId);
-      if (existing) return existing;
+      if (existing) {
+        // An early `rtcSignal` can create the record before we know who it is.
+        // Backfill the seat identity once rtcReady/rtcPeerJoin tells us, otherwise
+        // this feed would stay unplaceable on the table forever.
+        if (playerId && !existing.playerId) {
+          existing.playerId = playerId;
+          existing.name = name;
+          upsertTile({ id: peerId, playerId, name });
+        }
+        return existing;
+      }
 
       const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
-      const rec: PeerRecord = { pc, name, remoteSet: false, pending: [] };
+      const rec: PeerRecord = { pc, playerId, name, remoteSet: false, pending: [] };
       peersRef.current.set(peerId, rec);
 
       localStreamRef.current?.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
@@ -144,12 +167,12 @@ export default function VideoChat({ code }: { code: string }) {
       pc.onicecandidate = (e) => {
         if (e.candidate) send(peerId, { candidate: e.candidate.toJSON() });
       };
-      pc.ontrack = (e) => upsertTile({ id: peerId, name, stream: e.streams[0] ?? null });
+      pc.ontrack = (e) => upsertTile({ id: peerId, playerId, name, stream: e.streams[0] ?? null });
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "failed" || pc.connectionState === "closed") dropPeer(peerId);
       };
 
-      upsertTile({ id: peerId, name, stream: null }); // show a placeholder tile immediately
+      upsertTile({ id: peerId, playerId, name, stream: null }); // show a placeholder tile immediately
 
       if (initiator) {
         (async () => {
@@ -173,16 +196,18 @@ export default function VideoChat({ code }: { code: string }) {
     }
 
     // Handshake: our ICE config + the peers already in the call (we offer to them).
-    const onReady = (d: { selfId: string; iceServers: RTCIceServer[]; peers: { id: string; name: string }[] }) => {
+    const onReady = (d: { selfId: string; iceServers: RTCIceServer[]; peers: RtcPeer[] }) => {
       iceServersRef.current = d.iceServers;
-      d.peers.forEach((p) => ensurePeer(p.id, p.name, true));
+      d.peers.forEach((p) => ensurePeer(p.id, p.playerId, p.name, true));
     };
     // A newcomer appeared; we wait for their offer (they are the initiator).
-    const onPeerJoin = (p: { id: string; name: string }) => ensurePeer(p.id, p.name, false);
+    const onPeerJoin = (p: RtcPeer) => ensurePeer(p.id, p.playerId, p.name, false);
     const onPeerLeave = (d: { id: string }) => dropPeer(d.id);
 
     const onSignal = async ({ from, data }: { from: string; data: RtcSignalData }) => {
-      const rec = peersRef.current.get(from) ?? ensurePeer(from, "Player", false);
+      // A signal can arrive before rtcReady/rtcPeerJoin named this peer; the seat
+      // identity is filled in by whichever of those events lands afterwards.
+      const rec = peersRef.current.get(from) ?? ensurePeer(from, "", "Player", false);
       const pc = rec.pc;
       try {
         if (data.sdp) {
@@ -222,6 +247,15 @@ export default function VideoChat({ code }: { code: string }) {
       setTiles([]);
     };
   }, [active, code, upsertTile]);
+
+  // Hand the seat-keyed feeds to the parent whenever they change. Peers whose
+  // identity hasn't arrived yet (playerId "") are skipped rather than guessed.
+  useEffect(() => {
+    if (!onFeeds) return;
+    const m = new Map<string, MediaStream>();
+    for (const t of tiles) if (t.playerId && t.stream) m.set(t.playerId, t.stream);
+    onFeeds(m);
+  }, [tiles, onFeeds]);
 
   const btn: React.CSSProperties = { width: "auto", padding: "6px 10px", fontSize: "0.85rem" };
 

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
+import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { CardMesh } from "./CardMesh";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
@@ -594,9 +595,73 @@ const FLOOR_Y = -1.55;
 // needed. The body reaches from the floor up past the table rim — its lower half
 // is hidden behind the table edge, so it reads as "someone sitting at the table"
 // instead of floating above the felt.
-function Avatar({ position, color, dead, sheriff }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean }) {
+// Turn a live MediaStream into a texture we can paint on a mesh.
+//
+// The stream is already being decoded by VideoChat's own <video> tiles, but a
+// THREE.VideoTexture needs an element of its own. Two things are load-bearing:
+//  - `muted`: the audio is already playing through VideoChat's tile, and an
+//    unmuted element here would double every voice (and block autoplay).
+//  - the element must live in the document: iOS/Safari refuses to decode a
+//    detached <video>, which would leave the face plate permanently black.
+function useStreamTexture(stream: MediaStream | null | undefined): THREE.VideoTexture | null {
+  const [tex, setTex] = useState<THREE.VideoTexture | null>(null);
+  useEffect(() => {
+    if (!stream) {
+      setTex(null);
+      return;
+    }
+    const el = document.createElement("video");
+    el.srcObject = stream;
+    el.muted = true;
+    el.playsInline = true;
+    el.autoplay = true;
+    el.style.cssText =
+      "position:fixed;left:-10px;top:-10px;width:1px;height:1px;opacity:0;pointer-events:none";
+    document.body.appendChild(el);
+    el.play().catch(() => {});
+
+    const t = new THREE.VideoTexture(el);
+    t.colorSpace = THREE.SRGBColorSpace;
+    // Centre-crop to a square: the plate is round, so a raw 4:3 frame would
+    // squash the face sideways. Recomputed once the real resolution is known.
+    const crop = () => {
+      const w = el.videoWidth;
+      const h = el.videoHeight;
+      if (!w || !h) return;
+      if (w > h) {
+        t.repeat.set(h / w, 1);
+        t.offset.set((1 - h / w) / 2, 0);
+      } else {
+        t.repeat.set(1, w / h);
+        t.offset.set(0, (1 - w / h) / 2);
+      }
+    };
+    el.addEventListener("loadedmetadata", crop);
+    crop();
+    setTex(t);
+
+    return () => {
+      el.removeEventListener("loadedmetadata", crop);
+      t.dispose();
+      el.pause();
+      el.srcObject = null;
+      el.remove();
+      setTex(null);
+    };
+  }, [stream]);
+  return tex;
+}
+
+function Avatar({ position, color, dead, sheriff, stream }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean; stream?: MediaStream | null }) {
   const shoulderY = 0.42; // torso top, just above the table rim (y=0)
   const bodyH = shoulderY - FLOOR_Y;
+  const face = useStreamTexture(dead ? null : stream);
+  // With a webcam feed the head becomes a framed portrait — and grows, because at
+  // the far seat a life-size head is only ~35px tall on screen, far too small to
+  // read a face. 2x lands around 70px while the hat still fits on top.
+  const s = face ? 2 : 1;
+  const headR = 0.15 * s;
+  const headY = shoulderY + headR + 0.05; // sits just clear of the shoulders
   return (
     <group position={position}>
       {/* torso: a slim tapered column from the floor up to the shoulders (kept
@@ -605,21 +670,46 @@ function Avatar({ position, color, dead, sheriff }: { position: [number, number,
         <cylinderGeometry args={[0.16, 0.26, bodyH, 20]} />
         <meshStandardMaterial color={dead ? "#4a4a4a" : color} roughness={0.75} />
       </mesh>
-      <mesh position={[0, shoulderY + 0.2, 0]} castShadow>
-        <sphereGeometry args={[0.15, 24, 24]} />
-        <meshStandardMaterial color={dead ? "#7a7a7a" : "#e8c39a"} roughness={0.6} />
-      </mesh>
-      {/* cowboy hat: brim + crown */}
-      <mesh position={[0, shoulderY + 0.3, 0]} castShadow>
-        <cylinderGeometry args={[0.27, 0.27, 0.02, 24]} />
-        <meshStandardMaterial color="#6b4a24" roughness={0.85} />
-      </mesh>
-      <mesh position={[0, shoulderY + 0.36, 0]} castShadow>
-        <cylinderGeometry args={[0.13, 0.16, 0.14, 24]} />
-        <meshStandardMaterial color="#5a3a1c" roughness={0.85} />
-      </mesh>
-      {/* Sheriff badge: a gold star pinned on top of the hat */}
-      {sheriff && <SheriffStar radius={0.1} y={shoulderY + 0.45} color="#f5c518" />}
+      {/* Head + hat, in local coords around the head centre so one scale drives
+          the lot. The group is unrotated and world +z faces the camera, so the
+          portrait plate needs no billboarding. */}
+      <group position={[0, headY, 0]} scale={s}>
+        {face ? (
+          <>
+            {/* the feed itself; `toneMapped` off so faces keep their true colour */}
+            <mesh position={[0, 0, 0.02]}>
+              <circleGeometry args={[0.15, 40]} />
+              <meshBasicMaterial map={face} toneMapped={false} />
+            </mesh>
+            {/* wooden frame around the portrait */}
+            <mesh position={[0, 0, 0.02]}>
+              <torusGeometry args={[0.15, 0.016, 8, 40]} />
+              <meshStandardMaterial color="#6b4a24" roughness={0.8} />
+            </mesh>
+            {/* backing disc so the portrait isn't see-through from behind */}
+            <mesh position={[0, 0, 0.005]} rotation={[0, Math.PI, 0]}>
+              <circleGeometry args={[0.152, 40]} />
+              <meshStandardMaterial color="#3a2a18" roughness={0.9} />
+            </mesh>
+          </>
+        ) : (
+          <mesh castShadow>
+            <sphereGeometry args={[0.15, 24, 24]} />
+            <meshStandardMaterial color={dead ? "#7a7a7a" : "#e8c39a"} roughness={0.6} />
+          </mesh>
+        )}
+        {/* cowboy hat: brim + crown */}
+        <mesh position={[0, 0.1, 0]} castShadow>
+          <cylinderGeometry args={[0.27, 0.27, 0.02, 24]} />
+          <meshStandardMaterial color="#6b4a24" roughness={0.85} />
+        </mesh>
+        <mesh position={[0, 0.16, 0]} castShadow>
+          <cylinderGeometry args={[0.13, 0.16, 0.14, 24]} />
+          <meshStandardMaterial color="#5a3a1c" roughness={0.85} />
+        </mesh>
+        {/* Sheriff badge: a gold star pinned on top of the hat */}
+        {sheriff && <SheriffStar radius={0.1} y={0.25} color="#f5c518" />}
+      </group>
     </group>
   );
 }
@@ -802,6 +892,7 @@ function Opponents({
   onInspectPlayer,
   pickCardMode,
   onPickCard,
+  feeds,
 }: {
   players: PlayerPublic[];
   youSeat: number;
@@ -814,6 +905,7 @@ function Opponents({
   onInspectPlayer?: (p: PlayerPublic) => void;
   pickCardMode?: boolean;
   onPickCard?: (ownerId: string, cardId: string) => void;
+  feeds?: Map<string, MediaStream>;
 }) {
   // Order opponents by turn order relative to the viewer (the player right after
   // you first) so the seating reads the same from everyone's perspective.
@@ -840,7 +932,7 @@ function Opponents({
             </group>
             {p.alive && p.isTurn && <TurnArrow position={[ax, 1.75, az]} />}
             {p.alive ? (
-              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} />
+              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} stream={feeds?.get(p.id) ?? null} />
             ) : (
               <Tombstone position={[ax, FLOOR_Y, az]} />
             )}
@@ -1100,7 +1192,7 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
   );
 }
 
-function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void; onInspect?: (c: Card) => void; onInspectPlayer?: (p: PlayerPublic) => void; pickCardMode?: boolean; onPickCard?: (ownerId: string, cardId: string) => void }) {
+function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, fx, feeds }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void; onInspect?: (c: Card) => void; onInspectPlayer?: (p: PlayerPublic) => void; pickCardMode?: boolean; onPickCard?: (ownerId: string, cardId: string) => void; fx?: boolean; feeds?: Map<string, MediaStream> }) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
@@ -1123,13 +1215,22 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} feeds={feeds} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
       {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       {/* Draw!-check reveal (any kind) over the table centre */}
       <CheckFx check={view.checks.at(-1) ?? null} felt={felt} />
+      {/* Cinematic pass: soft lamp bloom + a vignette that pulls the eye to the
+          table. Kept subtle — the felt is already brightly lit. Skipped entirely
+          when the player turns effects off (weak devices). */}
+      {fx && (
+        <EffectComposer>
+          <Bloom intensity={0.5} luminanceThreshold={0.78} luminanceSmoothing={0.3} mipmapBlur />
+          <Vignette offset={0.28} darkness={0.55} eskil={false} />
+        </EffectComposer>
+      )}
     </>
   );
 }
@@ -1142,6 +1243,8 @@ export default function TableScene({
   onInspectPlayer,
   pickCardMode,
   onPickCard,
+  fx = true,
+  feeds,
 }: {
   view: PlayerView;
   targetIds?: string[];
@@ -1150,11 +1253,14 @@ export default function TableScene({
   onInspectPlayer?: (p: PlayerPublic) => void;
   pickCardMode?: boolean;
   onPickCard?: (ownerId: string, cardId: string) => void;
+  fx?: boolean; // hiệu ứng nâng cao (bloom / vignette) — tắt được cho máy yếu
+  feeds?: Map<string, MediaStream>; // playerId -> webcam, vẽ lên đầu từng nhân vật
 }) {
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
-      <Canvas shadows dpr={[1, 2]}>
-        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
+      {/* dpr thấp hơn khi tắt hiệu ứng: đỡ tải cho máy yếu */}
+      <Canvas shadows dpr={fx ? [1, 2] : [1, 1.5]}>
+        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} fx={fx} feeds={feeds} />
       </Canvas>
     </div>
   );

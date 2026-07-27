@@ -220,15 +220,18 @@ app.prepare().then(() => {
     // which avoids offer/answer "glare" without any extra coordination.
     socket.on("rtcJoin", ({ code }) => {
       code = (code || "").toUpperCase().trim();
-      if (!playerIdOf(code, socket.id)) return; // only seated players may join the call
+      const myPlayerId = playerIdOf(code, socket.id);
+      if (!myPlayerId) return; // only seated players may join the call
       let set = mediaRooms.get(code);
       if (!set) mediaRooms.set(code, (set = new Set()));
+      // `playerId` travels with each peer so the client can pin a feed to a seat.
+      // Matching by name would misplace feeds whenever two players share a name.
       const existing: RtcPeer[] = [...set]
         .filter((id) => id !== socket.id)
-        .map((id) => ({ id, name: nameOf(code, id) }));
+        .map((id) => ({ id, playerId: playerIdOf(code, id) ?? "", name: nameOf(code, id) }));
       set.add(socket.id);
       socket.emit("rtcReady", { selfId: socket.id, iceServers: iceServers(), peers: existing });
-      const me: RtcPeer = { id: socket.id, name: nameOf(code, socket.id) };
+      const me: RtcPeer = { id: socket.id, playerId: myPlayerId, name: nameOf(code, socket.id) };
       for (const peer of existing) io.to(peer.id).emit("rtcPeerJoin", me);
     });
 

@@ -239,7 +239,8 @@ export interface RtcSignalData {
 
 // A media-enabled peer in the room, identified by its socket id.
 export interface RtcPeer {
-  id: string; // socket id
+  id: string; // socket id — the signaling address
+  playerId: string; // seat identity, so the client can put this feed on the right seat
   name: string; // player display name
 }
 
