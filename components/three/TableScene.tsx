@@ -41,88 +41,7 @@ function plankTexture() {
   return tex;
 }
 
-// A "WANTED" poster texture for the walls.
-function posterTexture() {
-  const c = document.createElement("canvas");
-  c.width = 200;
-  c.height = 280;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = "#e8d5a8";
-  ctx.fillRect(0, 0, 200, 280);
-  ctx.strokeStyle = "#6b4a24";
-  ctx.lineWidth = 6;
-  ctx.strokeRect(8, 8, 184, 264);
-  ctx.fillStyle = "#3a2410";
-  ctx.textAlign = "center";
-  ctx.font = "bold 42px Georgia, serif";
-  ctx.fillText("WANTED", 100, 56);
-  ctx.font = "20px Georgia, serif";
-  ctx.fillText("DEAD OR ALIVE", 100, 82);
-  // silhouette face
-  ctx.fillStyle = "#8a6a44";
-  ctx.fillRect(50, 100, 100, 100);
-  ctx.fillStyle = "#5a4028";
-  ctx.beginPath();
-  ctx.arc(100, 150, 34, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#3a2410";
-  ctx.font = "bold 30px Georgia, serif";
-  ctx.fillText("$500", 100, 240);
-  return new THREE.CanvasTexture(c);
-}
 
-// A playful "Ronaldo" tribute poster (stylised — no real photo). Drawn on canvas
-// so it stays self-contained: framed portrait in a #7 jersey with "SIUUU ⚽".
-function ronaldoTexture() {
-  const c = document.createElement("canvas");
-  c.width = 200;
-  c.height = 280;
-  const ctx = c.getContext("2d")!;
-  // parchment + frame
-  ctx.fillStyle = "#f0e2c0";
-  ctx.fillRect(0, 0, 200, 280);
-  ctx.strokeStyle = "#8a5a24";
-  ctx.lineWidth = 8;
-  ctx.strokeRect(6, 6, 188, 268);
-  // title
-  ctx.fillStyle = "#7a1f1f";
-  ctx.textAlign = "center";
-  ctx.font = "bold 30px Georgia, serif";
-  ctx.fillText("RONALDO", 100, 40);
-  // green pitch backdrop for the portrait
-  ctx.fillStyle = "#2f6f38";
-  ctx.fillRect(30, 56, 140, 150);
-  // head
-  ctx.fillStyle = "#e6b48c";
-  ctx.beginPath();
-  ctx.ellipse(100, 108, 30, 34, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // hair
-  ctx.fillStyle = "#3a2410";
-  ctx.beginPath();
-  ctx.arc(100, 92, 31, Math.PI, Math.PI * 2);
-  ctx.fill();
-  ctx.fillRect(69, 84, 62, 12);
-  // eyes + big grin
-  ctx.fillStyle = "#1a1a1a";
-  ctx.beginPath(); ctx.arc(90, 106, 3.2, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(110, 106, 3.2, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.beginPath(); ctx.ellipse(100, 122, 12, 7, 0, 0, Math.PI * 2); ctx.fill();
-  // red #7 jersey
-  ctx.fillStyle = "#c0392b";
-  ctx.beginPath();
-  ctx.moveTo(64, 206); ctx.lineTo(74, 150); ctx.lineTo(126, 150); ctx.lineTo(136, 206);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 34px Arial, sans-serif";
-  ctx.fillText("7", 100, 190);
-  // tagline
-  ctx.fillStyle = "#7a1f1f";
-  ctx.font = "bold 26px Georgia, serif";
-  ctx.fillText("SIUUU! ⚽", 100, 246);
-  return new THREE.CanvasTexture(c);
-}
 
 // A carved wooden "SALOON" sign board for the back wall.
 function signTexture() {
@@ -292,27 +211,6 @@ function BatwingDoors() {
   );
 }
 
-// Real Ronaldo photo, if present. Drop a file at public/ronaldo.jpg (same-origin,
-// no CORS issues) OR set RONALDO_IMG to any CORS-enabled URL. Falls back to the
-// canvas poster above when the image is missing or fails to load.
-const RONALDO_IMG = "/ronaldo.jpg";
-function useImageTexture(url: string) {
-  const [tex, setTex] = useState<THREE.Texture | null>(null);
-  useEffect(() => {
-    let alive = true;
-    let loaded: THREE.Texture | null = null;
-    const loader = new THREE.TextureLoader();
-    loader.setCrossOrigin("anonymous");
-    loader.load(
-      url,
-      (t) => { loaded = t; if (alive) setTex(t); else t.dispose(); },
-      undefined,
-      () => { if (alive) setTex(null); } // missing/blocked → keep fallback
-    );
-    return () => { alive = false; loaded?.dispose(); };
-  }, [url]);
-  return tex;
-}
 
 // A simple saguaro cactus (trunk + two arms).
 function Cactus({ position }: { position: [number, number, number] }) {
@@ -605,44 +503,59 @@ function Table({ felt }: { felt: number }) {
 //    back-corner stretch is visible at all (see posterSlots).
 //
 // Hence: mostly back wall, one poster tucked into each back corner.
-const POSTER_W = 1.15;
-const POSTER_H = 1.5;
-
-// One slot: a wall position plus the yaw that turns the poster to face inward.
+// One slot: where the poster hangs and how big it is.
 interface PosterSlot {
   pos: [number, number, number];
-  rotY: number;
+  w: number;
+  h: number;
 }
 
-// Back-wall x positions as a fraction of `wall`, left → right. These dodge what is
-// already hanging there: the Ronaldo poster spans x ∈ [-0.58, 0.58] and the two
-// decorative WANTED sheets sit at ±0.62·wall, so with a 1.29-wide poster the centre
-// band |x| < 1.25 and the bands |x| ∈ [3.99, 6.27] are unusable.
-const BACK_X = [-0.85, -0.41, -0.22, 0.22, 0.41, 0.85];
-
-// Slots ordered LEFT → RIGHT as seen on screen, so slot order matches the on-screen
-// order of the seats and the eye can pair a poster with a person.
+// Work out the strip of back wall the camera can actually see, then fit n posters
+// across it. Both bounds are derived from the same numbers `layout()` uses, so the
+// posters re-fit themselves for every player count instead of being hand-placed.
 //
-// The side walls take only ONE slot each, hard against the back corner. A side wall
-// runs away from the camera, so it leaves frame fast: at x = ±wall the angle off the
-// view axis is atan(wall / (camZ - z)), which must stay under the ~42.8° half-width
-// of a 16:9 frame — so only z < camZ - 1.08·wall is visible at all. Anything nearer
-// the camera than that is simply off screen.
-function posterSlots(felt: number, wall: number, floorY: number, n: number): PosterSlot[] {
-  const sideY = floorY + 2.0;
-  const backY = floorY + 1.62;
-  const sideZ = -wall + 0.9; // in the back corner, the only in-frame stretch
-  const sideL: PosterSlot = { pos: [-wall + 0.06, sideY, sideZ], rotY: Math.PI / 2 };
-  const sideR: PosterSlot = { pos: [wall - 0.06, sideY, sideZ], rotY: -Math.PI / 2 };
-  const back: PosterSlot[] = BACK_X.map((f) => ({
-    pos: [f * wall, backY, -wall + 0.06] as [number, number, number],
-    rotY: 0,
-  }));
-  // Eight slots in all; take a centred run of n so a small table stays symmetric
-  // instead of bunching to one side.
-  const all = [sideL, ...back, sideR];
-  const start = Math.max(0, Math.floor((all.length - n) / 2));
-  return all.slice(start, start + n);
+// The lower bound is the subtlety. Avatar heads only reach y≈0.8 in world space, but
+// they sit far in FRONT of the wall, so on screen they blot out a much taller band of
+// it: projecting a head-top through the camera onto the wall plane puts the horizon
+// of hidden wall near y≈-0.6…-1.0 depending on table size. Comparing world heights
+// instead of projecting is what made an earlier version of this call the band "barely
+// half a unit tall" when it is really closer to two.
+function posterSlots(felt: number, wall: number, n: number): PosterSlot[] {
+  // mirror layout(): camera framing per table size
+  const d = felt * 1.95;
+  const camY = d * 0.6;
+  const camZ = d * 0.8;
+  const targetZ = -felt * 0.12;
+  const seatR = felt + 0.45;
+  const wallDist = camZ + wall; // camera → back wall, along z
+
+  // top of frame on the wall: the upper view ray, which still points downward
+  const pitch = Math.atan(camY / (camZ - targetZ));
+  const yTop = camY - wallDist * Math.tan(pitch - (55 / 2) * (Math.PI / 180));
+
+  // bottom: where the nearest-blocking avatar's head projects onto the wall
+  const headY = 0.72;
+  const t = wallDist / (camZ + seatR);
+  const yBottom = camY + t * (headY - camY);
+
+  const band = Math.max(0.8, yTop - yBottom);
+  const gap = 0.18;
+  const slotW = (wall * 2) / n - gap;
+  // 4:3 to match the webcam frame exactly — no cropping either way. Height is
+  // capped by the band, width by how many have to fit side by side.
+  // The /1.42 matters: the backing board is 1.34x the photo's height (it carries the
+  // WANTED header and the name plaque), so sizing the PHOTO to the band overflowed it
+  // at both ends — the header ran off the top of frame and the plaque disappeared
+  // behind the players' heads.
+  const h = Math.min(band / 1.42, slotW * 0.75);
+  const w = h * (4 / 3);
+  const yMid = (yTop + yBottom) / 2;
+
+  return Array.from({ length: n }, (_, i) => {
+    const spread = (wall * 2) / n;
+    const x = -wall + spread * (i + 0.5);
+    return { pos: [x, yMid, -wall + 0.06] as [number, number, number], w, h };
+  });
 }
 
 // A framed poster carrying one player's live webcam, with their name on a plaque
@@ -659,27 +572,28 @@ function WantedPoster({
   name: string;
   isTurn: boolean;
 }) {
+  const { w: W, h: H } = slot;
   const live = useStreamTexture(stream);
   // Falls back to the drawn mugshot so the slot is never an empty frame.
   const tex = live ?? noCamTex();
   const frame = isTurn ? "#e0a955" : "#6b4a24";
   return (
-    <group position={slot.pos} rotation={[0, slot.rotY, 0]}>
+    <group position={slot.pos}>
       {/* backing board */}
       <mesh position={[0, 0, -0.02]}>
-        <planeGeometry args={[POSTER_W + 0.14, POSTER_H + 0.42]} />
+        <planeGeometry args={[W + 0.12 * W, H + 0.34 * H]} />
         <meshStandardMaterial color="#e8d5a8" roughness={1} />
       </mesh>
       {/* WANTED header */}
-      <mesh position={[0, POSTER_H / 2 + 0.13, 0]}>
-        <planeGeometry args={[POSTER_W, 0.2]} />
+      <mesh position={[0, H / 2 + 0.1 * H, 0]}>
+        <planeGeometry args={[W * 0.86, 0.13 * H]} />
         <meshBasicMaterial map={wantedHeaderTex()} transparent toneMapped={false} />
       </mesh>
       {/* the photo: live feed, or the drawn mugshot until the camera comes on.
           `toneMapped` off only for a live feed — the sketch should sit in the
           scene's lighting like the paper it's printed on. */}
       <mesh>
-        <planeGeometry args={[POSTER_W, POSTER_H]} />
+        <planeGeometry args={[W, H]} />
         {live ? (
           <meshBasicMaterial map={tex} toneMapped={false} />
         ) : (
@@ -688,25 +602,25 @@ function WantedPoster({
       </mesh>
       {/* frame rails around the photo — lit up while it's this player's turn */}
       {[
-        [0, POSTER_H / 2, POSTER_W + 0.06, 0.05],
-        [0, -POSTER_H / 2, POSTER_W + 0.06, 0.05],
+        [0, H / 2, W + 0.05 * W, 0.035 * H],
+        [0, -H / 2, W + 0.05 * W, 0.035 * H],
       ].map(([x, y, w, h], i) => (
         <mesh key={`h${i}`} position={[x, y, 0.01]}>
           <planeGeometry args={[w, h]} />
           <meshStandardMaterial color={frame} roughness={0.85} />
         </mesh>
       ))}
-      {[-POSTER_W / 2, POSTER_W / 2].map((x, i) => (
+      {[-W / 2, W / 2].map((x, i) => (
         <mesh key={`v${i}`} position={[x, 0, 0.01]}>
-          <planeGeometry args={[0.05, POSTER_H + 0.05]} />
+          <planeGeometry args={[0.035 * H, H + 0.035 * H]} />
           <meshStandardMaterial color={frame} roughness={0.85} />
         </mesh>
       ))}
       {/* name plaque under the photo */}
       <Html
         center
-        position={[0, -POSTER_H / 2 - 0.17, 0.03]}
-        distanceFactor={7}
+        position={[0, -H / 2 - 0.13 * H, 0.03]}
+        distanceFactor={8}
         style={{ pointerEvents: "none" }}
       >
         <div
@@ -826,7 +740,7 @@ function WantedPosters({
     { id: youId, name: youName, isTurn: !!you?.isTurn },
     ...others.map((p) => ({ id: p.id, name: p.name, isTurn: p.isTurn })),
   ];
-  const slots = posterSlots(felt, wall, FLOOR_Y, ordered.length);
+  const slots = posterSlots(felt, wall, ordered.length);
   return (
     <>
       {ordered.map((p, i) =>
@@ -1014,7 +928,7 @@ function useStreamTexture(stream: MediaStream | null | undefined): THREE.VideoTe
   return tex;
 }
 
-function Avatar({ position, color, dead, sheriff, ang = 0 }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean; ang?: number }) {
+function Avatar({ position, color, dead, sheriff }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean }) {
   const shoulderY = 0.42; // torso top, just above the table rim (y=0)
   // Torso stops just under the table rim and a barrel carries it down to the floor.
   // It used to be one cone running the whole way from the shoulders to FLOOR_Y —
@@ -1035,51 +949,25 @@ function Avatar({ position, color, dead, sheriff, ang = 0 }: { position: [number
   const skin = dead ? "#7a7a7a" : "#e8c39a";
   const shoulderR = 0.25;
   return (
-    // Rotated so local +z points at the table centre: the arms have to reach
-    // inward, which a radially symmetric cone never had to care about.
-    <group position={position} rotation={[0, -ang - Math.PI / 2, 0]}>
-      {/* the stool: a saloon barrel, so the figure sits on something instead of
-          tapering into thin air above the floor */}
-      <group position={[0, (FLOOR_Y + hipY) / 2 + 0.02, 0]}>
-        <mesh castShadow receiveShadow>
-          <cylinderGeometry args={[0.3, 0.27, hipY - FLOOR_Y - 0.04, 16]} />
-          <meshStandardMaterial color="#6b4626" roughness={0.9} />
-        </mesh>
-        {[-0.22, 0.22].map((y) => (
-          <mesh key={y} position={[0, y, 0]}>
-            <torusGeometry args={[0.295, 0.022, 6, 20]} />
-            <meshStandardMaterial color="#4a4a4f" metalness={0.5} roughness={0.55} />
-          </mesh>
-        ))}
-      </group>
-      {/* torso */}
+    // No rotation needed: with the arms gone the figure is radially symmetric
+    // again, so it looks the same from every seat.
+    <group position={position}>
+      {/* the stool: a plain saloon barrel, so the figure sits on something instead
+          of tapering into thin air above the floor. No hoops — at this size they
+          were two extra meshes per player that resolved to nothing. */}
+      <mesh position={[0, (FLOOR_Y + hipY) / 2 + 0.02, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.3, 0.27, hipY - FLOOR_Y - 0.04, 16]} />
+        <meshStandardMaterial color="#6b4626" roughness={0.9} />
+      </mesh>
+      {/* Torso. Shoulders are suggested by flaring the top of the column, not built
+          from parts: the previous shoulder spheres, upper arms and hands did not
+          actually join up — the hand floated 0.13 clear of the arm and the arm was
+          tilted the wrong way, so instead of an arm you saw four loose balls. At a
+          figure this small an arm carries no information worth five extra meshes. */}
       <mesh position={[0, hipY + bodyH / 2, 0]} castShadow>
-        <cylinderGeometry args={[shoulderR * 0.8, shoulderR * 1.08, bodyH, 20]} />
+        <cylinderGeometry args={[shoulderR * 1.12, shoulderR * 0.82, bodyH, 20]} />
         <meshStandardMaterial color={shirt} roughness={0.8} />
       </mesh>
-      {/* shoulders + arms reaching in to the table edge — the silhouette cue that
-          turns a column into someone seated at a table */}
-      {[-1, 1].map((sx) => (
-        <group key={sx}>
-          <mesh position={[sx * shoulderR * 0.78, shoulderY - 0.04, 0]} castShadow>
-            <sphereGeometry args={[shoulderR * 0.42, 14, 14]} />
-            <meshStandardMaterial color={shirt} roughness={0.8} />
-          </mesh>
-          <mesh
-            position={[sx * shoulderR * 0.8, shoulderY - 0.12, 0.2]}
-            rotation={[1.16, 0, sx * 0.12]}
-            castShadow
-          >
-            <cylinderGeometry args={[shoulderR * 0.3, shoulderR * 0.26, 0.5, 12]} />
-            <meshStandardMaterial color={shirt} roughness={0.8} />
-          </mesh>
-          {/* hand resting on the felt */}
-          <mesh position={[sx * shoulderR * 0.86, shoulderY - 0.28, 0.44]} castShadow>
-            <sphereGeometry args={[shoulderR * 0.25, 12, 12]} />
-            <meshStandardMaterial color={skin} roughness={0.7} />
-          </mesh>
-        </group>
-      ))}
       <mesh position={[0, headY, 0]} castShadow>
         <sphereGeometry args={[headR, 24, 24]} />
         <meshStandardMaterial color={skin} roughness={0.6} />
@@ -1317,7 +1205,7 @@ function Opponents({
             </group>
             {p.alive && p.isTurn && <TurnArrow position={[ax, 1.75, az]} />}
             {p.alive ? (
-              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} ang={ang} />
+              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} />
             ) : (
               <Tombstone position={[ax, FLOOR_Y, az]} />
             )}
