@@ -103,16 +103,16 @@ export interface PendingView {
 
 // ─── Random events ───────────────────────────────────────────────────────────
 
-import type { EventLevel, EventScope, EventTrack } from "./events";
+import type { EventLevel, EventScope } from "./events";
 export type { EventLevel };
 
-// One active (or just-fired) event, as shown to clients. Names/descriptions are
-// localized on the client from `id` — see lib/i18n.ts.
+// One active (or just-fired) event, as shown to clients. Every event is table-wide
+// (one per round, at the Sheriff's turn), so there is no per-player variant to
+// distinguish. Names/descriptions are localized on the client from `id` (lib/i18n.ts).
 export interface EventView {
   seq: number; // monotonic: lets the client detect a NEW event to announce
   id: string;
   emoji: string;
-  track: EventTrack; // "turn" (only the active player) | "table" (everyone)
   scope: EventScope;
   turnsLeft?: number; // lasting / curse only
   targetName?: string; // curse target
@@ -174,6 +174,7 @@ export interface PlayerView {
     equipment: Card[];
     alive: boolean;
     turnPhase: TurnPhase | null; // your current turn sub-phase (null if not your turn)
+    jailed: boolean; // failed a Jail check: may only discard to the limit, then pass
     range: number; // how far you can Bang! (weapon range, default 1)
     canBang: boolean; // may you still play a Bang! this turn (once, or unlimited w/ Volcanic/Willy)
     playedDefsThisTurn: string[]; // house rule: card types already played this turn (each once; Bang!/guns exempt)

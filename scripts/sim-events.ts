@@ -18,7 +18,7 @@ import { EVENT_BY_ID, EventLevel } from "../lib/events";
 
 const GAMES = Number(process.argv[2] || 200);
 const PLAYERS = Number(process.argv[3] || 7);
-const LEVELS: EventLevel[] = ["off", "low", "normal", "high", "mayhem"];
+const LEVELS: EventLevel[] = ["off", "on"];
 // A real 7-player game settles well inside this. Anything above it means the
 // events made the table unable to converge, which is a balance bug worth failing.
 const STEP_CAP = 6000;

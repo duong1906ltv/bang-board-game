@@ -1,5 +1,10 @@
 // Random events ("sự kiện ngẫu nhiên") — the house layer on top of Bang!'s rules.
 //
+// ONE event fires at the start of each round, i.e. when play comes back round to
+// the Sheriff. It is the weather for that round and it applies to EVERYONE; there
+// are no per-player-turn events. A round-long effect therefore never outlives the
+// round that rolled it, so events can't stack or overlap.
+//
 // Design: every event is DATA. The engine never branches on an event id; it reads
 // a merged `EventEffect` at a handful of fixed checkpoints (see `effectFor` users
 // in game.ts). Adding an event means adding one entry to `EVENTS` — no engine
@@ -8,12 +13,6 @@
 // `EventCtx` primitives the engine hands it, so that damage always flows through
 // applyDamage (character abilities + win check stay correct).
 //
-// Two independent schedulers ("luồng"), see game.ts:
-//   • track "turn"  — rolled at the start of every player's turn, from a bag
-//                     randomizer so events neither clump nor go missing.
-//   • track "table" — rolled once per round (when the turn returns to the round
-//                     opener), affects everyone, with a minimum turn gap.
-//
 // Event damage is deliberately UNSAVEABLE (like Dynamite): Beer cannot cancel it.
 // That keeps every event fully synchronous — an event can never leave the table
 // waiting on a reaction that nothing would resume.
@@ -21,28 +20,24 @@
 import type { CardKind } from "./cards";
 import type { Player } from "./game";
 
-// Which scheduler rolls this event.
-export type EventTrack = "turn" | "table";
-
 // How long the event's effect sticks around:
-//  - turn    : the active player's turn only
-//  - curse   : attached to ONE player for N of their turns
 //  - instant : fires once via onFire, keeps no modifier
-//  - lasting : table-wide modifier for N turns
-export type EventScope = "turn" | "curse" | "instant" | "lasting";
+//  - lasting : table-wide modifier for the rest of the round
+//  - curse   : attached to ONE player for `rounds` rounds
+export type EventScope = "instant" | "lasting" | "curse";
 
-// Everything the engine can be told to do declaratively. All fields optional;
-// several events combine (a turn event + a lasting table event + a curse).
+// Everything the engine can be told to do declaratively. All fields optional.
+// Unless noted, a field applies to EVERY player for the duration of the round.
 export interface EventEffect {
   // --- hard blocks ---
-  noBang?: boolean; // may not play Bang! at all
-  bangLimit?: number; // override Bang!/turn budget (0 = none, 99 = unlimited)
+  noBang?: boolean; // nobody may play Bang!
+  bangLimit?: number; // override the Bang!/turn budget (0 = none, 99 = unlimited)
   bannedDefIds?: string[]; // these card types cannot be played
   bannedKinds?: CardKind[]; // whole categories cannot be played
-  maxPlays?: number; // total cards playable this turn
+  maxPlays?: number; // cards playable per turn
   noHeal?: boolean; // Beer / Saloon / Sid cannot restore life
   noDamage?: boolean; // ceasefire: damage is nullified
-  skipTurn?: boolean; // the turn is forfeited outright
+  skipTurn?: boolean; // CURSE ONLY — a table-wide skip would stall the game
   immune?: boolean; // (curse) this player takes no damage
   protectSheriff?: boolean; // the Sheriff cannot be targeted by Bang!/Duel
   bounty?: boolean; // (curse) whoever kills this player draws 3
@@ -54,7 +49,7 @@ export interface EventEffect {
   drawCount?: number; // override the draw-phase card count
   extraDraw?: number; // add to the draw-phase card count
   handLimitDelta?: number; // ± end-of-turn hand limit
-  damageDelta?: number; // ± every hit dealt this turn / round
+  damageDelta?: number; // ± every hit dealt
   incomingDamageDelta?: number; // (curse) ± damage this player receives
   missedNeededDelta?: number; // ± Missed! required to dodge a Bang!
   beerHeal?: number; // how much life a Beer restores
@@ -68,10 +63,14 @@ export interface EventEffect {
 
 // The primitives an `onFire` event may use. Deliberately narrow: no direct access
 // to the Room, so an event can't bypass applyDamage / checkWin / the log.
+//
+// NOTE: `opener` is whoever starts the round — in practice always the Sheriff,
+// since the game ends the moment the Sheriff dies. So no event may single out the
+// opener for harm, or it would only ever punish the Sheriff.
 export interface EventCtx {
-  current: Player; // whose turn it is right now
+  opener: Player;
   alive(): Player[]; // living players, seat order
-  others(): Player[]; // living players except `current`
+  others(): Player[]; // living players except the opener
   randomAlive(n: number): Player[];
   randomOthers(n: number): Player[];
   lowestHp(): Player | null;
@@ -103,14 +102,14 @@ export interface EventCtx {
 export interface GameEventDef {
   id: string;
   emoji: string;
-  track: EventTrack;
   scope: EventScope;
   weight: number; // relative draw probability within the eligible pool
-  turns?: number; // lasting / curse duration, in turns
+  rounds?: number; // curse duration in ROUNDS (default 1); lasting is always 1
   minAlive?: number; // only eligible with at least this many players alive
   maxAlive?: number; // only eligible with at most this many alive
-  // Curse target selection. "other" = anyone but the active player.
-  target?: "current" | "other" | "lowestHp" | "mostCards";
+  // Curse target selection. "any" includes the round opener on purpose — leaving
+  // the Sheriff out would make them permanently un-cursable.
+  target?: "any" | "lowestHp" | "mostCards";
   effect?: EventEffect;
   onFire?: (ctx: EventCtx) => void;
 }
@@ -120,142 +119,123 @@ export interface GameEventDef {
 // pattern as characters and cards. Only mechanics live here.
 
 export const EVENTS: GameEventDef[] = [
-  // ── Luồng LƯỢT · hạn chế ───────────────────────────────────────────────────
-  { id: "jammed-gun", emoji: "🔧", track: "turn", scope: "turn", weight: 10,
+  // ── Cấm đoán · cả bàn, hết vòng ───────────────────────────────────────────
+  { id: "jammed-gun", emoji: "🔧", scope: "lasting", weight: 7,
     effect: { noBang: true } },
-  { id: "clumsy-hand", emoji: "🤕", track: "turn", scope: "turn", weight: 7,
-    effect: { maxPlays: 1 } },
-  { id: "prohibition", emoji: "🚫", track: "turn", scope: "turn", weight: 7,
-    effect: { bannedDefIds: ["beer", "saloon"], noHeal: true } },
-  { id: "short-barrel", emoji: "📏", track: "turn", scope: "turn", weight: 8,
+  { id: "short-barrel", emoji: "📏", scope: "lasting", weight: 7,
     effect: { rangeOverride: 1 } },
-  { id: "fasting", emoji: "🍽️", track: "turn", scope: "turn", weight: 6,
+  { id: "prohibition", emoji: "🚫", scope: "lasting", weight: 6,
+    effect: { bannedDefIds: ["beer", "saloon"], noHeal: true } },
+  { id: "fasting", emoji: "🍽️", scope: "lasting", weight: 6,
     effect: { bannedDefIds: ["stagecoach", "wells-fargo", "general-store"] } },
-  { id: "tied-hands", emoji: "⛓️", track: "turn", scope: "turn", weight: 6,
+  { id: "tied-hands", emoji: "⛓️", scope: "lasting", weight: 6,
     effect: { bannedKinds: ["blue", "gun"] } },
-  { id: "silence", emoji: "🤫", track: "turn", scope: "turn", weight: 5,
+  { id: "silence", emoji: "🤫", scope: "lasting", weight: 5,
     effect: { bannedDefIds: ["gatling", "indians", "duel"] } },
-  { id: "no-looting", emoji: "🧤", track: "turn", scope: "turn", weight: 6,
+  { id: "no-looting", emoji: "🧤", scope: "lasting", weight: 6,
     effect: { bannedDefIds: ["panic", "cat-balou"] } },
-  { id: "drought", emoji: "🌵", track: "turn", scope: "turn", weight: 7,
+  { id: "drought", emoji: "🌵", scope: "lasting", weight: 6,
     effect: { handLimitDelta: -1 } },
-  { id: "ceasefire", emoji: "🕊️", track: "turn", scope: "turn", weight: 4,
+  { id: "clumsy-hands", emoji: "🤕", scope: "lasting", weight: 5,
+    effect: { maxPlays: 1 } },
+  { id: "ceasefire", emoji: "🕊️", scope: "lasting", weight: 4,
     effect: { noDamage: true } },
-  { id: "oversleep", emoji: "😴", track: "turn", scope: "turn", weight: 3,
-    effect: { skipTurn: true } },
-  { id: "empty-pockets", emoji: "💸", track: "turn", scope: "turn", weight: 5,
+  { id: "empty-pockets", emoji: "💸", scope: "lasting", weight: 5,
     effect: { drawCount: 1 } },
-  { id: "drunk", emoji: "🥴", track: "turn", scope: "turn", weight: 5,
-    effect: { drunkAim: true } },
-  { id: "hangover", emoji: "🥃", track: "turn", scope: "turn", weight: 3,
-    effect: { noBang: true, handLimitDelta: -1 } },
+  { id: "survival", emoji: "🏥", scope: "lasting", weight: 5,
+    effect: { noHeal: true } },
+  { id: "truce", emoji: "🤝", scope: "lasting", weight: 5, minAlive: 5,
+    effect: { protectSheriff: true } },
 
-  // ── Luồng LƯỢT · tăng cường ────────────────────────────────────────────────
-  { id: "hot-streak", emoji: "🔥", track: "turn", scope: "turn", weight: 7,
+  // ── Tăng cường · cả bàn, hết vòng ─────────────────────────────────────────
+  { id: "hot-streak", emoji: "🔥", scope: "lasting", weight: 6,
     effect: { bangLimit: 99 } },
-  { id: "gun-oil", emoji: "🛢️", track: "turn", scope: "turn", weight: 7,
+  { id: "gun-oil", emoji: "🛢️", scope: "lasting", weight: 6,
     effect: { bangLimit: 2 } },
-  { id: "piercing-round", emoji: "💥", track: "turn", scope: "turn", weight: 5,
-    effect: { damageDelta: 1 } },
-  { id: "eagle-eye", emoji: "🦅", track: "turn", scope: "turn", weight: 8,
+  { id: "eagle-eye", emoji: "🦅", scope: "lasting", weight: 7,
     effect: { rangeDelta: 1 } },
-  { id: "sniper-nest", emoji: "🏔️", track: "turn", scope: "turn", weight: 3,
-    minAlive: 5, effect: { rangeOverride: 99 } },
-  { id: "card-rain", emoji: "🃏", track: "turn", scope: "turn", weight: 8,
+  { id: "sniper-nest", emoji: "🏔️", scope: "lasting", weight: 3, minAlive: 5,
+    effect: { rangeOverride: 99 } },
+  { id: "gold-rush", emoji: "💎", scope: "lasting", weight: 6,
+    effect: { extraDraw: 1 } },
+  { id: "card-rain", emoji: "🃏", scope: "lasting", weight: 6,
     effect: { drawCount: 3 } },
-  { id: "frenzy", emoji: "🌀", track: "turn", scope: "turn", weight: 6,
+  { id: "frenzy", emoji: "🌀", scope: "lasting", weight: 5,
     effect: { ignoreOncePerTurn: true } },
-  { id: "dead-eye", emoji: "🎯", track: "turn", scope: "turn", weight: 5,
+  { id: "happy-hour", emoji: "🍺", scope: "lasting", weight: 6,
+    effect: { beerHeal: 2 } },
+
+  // ── Thời tiết · cả bàn, hết vòng ──────────────────────────────────────────
+  { id: "sandstorm", emoji: "🌪️", scope: "lasting", weight: 6,
     effect: { missedNeededDelta: 1 } },
-  { id: "lucky-hand", emoji: "🍀", track: "turn", scope: "turn", weight: 5,
+  { id: "fog", emoji: "🌫️", scope: "lasting", weight: 5, maxAlive: 5,
+    effect: { distanceDelta: 1 } },
+  { id: "open-plains", emoji: "🔭", scope: "lasting", weight: 6,
+    effect: { distanceDelta: -1 } },
+  { id: "wartime", emoji: "⚔️", scope: "lasting", weight: 5, maxAlive: 5,
+    effect: { damageDelta: 1 } },
+  { id: "bad-weather", emoji: "🌧️", scope: "lasting", weight: 5,
+    effect: { badDraw: true } },
+  { id: "lucky-table", emoji: "🎲", scope: "lasting", weight: 5,
     effect: { luckyDraw: true } },
-  { id: "private-supply", emoji: "🧰", track: "turn", scope: "instant", weight: 6,
-    onFire: (c) => c.draw(c.current, 2) },
-  { id: "sleight-of-hand", emoji: "🎩", track: "turn", scope: "instant", weight: 5,
-    onFire: (c) => {
-      const [victim] = c.randomOthers(1);
-      if (victim) c.stealRandom(victim, c.current, 1);
-    } },
-  { id: "second-wind", emoji: "🌬️", track: "turn", scope: "instant", weight: 5,
-    onFire: (c) => c.heal(c.current, 1) },
+  { id: "drunk-table", emoji: "🥴", scope: "lasting", weight: 5,
+    effect: { drunkAim: true } },
 
-  // ── Luồng LƯỢT · lời nguyền nhắm một người ────────────────────────────────
-  { id: "shackled", emoji: "🔗", track: "turn", scope: "curse", weight: 6,
-    turns: 1, target: "other", effect: { noBang: true } },
-  { id: "marked-man", emoji: "🩸", track: "turn", scope: "curse", weight: 5,
-    turns: 2, target: "other", effect: { incomingDamageDelta: 1 } },
-  { id: "guardian-angel", emoji: "✨", track: "turn", scope: "curse", weight: 4,
-    turns: 1, target: "lowestHp", effect: { immune: true } },
-  { id: "wanted", emoji: "💵", track: "turn", scope: "curse", weight: 4,
-    turns: 3, target: "other", effect: { bounty: true } },
-
-  // ── Luồng BÀN · trừng phạt ────────────────────────────────────────────────
-  { id: "cave-in", emoji: "⛏️", track: "table", scope: "instant", weight: 7,
-    onFire: (c) => c.damage(c.current, 1) },
-  { id: "plague", emoji: "🦠", track: "table", scope: "instant", weight: 6,
-    minAlive: 4, onFire: (c) => c.damageAll(1, { onlyAbove: 1 }) },
-  { id: "stampede", emoji: "🐂", track: "table", scope: "instant", weight: 7,
+  // ── Trừng phạt · nổ một lần ───────────────────────────────────────────────
+  { id: "plague", emoji: "🦠", scope: "instant", weight: 6, minAlive: 4,
+    onFire: (c) => c.damageAll(1, { onlyAbove: 1 }) },
+  { id: "stampede", emoji: "🐂", scope: "instant", weight: 7,
     onFire: (c) => { const [p] = c.randomAlive(1); if (p) c.damage(p, 1); } },
-  { id: "toll", emoji: "💰", track: "table", scope: "instant", weight: 7,
+  { id: "toll", emoji: "💰", scope: "instant", weight: 7,
     onFire: (c) => c.discardAllRandom(1) },
-  { id: "inspection", emoji: "🕵️", track: "table", scope: "instant", weight: 6,
+  { id: "inspection", emoji: "🕵️", scope: "instant", weight: 6,
     onFire: (c) => { const p = c.mostCards(); if (p) c.trimToLimit(p); } },
-  { id: "night-thief", emoji: "🥷", track: "table", scope: "instant", weight: 7,
+  { id: "night-thief", emoji: "🥷", scope: "instant", weight: 7,
     onFire: (c) => { const [p] = c.randomAlive(1); if (p) c.discardRandom(p, 1); } },
-  { id: "strong-wind", emoji: "🌬️", track: "table", scope: "instant", weight: 5,
+  { id: "strong-wind", emoji: "🌬️", scope: "instant", weight: 5,
     onFire: (c) => c.passDynamiteAround() },
-  { id: "wet-fuse", emoji: "💧", track: "table", scope: "instant", weight: 4,
+  { id: "wet-fuse", emoji: "💧", scope: "instant", weight: 4,
     onFire: (c) => c.clearEquip("dynamite") },
-  { id: "jailbreak", emoji: "🗝️", track: "table", scope: "instant", weight: 5,
+  { id: "jailbreak", emoji: "🗝️", scope: "instant", weight: 5,
     onFire: (c) => c.clearEquip("jail") },
 
-  // ── Luồng BÀN · phúc lợi ──────────────────────────────────────────────────
-  { id: "healing-spring", emoji: "⛲", track: "table", scope: "instant", weight: 7,
+  // ── Phúc lợi · nổ một lần ─────────────────────────────────────────────────
+  { id: "healing-spring", emoji: "⛲", scope: "instant", weight: 7,
     onFire: (c) => c.healAll(1) },
-  { id: "supply-drop", emoji: "📦", track: "table", scope: "instant", weight: 8,
+  { id: "supply-drop", emoji: "📦", scope: "instant", weight: 8,
     onFire: (c) => c.drawAll(1) },
-  { id: "divine-favor", emoji: "🙏", track: "table", scope: "instant", weight: 6,
+  { id: "divine-favor", emoji: "🙏", scope: "instant", weight: 6,
     onFire: (c) => { const p = c.lowestHp(); if (p) c.heal(p, 2); } },
-  { id: "flea-market", emoji: "🛒", track: "table", scope: "instant", weight: 6,
+  { id: "flea-market", emoji: "🛒", scope: "instant", weight: 6,
     onFire: (c) => c.generalStore() },
-  { id: "reshuffle", emoji: "♻️", track: "table", scope: "instant", weight: 4,
+  { id: "reshuffle", emoji: "♻️", scope: "instant", weight: 4,
     onFire: (c) => c.reshuffleDiscard() },
 
-  // ── Luồng BÀN · hỗn loạn ──────────────────────────────────────────────────
-  { id: "musical-chairs", emoji: "🪑", track: "table", scope: "instant", weight: 6,
-    minAlive: 5, onFire: (c) => { const [a, b] = c.randomAlive(2); if (a && b) c.swapSeats(a, b); } },
-  { id: "hand-swap", emoji: "🔄", track: "table", scope: "instant", weight: 5,
-    minAlive: 4, onFire: (c) => { const [a, b] = c.randomAlive(2); if (a && b) c.swapHands(a, b); } },
-  { id: "pass-the-hand", emoji: "👐", track: "table", scope: "instant", weight: 5,
-    minAlive: 4, onFire: (c) => c.passHandsAround() },
-  { id: "gun-shuffle", emoji: "🔫", track: "table", scope: "instant", weight: 5,
-    minAlive: 4, onFire: (c) => c.passGunsAround() },
-  { id: "reverse", emoji: "↩️", track: "table", scope: "instant", weight: 5,
-    minAlive: 4, onFire: (c) => c.reverseOrder() },
-  { id: "role-leak", emoji: "🎭", track: "table", scope: "instant", weight: 5,
-    minAlive: 4, onFire: (c) => { const [p] = c.randomOthers(1); if (p) c.revealRole(p); } },
+  // ── Hỗn loạn · nổ một lần ─────────────────────────────────────────────────
+  { id: "musical-chairs", emoji: "🪑", scope: "instant", weight: 6, minAlive: 5,
+    onFire: (c) => { const [a, b] = c.randomAlive(2); if (a && b) c.swapSeats(a, b); } },
+  { id: "hand-swap", emoji: "🔄", scope: "instant", weight: 5, minAlive: 4,
+    onFire: (c) => { const [a, b] = c.randomAlive(2); if (a && b) c.swapHands(a, b); } },
+  { id: "pass-the-hand", emoji: "👐", scope: "instant", weight: 5, minAlive: 4,
+    onFire: (c) => c.passHandsAround() },
+  { id: "gun-shuffle", emoji: "🔫", scope: "instant", weight: 5, minAlive: 4,
+    onFire: (c) => c.passGunsAround() },
+  { id: "reverse", emoji: "↩️", scope: "instant", weight: 5, minAlive: 4,
+    onFire: (c) => c.reverseOrder() },
+  { id: "role-leak", emoji: "🎭", scope: "instant", weight: 5, minAlive: 4,
+    onFire: (c) => { const [p] = c.randomOthers(1); if (p) c.revealRole(p); } },
 
-  // ── Luồng BÀN · toàn cục kéo dài ──────────────────────────────────────────
-  { id: "sandstorm", emoji: "🌪️", track: "table", scope: "lasting", weight: 6,
-    turns: 3, effect: { missedNeededDelta: 1 } },
-  { id: "fog", emoji: "🌫️", track: "table", scope: "lasting", weight: 5,
-    turns: 3, maxAlive: 5, effect: { distanceDelta: 1 } },
-  { id: "open-plains", emoji: "🔭", track: "table", scope: "lasting", weight: 6,
-    turns: 3, minAlive: 4, effect: { distanceDelta: -1 } },
-  { id: "happy-hour", emoji: "🍺", track: "table", scope: "lasting", weight: 6,
-    turns: 4, effect: { beerHeal: 2 } },
-  { id: "wartime", emoji: "⚔️", track: "table", scope: "lasting", weight: 5,
-    turns: 3, maxAlive: 5, effect: { damageDelta: 1 } },
-  { id: "survival", emoji: "🏥", track: "table", scope: "lasting", weight: 5,
-    turns: 3, effect: { noHeal: true } },
-  { id: "bad-weather", emoji: "🌧️", track: "table", scope: "lasting", weight: 5,
-    turns: 3, effect: { badDraw: true } },
-  { id: "lucky-table", emoji: "🎲", track: "table", scope: "lasting", weight: 5,
-    turns: 3, effect: { luckyDraw: true } },
-  { id: "truce", emoji: "🤝", track: "table", scope: "lasting", weight: 5,
-    turns: 3, minAlive: 5, effect: { protectSheriff: true } },
-  { id: "gold-rush", emoji: "💎", track: "table", scope: "lasting", weight: 5,
-    turns: 3, effect: { extraDraw: 1 } },
+  // ── Lời nguyền · nhắm một người ───────────────────────────────────────────
+  { id: "shackled", emoji: "🔗", scope: "curse", weight: 6, rounds: 1, target: "any",
+    effect: { noBang: true } },
+  { id: "oversleep", emoji: "😴", scope: "curse", weight: 4, rounds: 1, target: "any",
+    effect: { skipTurn: true } },
+  { id: "marked-man", emoji: "🩸", scope: "curse", weight: 5, rounds: 2, target: "any",
+    effect: { incomingDamageDelta: 1 } },
+  { id: "wanted", emoji: "💵", scope: "curse", weight: 5, rounds: 2, target: "any",
+    effect: { bounty: true } },
+  { id: "guardian-angel", emoji: "✨", scope: "curse", weight: 4, rounds: 1, target: "lowestHp",
+    effect: { immune: true } },
 ];
 
 export const EVENT_BY_ID: Record<string, GameEventDef> = Object.fromEntries(
@@ -264,33 +244,12 @@ export const EVENT_BY_ID: Record<string, GameEventDef> = Object.fromEntries(
 
 // ─── Frequency ───────────────────────────────────────────────────────────────
 
-export type EventLevel = "off" | "low" | "normal" | "high" | "mayhem";
-export const EVENT_LEVELS: EventLevel[] = ["off", "low", "normal", "high", "mayhem"];
-
-// Bag randomizer: BAG_SIZE turn slots, of which N carry an event. Shuffled per
-// bag, so events neither clump into a streak nor vanish for a dozen turns the
-// way independent per-turn coin flips do.
-//
-// "mayhem" fills every slot: EVERY player opens their turn with an event of their
-// own. At that density the bag stops mattering (there is nothing left to
-// distribute) and the only thing keeping variety is the recently-fired exclusion
-// window — see `eligible`.
-export const BAG_SIZE = 5;
-export const BAG_TOKENS: Record<EventLevel, number> = {
-  off: 0, low: 1, normal: 2, high: 4, mayhem: BAG_SIZE,
-};
-
-// Minimum turns between two TABLE events. Larger than a short round on purpose:
-// at 3 players alive a table event lands every other round instead of every one.
-// A table event still only fires on a round boundary, so at a full 7-player table
-// every level above "low" comes out to one per round regardless.
-export const TABLE_GAP: Record<EventLevel, number> = {
-  off: Number.POSITIVE_INFINITY,
-  low: 6,
-  normal: 4,
-  high: 3,
-  mayhem: 2,
-};
+// Exactly one event per round is the whole model, so frequency is not a dial:
+// fewer than one leaves rounds inexplicably blank, and more than one stacks two
+// rule changes on the same round, which is both unreadable at the table and no
+// longer "this round's weather". Hence a plain on/off switch.
+export type EventLevel = "off" | "on";
+export const EVENT_LEVELS: EventLevel[] = ["off", "on"];
 
 // ─── Effect merging ──────────────────────────────────────────────────────────
 
@@ -322,12 +281,11 @@ export function mergeEffect(into: EventEffect, add: EventEffect | undefined): Ev
 
 // ─── Pool selection ──────────────────────────────────────────────────────────
 
-// Eligible events for one roll: right track, headcount range, and not one of the
-// recently-fired ids (so the same event doesn't come up twice in a row).
-export function eligible(track: EventTrack, aliveCount: number, recent: string[]): GameEventDef[] {
+// Eligible events for one roll: headcount range, and not one of the recently
+// fired ids (so the same event doesn't come up twice in a row).
+export function eligible(aliveCount: number, recent: string[]): GameEventDef[] {
   return EVENTS.filter(
     (e) =>
-      e.track === track &&
       !recent.includes(e.id) &&
       (e.minAlive == null || aliveCount >= e.minAlive) &&
       (e.maxAlive == null || aliveCount <= e.maxAlive)

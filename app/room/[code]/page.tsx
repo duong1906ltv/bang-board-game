@@ -6,7 +6,6 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
 import { Character, PlayerView, PlayerPublic, ROLE_EMOJI, type EventLevel, type EventView } from "@/lib/types";
-import { EVENT_LEVELS } from "@/lib/events";
 import { CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import { toggleMusic, setMusicVolume, getMusicVolume } from "@/lib/music";
@@ -619,18 +618,13 @@ function Lobby({
           density; everyone else just sees what the room is set to. */}
       <label style={{ marginTop: 12 }}>{L(locale, "Sự kiện ngẫu nhiên", "Random events")}</label>
       {view.you.isHost ? (
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          {EVENT_LEVELS.map((lv) => (
-            <button
-              key={lv}
-              className={lv === view.eventLevel ? "" : "ghost"}
-              style={{ width: "auto", padding: "6px 14px", fontSize: "0.85rem" }}
-              onClick={() => onSetEventLevel(lv)}
-            >
-              {eventLevelLabel(locale, lv)}
-            </button>
-          ))}
-        </div>
+        <button
+          className={view.eventLevel === "on" ? "" : "ghost"}
+          style={{ width: "auto", padding: "8px 18px", fontSize: "0.9rem", alignSelf: "flex-start" }}
+          onClick={() => onSetEventLevel(view.eventLevel === "on" ? "off" : "on")}
+        >
+          🎲 {view.eventLevel === "on" ? L(locale, "Sự kiện: BẬT", "Events: ON") : L(locale, "Sự kiện: TẮT", "Events: OFF")}
+        </button>
       ) : (
         <span className="badge" style={{ alignSelf: "flex-start" }}>
           🎲 {eventLevelLabel(locale, view.eventLevel)}
@@ -639,8 +633,8 @@ function Lobby({
       <p className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
         {L(
           locale,
-          "Mỗi lượt có thể xảy ra một sự kiện riêng cho người đang chơi (kẹt súng, mưa bài…), và mỗi vòng một sự kiện cho cả bàn (bão cát, dịch bệnh…). Vòng đầu luôn yên bình. Ở mức Hỗn Mang thì AI CŨNG có sự kiện riêng, không lượt nào trống.",
-          "Each turn may bring an event for the active player (jammed gun, card rain…), and each round one for the whole table (sandstorm, plague…). The opening round is always quiet. On Mayhem EVERY player gets their own event — no quiet turns at all."
+          "Đầu MỖI LƯỢT bàn nhận đúng một sự kiện, có hiệu lực hết lượt đó: cấm bắn, bão cát, mưa bài, đảo chiều… Một số sự kiện là lời nguyền nhắm riêng một người và kéo dài vài vòng. Vòng đầu tiên luôn yên bình.",
+          "EVERY turn opens with exactly one event, in force for that turn: no shooting, sandstorm, card rain, reversed order… A few are curses aimed at one player that last several laps. The opening round is always quiet."
         )}
       </p>
 
@@ -729,8 +723,9 @@ function EventBanner({ ev, onDone }: { ev: EventView; onDone: () => void }) {
     const t = window.setTimeout(onDone, 2200);
     return () => window.clearTimeout(t);
   }, [onDone]);
-  // Table-wide events read as "weather" (blue); a turn/curse event is personal (amber).
-  const wide = ev.track === "table";
+  // A curse singles someone out (amber, personal); everything else is the round's
+  // weather for the whole table (blue).
+  const wide = ev.scope !== "curse";
   return (
     <div
       style={{
@@ -745,7 +740,7 @@ function EventBanner({ ev, onDone }: { ev: EventView; onDone: () => void }) {
       }}
     >
       <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", opacity: 0.65, color: "#f0e2c0" }}>
-        {wide ? L(locale, "Sự kiện của cả bàn", "Table event") : L(locale, "Sự kiện của lượt này", "Turn event")}
+        {wide ? L(locale, "Sự kiện của lượt này", "This turn's event") : L(locale, "Lời nguyền", "Curse")}
       </div>
       <div style={{ fontSize: 44, lineHeight: 1.1, marginTop: 4 }}>{ev.emoji}</div>
       <div style={{ fontSize: "1.25rem", fontWeight: 800, color: wide ? "#bfe0ff" : "#ffd873" }}>
@@ -761,8 +756,9 @@ function EventBanner({ ev, onDone }: { ev: EventView; onDone: () => void }) {
   );
 }
 
-// Compact list of the events still in force, docked under the HUD. Tap a chip to
-// read what it actually does.
+// Compact list of the events still in force. Rendered in the flow of the top-left
+// HUD column (NOT fixed-positioned), so it can never end up underneath the status
+// slab when that slab wraps to a second row. Tap a chip to read what it does.
 function EventChips({ events }: { events: EventView[] }) {
   const locale = useLocale();
   const [open, setOpen] = useState<EventView | null>(null);
@@ -771,8 +767,8 @@ function EventChips({ events }: { events: EventView[] }) {
     <>
       <div
         style={{
-          position: "fixed", top: 56, left: 12, zIndex: 55, display: "flex", gap: 6,
-          flexWrap: "wrap", maxWidth: "46vw", fontFamily: "system-ui, sans-serif",
+          display: "flex", gap: 6, flexWrap: "wrap",
+          maxWidth: "100%", fontFamily: "system-ui, sans-serif",
         }}
       >
         {events.map((ev) => (
@@ -782,8 +778,8 @@ function EventChips({ events }: { events: EventView[] }) {
             style={{
               width: "auto", padding: "3px 8px", fontSize: "0.78rem", fontWeight: 700,
               borderRadius: 8, color: "#f0e2c0",
-              background: ev.track === "table" ? "rgba(16,32,52,0.92)" : "rgba(46,30,12,0.92)",
-              border: `1px solid ${ev.track === "table" ? "rgba(91,155,213,0.7)" : "rgba(224,169,85,0.7)"}`,
+              background: ev.scope === "curse" ? "rgba(46,30,12,0.92)" : "rgba(16,32,52,0.92)",
+              border: `1px solid ${ev.scope === "curse" ? "rgba(224,169,85,0.7)" : "rgba(91,155,213,0.7)"}`,
             }}
             title={eventDesc(locale, ev.id)}
           >
@@ -1110,7 +1106,9 @@ function Table({
   const requestPlay = (card: Card) => {
     if (sidPicking) return cardAction(card);
     if (!inPlayPhase) return;
-    if (blockOneCard(card.defId)) return;
+    // While jailed the dialog is the ONLY way to discard, so skip the playability
+    // checks — they would flash "this card is blocked" and never open it.
+    if (!you.jailed && blockOneCard(card.defId)) return;
     setConfirmPlay(card);
   };
   const doConfirmedPlay = () => {
@@ -1220,8 +1218,26 @@ function Table({
         <CardModal
           card={confirmPlay}
           onClose={() => setConfirmPlay(null)}
+          /* Tapping a card offers both moves, so discarding no longer requires
+             knowing about the drag-to-bin gesture. "Bỏ bài" only appears when there
+             is actually something to discard (hand > limit) — offering it otherwise
+             would just be a button that always errors. */
           actions={[
-            { label: L(locale, "Đánh bài", "Play"), onClick: doConfirmedPlay },
+            ...(you.jailed
+              ? []
+              : [{ label: L(locale, "Đánh bài", "Play"), onClick: doConfirmedPlay }]),
+            ...(overLimit > 0
+              ? [
+                  {
+                    label: L(locale, "Bỏ bài 🗑️", "Discard 🗑️"),
+                    onClick: () => {
+                      const c = confirmPlay;
+                      setConfirmPlay(null);
+                      if (c) onDiscard(c.id);
+                    },
+                  },
+                ]
+              : []),
             { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmPlay(null), ghost: true },
           ]}
         />
@@ -1373,11 +1389,16 @@ function Table({
       )}
 
       <>
+          {/* Top-left column: the status slab, then the active-event chips beneath it.
+              They share ONE flow container on purpose — the slab wraps to two rows on
+              narrow screens, so a chip row pinned to a fixed `top` would slide under
+              it and disappear. */}
+          <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, maxWidth: "70vw" }}>
           {/* compact status — tap the role to see your objective */}
           {/* One opaque slab rather than a row of translucent pills: at 0.82 alpha
               with gaps, the WANTED poster on the wall behind showed through between
               the badges and the whole corner read as clutter. */}
-          <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", alignItems: "center", gap: 8, background: "rgba(18,15,12,0.94)", padding: "7px 10px", borderRadius: 12, border: "1px solid rgba(120,95,60,0.6)", boxShadow: "0 6px 20px rgba(0,0,0,0.55)", color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "70vw" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(18,15,12,0.94)", padding: "7px 10px", borderRadius: 12, border: "1px solid rgba(120,95,60,0.6)", boxShadow: "0 6px 20px rgba(0,0,0,0.55)", color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "100%" }}>
             {you.role && (
               <span className="role-badge" style={{ fontSize: "0.85rem", cursor: "pointer" }} onClick={showRole} title={L(locale, "Xem mục tiêu", "See objective")}>
                 {ROLE_EMOJI[you.role]} {roleLabel(locale, you.role)} ⓘ
@@ -1406,8 +1427,9 @@ function Table({
             )}
           </div>
 
-          {/* random events still in force — under the HUD, on the free left edge */}
+          {/* random events still in force — stacked directly under the status slab */}
           <EventChips events={view.events} />
+          </div>
 
           {/* action history — top-right, collapsible, scrollable, drag-to-resize */}
           {view.log.length > 0 && (
@@ -1444,7 +1466,17 @@ function Table({
                   const def = (e.kind === "play" || e.kind === "react") && e.card ? CARD_DEF_BY_NAME[e.card] : undefined;
                   const idx = def && e.card ? text.indexOf(e.card) : -1;
                   return (
-                    <div key={e.id} style={{ opacity: e.kind === "turn" ? 0.7 : 1, fontWeight: e.kind === "death" ? 700 : 400 }}>
+                    <div
+                      key={e.id}
+                      style={{
+                        opacity: e.kind === "turn" ? 0.7 : 1,
+                        // Events get their own colour and weight: they change the rules
+                        // rather than report a play, so they need to be findable when
+                        // you scroll back asking "why couldn't I shoot?".
+                        fontWeight: e.kind === "death" || e.kind === "event" ? 700 : 400,
+                        color: e.kind === "event" ? "#7ec8ff" : e.kind === "skip" ? "#c9a227" : undefined,
+                      }}
+                    >
                       {idx >= 0 && def && e.card ? (
                         <>
                           {text.slice(0, idx)}
@@ -1511,6 +1543,17 @@ function Table({
                 backdropFilter: "blur(3px)",
               }}
             >
+              {you.jailed && (
+                /* A jailed turn looks like any other turn from the outside, so say
+                   plainly why nothing can be played. */
+                <div style={{ fontSize: "0.8rem", lineHeight: 1.4, color: "#ffcf8f", textAlign: "center" }}>
+                  {L(
+                    locale,
+                    `⛓️ Đang bị giam — mất lượt. Bỏ xuống ${you.handLimit} lá rồi kết thúc.`,
+                    `⛓️ In jail — turn lost. Discard down to ${you.handLimit}, then end.`
+                  )}
+                </div>
+              )}
               {you.turnPhase === "draw" ? (
                 <DrawControls you={you} onDraw={onDraw} aimJesse={() => setAiming({ id: "", defId: "jesse" })} />
               ) : (
@@ -1518,7 +1561,7 @@ function Table({
                   <button
                     onClick={onEndTurn}
                     disabled={overLimit > 0}
-                    title={overLimit > 0 ? L(locale, "Kéo bài sang PHẢI để bỏ bớt", "Drag cards RIGHT to discard") : undefined}
+                    title={overLimit > 0 ? L(locale, "Chạm một lá rồi chọn Bỏ bài", "Tap a card and choose Discard") : undefined}
                   >
                     {overLimit > 0
                       ? L(locale, `Giữ tối đa ${you.handLimit} lá (còn dư ${overLimit})`, `Keep max ${you.handLimit} (${overLimit} over)`)
@@ -1617,7 +1660,13 @@ function Table({
           )}
           {inPlayPhase && !aiming && !dragDelta && you.hand.length > 0 && (
             <div style={{ position: "fixed", left: "50%", bottom: 176, transform: "translateX(-50%)", zIndex: 55, color: "rgba(240,226,192,0.85)", fontSize: 13, fontFamily: "system-ui, sans-serif", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", pointerEvents: "none" }}>
-              {sidPicking ? L(locale, `Chạm 2 lá để bỏ (${sidPick.length}/2)`, `Tap 2 cards to discard (${sidPick.length}/2)`) : overLimit > 0 ? L(locale, "Chạm hoặc kéo LÊN để đánh · vào 🗑️ để bỏ lá dư", "Tap or drag UP to play · into 🗑️ to discard") : L(locale, "Chạm hoặc kéo LÊN để đánh", "Tap or drag UP to play")}
+              {sidPicking
+                ? L(locale, `Chạm 2 lá để bỏ (${sidPick.length}/2)`, `Tap 2 cards to discard (${sidPick.length}/2)`)
+                : you.jailed
+                  ? L(locale, "Chạm một lá để bỏ · không đánh được khi bị giam", "Tap a card to discard · nothing can be played in jail")
+                  : overLimit > 0
+                    ? L(locale, "Chạm một lá để chọn Đánh hoặc Bỏ · hoặc kéo vào 🗑️", "Tap a card to Play or Discard · or drag into 🗑️")
+                    : L(locale, "Chạm hoặc kéo LÊN để đánh", "Tap or drag UP to play")}
             </div>
           )}
       </>

@@ -5,6 +5,8 @@
 import { useEffect, useState } from "react";
 import type { Role } from "./types";
 import type { PlayerView, LogEntry } from "./types";
+// Pure data (no engine import at runtime), so it is safe in a client bundle.
+import { EVENT_BY_ID } from "./events";
 
 export type Locale = "vi" | "en";
 
@@ -111,10 +113,12 @@ export function logText(l: Locale, e: LogEntry, youName?: string): string {
     case "surrender":
       return (vi ? `🏳️ ${subj(e.a)} đầu hàng` : `🏳️ ${subj(e.a)} surrendered`) + (e.role ? ` — ${roleLabel(l, e.role)}` : "");
     case "event": {
+      const def = EVENT_BY_ID[e.event ?? ""];
+      const icon = def?.emoji ?? "🎲";
       const name = eventName(l, e.event ?? "");
-      // A curse names its victim; everything else just announces itself.
-      if (e.b) return vi ? `🎲 ${name} → ${obj(e.b)}` : `🎲 ${name} → ${obj(e.b)}`;
-      return `🎲 ${name}`;
+      // A curse names its victim; everything else is table-wide by definition.
+      if (e.b) return `${icon} ${name} → ${obj(e.b)}`;
+      return vi ? `${icon} ${name} · cả bàn` : `${icon} ${name} · whole table`;
     }
     case "skip":
       return vi ? `💤 ${subj(e.a)} mất lượt` : `💤 ${subj(e.a)} loses the turn`;
@@ -183,45 +187,42 @@ export function formatPending(l: Locale, p: PlayerView["pending"], youName?: str
 // --- random events (keyed by id in lib/events.ts) ---
 // [vi name, en name, vi description, en description]
 const EVENT_TEXT: Record<string, [string, string, string, string]> = {
-  // luồng LƯỢT · hạn chế
-  "jammed-gun": ["Súng Kẹt Đạn", "Jammed Gun", "Lượt này bạn không được đánh Bang!.", "You may not play Bang! this turn."],
-  "clumsy-hand": ["Tay Vụng", "Clumsy Hand", "Lượt này chỉ được đánh 1 lá bài.", "You may play only 1 card this turn."],
-  prohibition: ["Lệnh Cấm Rượu", "Prohibition", "Beer và Saloon vô hiệu lượt này.", "Beer and Saloon do nothing this turn."],
-  "short-barrel": ["Nòng Cụt", "Short Barrel", "Tầm bắn của bạn về 1, bất kể súng.", "Your range drops to 1, whatever gun you hold."],
-  fasting: ["Ngày Chay", "Fasting", "Không được dùng lá rút thêm bài.", "Card-drawing cards are unavailable."],
-  "tied-hands": ["Tay Bị Trói", "Tied Hands", "Không được đặt lá xanh hay đổi súng.", "You may not play blue cards or swap guns."],
-  silence: ["Im Lặng", "Silence", "Gatling, Indians! và Duel bị cấm.", "Gatling, Indians! and Duel are forbidden."],
-  "no-looting": ["Cấm Cướp Bóc", "No Looting", "Panic! và Cat Balou bị cấm.", "Panic! and Cat Balou are forbidden."],
-  drought: ["Nắng Cháy", "Drought", "Cuối lượt chỉ giữ được số bài = máu − 1.", "End-of-turn hand limit is one lower."],
-  ceasefire: ["Lệnh Ngừng Bắn", "Ceasefire", "Không ai mất máu trong lượt này.", "Nobody loses life this turn."],
-  oversleep: ["Ngủ Nướng", "Oversleep", "Bạn mất lượt này.", "Your turn is forfeited."],
-  "empty-pockets": ["Túi Rỗng", "Empty Pockets", "Đầu lượt chỉ rút 1 lá.", "You draw only 1 card this turn."],
-  drunk: ["Say Rượu", "Drunk", "Bang! của bạn bay vào một mục tiêu ngẫu nhiên trong tầm.", "Your Bang! hits a random target in range instead."],
-  hangover: ["Nôn Nao", "Hangover", "Không được bắn và giới hạn bài giảm 1.", "No Bang!, and your hand limit drops by 1."],
+  // cấm đoán — cả bàn, hết vòng
+  "jammed-gun": ["Súng Kẹt Đạn", "Jammed Guns", "Lượt này không ai đánh được Bang!.", "Nobody may play Bang! this turn."],
+  "short-barrel": ["Nòng Cụt", "Short Barrels", "Lượt này tầm bắn về 1, bất kể súng.", "Range drops to 1 this turn, whatever gun you hold."],
+  prohibition: ["Lệnh Cấm Rượu", "Prohibition", "Lượt này Beer và Saloon vô hiệu.", "Beer and Saloon do nothing this turn."],
+  fasting: ["Ngày Chay", "Fasting", "Lượt này không dùng được lá rút thêm bài.", "Card-drawing cards are unavailable this turn."],
+  "tied-hands": ["Tay Bị Trói", "Tied Hands", "Lượt này không đặt được lá xanh hay đổi súng.", "No blue cards or gun swaps this turn."],
+  silence: ["Im Lặng", "Silence", "Lượt này Gatling, Indians! và Duel bị cấm.", "Gatling, Indians! and Duel are forbidden this turn."],
+  "no-looting": ["Cấm Cướp Bóc", "No Looting", "Lượt này Panic! và Cat Balou bị cấm.", "Panic! and Cat Balou are forbidden this turn."],
+  drought: ["Nắng Cháy", "Drought", "Cuối lượt này chỉ giữ được số bài = máu − 1.", "This turn's end-of-turn hand limit is one lower."],
+  "clumsy-hands": ["Tay Vụng", "Clumsy Hands", "Lượt này chỉ đánh được 1 lá bài.", "Only 1 card may be played this turn."],
+  ceasefire: ["Lệnh Ngừng Bắn", "Ceasefire", "Lượt này không ai mất máu.", "Nobody loses life this turn."],
+  "empty-pockets": ["Túi Rỗng", "Empty Pockets", "Đầu lượt này chỉ rút 1 lá.", "Only 1 card is drawn this turn."],
+  survival: ["Chế Độ Sinh Tồn", "Survival", "Lượt này không hồi máu được (vẫn cứu được khi sắp gục).", "No healing this turn — a dying player may still drink to survive."],
+  truce: ["Hiệp Ước", "Truce", "Lượt này không được bắn hay Duel Cảnh Sát Trưởng.", "The Sheriff can't be Bang!ed or Duelled this turn."],
 
-  // luồng LƯỢT · tăng cường
+  // tăng cường — cả bàn, hết vòng
   "hot-streak": ["Đạn Vô Hạn", "Hot Streak", "Lượt này bắn Bang! không giới hạn.", "Unlimited Bang! this turn."],
-  "gun-oil": ["Dầu Súng", "Gun Oil", "Lượt này được bắn 2 lá Bang!.", "You may fire two Bang! this turn."],
-  "piercing-round": ["Đạn Xuyên", "Piercing Round", "Mọi đòn trong lượt này gây thêm 1 sát thương.", "Every hit this turn deals 1 extra damage."],
-  "eagle-eye": ["Mắt Đại Bàng", "Eagle Eye", "Tầm bắn +1 trong lượt này.", "+1 range this turn."],
-  "sniper-nest": ["Ổ Bắn Tỉa", "Sniper Nest", "Lượt này bắn được mọi khoảng cách.", "You can shoot at any distance this turn."],
-  "card-rain": ["Mưa Bài", "Card Rain", "Đầu lượt rút 3 lá thay vì 2.", "Draw 3 instead of 2 this turn."],
-  frenzy: ["Cơn Điên", "Frenzy", "Bỏ luật mỗi loại lá 1 lần/lượt.", "The once-per-turn card rule is suspended."],
-  "dead-eye": ["Ngắm Chuẩn", "Dead Eye", "Đối thủ cần thêm 1 Missed! để né Bang! của bạn.", "Targets need one more Missed! to dodge you."],
-  "lucky-hand": ["Tay May", "Lucky Hand", "Mọi lần Draw! lật 2 lá và chọn lá tốt hơn.", "Every Draw! flips two and keeps the better."],
-  "private-supply": ["Tiếp Tế Riêng", "Private Supply", "Bạn rút ngay 2 lá.", "You immediately draw 2 cards."],
-  "sleight-of-hand": ["Tay Nhanh", "Sleight of Hand", "Bạn lấy 1 lá từ tay một người ngẫu nhiên.", "You take a card from a random player's hand."],
-  "second-wind": ["Lấy Lại Sức", "Second Wind", "Bạn hồi 1 máu.", "You regain 1 life point."],
+  "gun-oil": ["Dầu Súng", "Gun Oil", "Lượt này được bắn 2 lá Bang!.", "Two Bang! may be fired this turn."],
+  "eagle-eye": ["Mắt Đại Bàng", "Eagle Eyes", "Lượt này tầm bắn +1.", "+1 range this turn."],
+  "sniper-nest": ["Ổ Bắn Tỉa", "Sniper Nests", "Lượt này bắn được ở mọi khoảng cách.", "Shoot at any distance this turn."],
+  "gold-rush": ["Cơn Sốt Vàng", "Gold Rush", "Đầu lượt này rút thêm 1 lá.", "One extra card is drawn this turn."],
+  "card-rain": ["Mưa Bài", "Card Rain", "Đầu lượt này rút 3 lá thay vì 2.", "Draw 3 instead of 2 this turn."],
+  frenzy: ["Cơn Điên", "Frenzy", "Lượt này bỏ luật mỗi loại lá 1 lần.", "The once-per-turn card rule is suspended this turn."],
+  "happy-hour": ["Giờ Vàng", "Happy Hour", "Lượt này mỗi Beer hồi 2 máu.", "Each Beer restores 2 life this turn."],
 
-  // luồng LƯỢT · lời nguyền
-  shackled: ["Bị Xích", "Shackled", "Người bị nhắm không được bắn ở lượt tới của họ.", "The target may not shoot on their next turn."],
-  "marked-man": ["Bị Đánh Dấu", "Marked Man", "Người bị nhắm nhận thêm 1 sát thương mỗi đòn, 2 lượt.", "The target takes 1 extra damage per hit for 2 turns."],
-  "guardian-angel": ["Thiên Thần Hộ Mệnh", "Guardian Angel", "Người yếu nhất miễn sát thương 1 lượt.", "The weakest player takes no damage for a turn."],
-  wanted: ["Truy Nã", "Wanted", "Ai hạ được người bị treo thưởng sẽ rút 3 lá.", "Whoever kills the wanted player draws 3 cards."],
+  // thời tiết — cả bàn, hết vòng
+  sandstorm: ["Bão Cát", "Sandstorm", "Lượt này mọi Bang! cần thêm 1 Missed! để né.", "Bang! needs one more Missed! to dodge this turn."],
+  fog: ["Sương Mù", "Fog", "Lượt này mọi người thấy nhau xa hơn 1.", "Everyone sees everyone 1 farther this turn."],
+  "open-plains": ["Đồng Bằng", "Open Plains", "Lượt này mọi người thấy nhau gần hơn 1.", "Everyone sees everyone 1 closer this turn."],
+  wartime: ["Thời Chiến", "Wartime", "Lượt này mọi sát thương +1.", "All damage is increased by 1 this turn."],
+  "bad-weather": ["Thời Tiết Xấu", "Bad Weather", "Lượt này mọi Draw! lật 2 lá và lấy lá xấu hơn.", "Draw! flips two and keeps the worse this turn."],
+  "lucky-table": ["Bàn May", "Lucky Table", "Lượt này mọi Draw! lật 2 lá và lấy lá tốt hơn.", "Draw! flips two and keeps the better this turn."],
+  "drunk-table": ["Cả Bàn Say", "Everyone's Drunk", "Lượt này Bang! bay vào một mục tiêu ngẫu nhiên trong tầm.", "Bang! hits a random target in range this turn."],
 
-  // luồng BÀN · trừng phạt
-  "cave-in": ["Sập Mỏ", "Cave-in", "Người đang chơi mất 1 máu.", "The active player loses 1 life."],
-  plague: ["Dịch Bệnh", "Plague", "Mọi người trên 1 máu mất 1 máu.", "Everyone above 1 life loses 1."],
+  // trừng phạt — nổ một lần
+  plague: ["Dịch Bệnh", "Plague", "Mọi người đang trên 1 máu mất 1 máu.", "Everyone above 1 life loses 1."],
   stampede: ["Bò Điên", "Stampede", "Một người ngẫu nhiên mất 1 máu.", "A random player loses 1 life."],
   toll: ["Thuế Quan", "Toll", "Mỗi người bỏ 1 lá ngẫu nhiên.", "Everyone discards a random card."],
   inspection: ["Thanh Tra", "Inspection", "Người nhiều bài nhất phải bỏ về giới hạn.", "The player with the most cards trims to their limit."],
@@ -230,14 +231,14 @@ const EVENT_TEXT: Record<string, [string, string, string, string]> = {
   "wet-fuse": ["Dây Cháy Ướt", "Wet Fuse", "Mọi Dynamite trên bàn bị bỏ.", "Every Dynamite in play is discarded."],
   jailbreak: ["Vượt Ngục", "Jailbreak", "Mọi Jail bị bỏ — tù nhân được thả.", "Every Jail is discarded — prisoners walk free."],
 
-  // luồng BÀN · phúc lợi
+  // phúc lợi — nổ một lần
   "healing-spring": ["Giếng Thần", "Healing Spring", "Mọi người hồi 1 máu.", "Everyone regains 1 life."],
   "supply-drop": ["Tiếp Tế", "Supply Drop", "Mọi người rút 1 lá.", "Everyone draws a card."],
   "divine-favor": ["Ơn Trên", "Divine Favor", "Người ít máu nhất hồi 2 máu.", "The player with the least life regains 2."],
   "flea-market": ["Chợ Trời", "Flea Market", "Mở một lượt General Store miễn phí.", "A free General Store round opens."],
   reshuffle: ["Xáo Lại", "Reshuffle", "Chồng bài bỏ được trộn lại vào bộ.", "The discard pile is shuffled back into the deck."],
 
-  // luồng BÀN · hỗn loạn
+  // hỗn loạn — nổ một lần
   "musical-chairs": ["Đổi Chỗ", "Musical Chairs", "Hai người ngẫu nhiên đổi ghế — khoảng cách đổi theo.", "Two random players swap seats — distances change."],
   "hand-swap": ["Đổi Tay", "Hand Swap", "Hai người ngẫu nhiên đổi toàn bộ bài trên tay.", "Two random players swap entire hands."],
   "pass-the-hand": ["Chuyền Tay", "Pass the Hand", "Mọi người chuyền tay bài theo chiều đi.", "Everyone passes their hand along the play direction."],
@@ -245,17 +246,12 @@ const EVENT_TEXT: Record<string, [string, string, string, string]> = {
   reverse: ["Đảo Chiều", "Reverse", "Thứ tự lượt đảo chiều từ giờ.", "The turn order reverses from now on."],
   "role-leak": ["Tiết Lộ Vai", "Role Leak", "Vai của một người bị công khai.", "One player's role becomes public."],
 
-  // luồng BÀN · toàn cục kéo dài
-  sandstorm: ["Bão Cát", "Sandstorm", "Mọi Bang! cần thêm 1 Missed! để né.", "Every Bang! needs one more Missed! to dodge."],
-  fog: ["Sương Mù", "Fog", "Mọi người thấy nhau xa hơn 1.", "Everyone sees everyone 1 farther away."],
-  "open-plains": ["Đồng Bằng", "Open Plains", "Mọi người thấy nhau gần hơn 1.", "Everyone sees everyone 1 closer."],
-  "happy-hour": ["Giờ Vàng", "Happy Hour", "Mỗi Beer hồi 2 máu.", "Each Beer restores 2 life."],
-  wartime: ["Thời Chiến", "Wartime", "Mọi sát thương +1.", "All damage is increased by 1."],
-  survival: ["Chế Độ Sinh Tồn", "Survival", "Không ai hồi máu được (vẫn cứu được khi sắp gục).", "No healing — a dying player may still drink to survive."],
-  "bad-weather": ["Thời Tiết Xấu", "Bad Weather", "Mọi lần Draw! lật 2 lá và lấy lá xấu hơn.", "Every Draw! flips two and keeps the worse."],
-  "lucky-table": ["Bàn May", "Lucky Table", "Mọi lần Draw! lật 2 lá và lấy lá tốt hơn.", "Every Draw! flips two and keeps the better."],
-  truce: ["Hiệp Ước", "Truce", "Không ai được bắn hay Duel Cảnh Sát Trưởng.", "Nobody may Bang! or Duel the Sheriff."],
-  "gold-rush": ["Cơn Sốt Vàng", "Gold Rush", "Mọi người rút thêm 1 lá ở đầu lượt.", "Everyone draws 1 extra card in their draw phase."],
+  // lời nguyền — nhắm một người
+  shackled: ["Bị Xích", "Shackled", "Người bị nhắm không bắn được ở lượt tới của họ.", "The cursed player may not shoot on their next turn."],
+  oversleep: ["Ngủ Nướng", "Oversleep", "Người bị nhắm mất lượt kế tiếp của mình.", "The cursed player loses their next turn."],
+  "marked-man": ["Bị Đánh Dấu", "Marked Man", "Người bị nhắm nhận thêm 1 sát thương mỗi đòn, 2 vòng.", "The cursed player takes 1 extra damage per hit for 2 rounds."],
+  wanted: ["Truy Nã", "Wanted", "Ai hạ được người bị treo thưởng sẽ rút 3 lá.", "Whoever kills the wanted player draws 3 cards."],
+  "guardian-angel": ["Thiên Thần Hộ Mệnh", "Guardian Angel", "Người yếu nhất miễn sát thương một vòng.", "The weakest player takes no damage for one lap."],
 };
 
 export const eventName = (l: Locale, id: string) => EVENT_TEXT[id]?.[l === "vi" ? 0 : 1] ?? id;
