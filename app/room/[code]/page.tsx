@@ -1768,15 +1768,35 @@ function CharacterCard({ c }: { c: Character }) {
 function CharacterFace({ c }: { c: Character }) {
   const locale = useLocale();
   return (
-    <div className="pcard pc-character" style={{ width: 150, height: "auto" }}>
-      <div className="pc-name" style={{ fontSize: "0.82rem" }}>{c.name}</div>
-      <div className="pc-center" style={{ minHeight: 60, flex: "0 0 auto" }}>
-        <span className="pc-icon" style={{ fontSize: "2.8rem" }}>🤠</span>
+    // `pc-frame` and `pcard-md` are both load-bearing, not decoration:
+    //  - `.pcard` is `display: flex` with the default ROW direction; the column
+    //    stacking lives on `.pc-frame`. Without that wrapper the name, art, ability
+    //    and hp laid out side by side, `.pc-center` (flex: 1) swallowed the width,
+    //    and every text child got squeezed to nothing by its own `overflow: hidden`
+    //    — which is why the card showed the 🤠 and not one word of text.
+    //  - font-size for `.pc-name` / `.pc-desc` / `.pc-corner` is only ever declared
+    //    under a size class, so without `pcard-md` the hp line had no size at all.
+    // The inline width/height still override the size class's fixed box.
+    <div className="pcard pcard-md pc-character" style={{ width: 158, height: "auto" }}>
+      <div className="pc-frame">
+        <div className="pc-name" style={{ fontSize: "0.74rem" }}>{c.name}</div>
+        <div className="pc-center" style={{ minHeight: 64, flex: "0 0 auto" }}>
+          <span className="pc-icon" style={{ fontSize: "2.6rem" }}>🤠</span>
+        </div>
+        <div
+          className="pc-desc"
+          style={{
+            display: "block", // drop the -webkit-box clamp: the ability must read in full
+            WebkitLineClamp: "unset" as unknown as number,
+            fontSize: "0.58rem",
+            lineHeight: 1.32,
+            padding: "4px 3px 5px",
+          }}
+        >
+          {charAbility(locale, c.id)}
+        </div>
+        <span className="pc-corner">🔴 {c.maxHp}</span>
       </div>
-      <div className="pc-desc" style={{ display: "block", WebkitLineClamp: "unset" as unknown as number, fontSize: "0.56rem", lineHeight: 1.25, padding: "4px 4px 6px" }}>
-        {charAbility(locale, c.id)}
-      </div>
-      <span className="pc-corner">🔴 {c.maxHp}</span>
     </div>
   );
 }

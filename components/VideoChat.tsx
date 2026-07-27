@@ -93,7 +93,19 @@ export default function VideoChat({
   async function startMedia() {
     setError("");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // Constrained on purpose. Bare `video: true` lets the browser pick, often
+      // 720p, and in a mesh call every participant ENCODES that separately for each
+      // of the other six — the single most expensive thing this page asks of a
+      // laptop. The feed lands on a wall poster a couple of hundred pixels wide, so
+      // 480x360 at 20fps is already more detail than is ever displayed.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 480 },
+          height: { ideal: 360 },
+          frameRate: { ideal: 20, max: 24 },
+        },
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
       localStreamRef.current = stream;
       setLocalStream(stream);
       setMicOn(true);

@@ -6,7 +6,7 @@
 // fanned in front of you, opponents are arranged around the far arc.
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { CardMesh } from "./CardMesh";
@@ -758,6 +758,30 @@ function WantedPosters({
   );
 }
 
+// Stop re-rendering the shadow map on every single frame.
+//
+// three.js refreshes shadow maps continuously by default, which only makes sense for
+// a scene that keeps moving. Here the geometry is essentially static: the room, the
+// table and the seated figures never move, and the things that DO move (cards flying
+// to a hand, the Draw! reveal) are small, lit from above and cast nothing anyone
+// looks at. So the map is rendered once, then only when the game state actually
+// changes — `key` carries whatever should trigger a refresh.
+function StaticShadows({ trigger }: { trigger: string }) {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    gl.shadowMap.autoUpdate = false;
+    gl.shadowMap.needsUpdate = true;
+    return () => {
+      gl.shadowMap.autoUpdate = true;
+    };
+  }, [gl]);
+  // A new turn / a death / a player joining can change what casts a shadow.
+  useEffect(() => {
+    gl.shadowMap.needsUpdate = true;
+  }, [gl, trigger]);
+  return null;
+}
+
 // The hanging oil lamp over the table: the scene's key light. It is the one thing
 // bright enough to trip Bloom's threshold, and being a point light directly above
 // the felt it also gives every figure a shadow that anchors it to the table.
@@ -781,16 +805,17 @@ function TableLamp({ felt }: { felt: number }) {
         <meshStandardMaterial color="#fff6d8" emissive="#ffc873" emissiveIntensity={3.4} toneMapped={false} />
       </mesh>
       {/* Key light. `decay={1.4}` rather than a physical 2 so the far seats stay
-          lit instead of falling away into the dark. */}
+          lit instead of falling away into the dark.
+          NO castShadow, deliberately: a point light shadow in three.js is a CUBE
+          map, so switching it on re-renders the whole scene SIX more times every
+          frame. That one flag was most of the reason this page ran hot. The
+          directional light below still casts, which is what anchors the figures. */}
       <pointLight
         position={[0, -0.05, 0]}
         color="#ffd79a"
         intensity={26}
         distance={felt * 5}
         decay={1.4}
-        castShadow
-        shadow-mapSize={[1024, 1024]}
-        shadow-bias={-0.0012}
       />
     </group>
   );
@@ -1495,7 +1520,9 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
         intensity={0.45}
         color="#fff3e0"
         castShadow
-        shadow-mapSize={[2048, 2048]}
+        /* 1024 not 2048: a quarter of the shadow-map work, and the shadows here are
+           soft blobs under figures, not edges anyone inspects. */
+        shadow-mapSize={[1024, 1024]}
         shadow-camera-near={0.5}
         shadow-camera-far={30}
         shadow-camera-left={-felt * 2.4}
@@ -1505,6 +1532,10 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
         shadow-bias={-0.0006}
       />
       <TableLamp felt={felt} />
+      {/* refresh the shadow map only when something that casts one can have changed */}
+      <StaticShadows
+        trigger={`${view.turnSeat}|${view.players.map((p) => (p.alive ? 1 : 0)).join("")}|${view.players.length}`}
+      />
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
@@ -1554,8 +1585,10 @@ export default function TableScene({
 }) {
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
-      {/* dpr thấp hơn khi tắt hiệu ứng: đỡ tải cho máy yếu */}
-      <Canvas shadows dpr={fx ? [1, 2] : [1, 1.5]}>
+      {/* dpr cap 1.5, not 2: at 2 a retina screen renders FOUR times the pixels of a
+          1x screen every frame, and on a table of flat colours the difference is
+          barely visible while the cost is not. 1.5 is 44% fewer pixels than 2. */}
+      <Canvas shadows dpr={fx ? [1, 1.5] : [1, 1.25]}>
         <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} fx={fx} feeds={feeds} />
       </Canvas>
     </div>
