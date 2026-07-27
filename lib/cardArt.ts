@@ -66,7 +66,7 @@ const rifle = (barrel: number) =>
 // the <img> error path falls back to the SVG, then to the emoji icon, so an
 // unfinished set of illustrations degrades instead of breaking.
 export const CARD_PHOTO_IDS = [
-  "bang", "missed", "beer", "indians", "volcanic", "duel", "panic",
+  "bang", "missed", "beer", "indians", "volcanic", "duel", "panic", "gatling",
 ];
 
 export const CARD_PHOTO: Record<string, string> = Object.fromEntries(
