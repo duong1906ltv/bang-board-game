@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, Html, Billboard } from "@react-three/drei";
+import { OrbitControls, PerspectiveCamera, Html } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { CardMesh } from "./CardMesh";
 import { PlayingCard } from "@/components/PlayingCard";
@@ -606,6 +606,192 @@ function Table({ felt }: { felt: number }) {
   );
 }
 
+// ─── Webcam WANTED posters ───────────────────────────────────────────────────
+//
+// Where the seats sit relative to the camera decides everything here. With the
+// camera pitched ~35° down and a 55° vertical fov, the top of frame at the BACK
+// wall lands at y≈1.41 while avatar heads reach ~0.8 — a clear band barely half a
+// unit tall, and the middle of it is screened by the figures themselves. The SIDE
+// walls are closer to the camera (horizontal distance ~9.2 vs 12.3), so their top
+// of frame is higher (y≈1.80), and no avatar ever reaches out to x=±wall to block
+// them. So the outermost slots go on the side walls, where posters are both
+// biggest and never occluded, and the middle ones fill the back wall.
+const POSTER_W = 1.15;
+const POSTER_H = 1.5;
+
+// One slot: a wall position plus the yaw that turns the poster to face inward.
+interface PosterSlot {
+  pos: [number, number, number];
+  rotY: number;
+}
+
+// Slots ordered LEFT → RIGHT as seen on screen, so slot order can be matched to
+// the on-screen order of the seats and the eye can pair a poster with a person.
+function posterSlots(felt: number, wall: number, floorY: number, n: number): PosterSlot[] {
+  const sideY = floorY + 2.05; // side walls have headroom; sit them higher
+  const backY = floorY + 1.62;
+  const left: PosterSlot = { pos: [-wall + 0.06, sideY, -felt * 0.15], rotY: Math.PI / 2 };
+  const right: PosterSlot = { pos: [wall - 0.06, sideY, -felt * 0.15], rotY: -Math.PI / 2 };
+  const leftB: PosterSlot = { pos: [-wall + 0.06, sideY, felt * 0.95], rotY: Math.PI / 2 };
+  const rightB: PosterSlot = { pos: [wall - 0.06, sideY, felt * 0.95], rotY: -Math.PI / 2 };
+  // Back-wall slots spread evenly, skipping the middle where the Ronaldo poster
+  // and the SALOON sign already hang.
+  const backCount = Math.max(0, n - 4);
+  const back: PosterSlot[] = Array.from({ length: backCount }, (_, i) => {
+    const t = backCount === 1 ? 0.5 : i / (backCount - 1);
+    return { pos: [(t * 2 - 1) * wall * 0.55, backY, -wall + 0.06] as [number, number, number], rotY: 0 };
+  });
+  // left-most first: near-left side wall, far-left side wall, back row, then right
+  return [leftB, left, ...back, right, rightB].slice(0, n);
+}
+
+// A framed poster carrying one player's live webcam, with their name on a plaque
+// beneath it. Flat and wall-mounted, so it faces the camera without billboarding
+// and its 4:3 feed needs no square crop.
+function WantedPoster({
+  slot,
+  stream,
+  name,
+  isTurn,
+}: {
+  slot: PosterSlot;
+  stream: MediaStream;
+  name: string;
+  isTurn: boolean;
+}) {
+  const tex = useStreamTexture(stream);
+  const frame = isTurn ? "#e0a955" : "#6b4a24";
+  return (
+    <group position={slot.pos} rotation={[0, slot.rotY, 0]}>
+      {/* backing board */}
+      <mesh position={[0, 0, -0.02]}>
+        <planeGeometry args={[POSTER_W + 0.14, POSTER_H + 0.42]} />
+        <meshStandardMaterial color="#e8d5a8" roughness={1} />
+      </mesh>
+      {/* WANTED header */}
+      <mesh position={[0, POSTER_H / 2 + 0.13, 0]}>
+        <planeGeometry args={[POSTER_W, 0.2]} />
+        <meshBasicMaterial map={wantedHeaderTex()} transparent toneMapped={false} />
+      </mesh>
+      {/* the live feed */}
+      {tex && (
+        <mesh>
+          <planeGeometry args={[POSTER_W, POSTER_H]} />
+          <meshBasicMaterial map={tex} toneMapped={false} />
+        </mesh>
+      )}
+      {/* frame rails around the photo — lit up while it's this player's turn */}
+      {[
+        [0, POSTER_H / 2, POSTER_W + 0.06, 0.05],
+        [0, -POSTER_H / 2, POSTER_W + 0.06, 0.05],
+      ].map(([x, y, w, h], i) => (
+        <mesh key={`h${i}`} position={[x, y, 0.01]}>
+          <planeGeometry args={[w, h]} />
+          <meshStandardMaterial color={frame} roughness={0.85} />
+        </mesh>
+      ))}
+      {[-POSTER_W / 2, POSTER_W / 2].map((x, i) => (
+        <mesh key={`v${i}`} position={[x, 0, 0.01]}>
+          <planeGeometry args={[0.05, POSTER_H + 0.05]} />
+          <meshStandardMaterial color={frame} roughness={0.85} />
+        </mesh>
+      ))}
+      {/* name plaque under the photo */}
+      <Html
+        center
+        position={[0, -POSTER_H / 2 - 0.17, 0.03]}
+        distanceFactor={7}
+        style={{ pointerEvents: "none" }}
+      >
+        <div
+          style={{
+            whiteSpace: "nowrap",
+            fontFamily: "Georgia, serif",
+            fontWeight: 700,
+            fontSize: 17,
+            letterSpacing: 0.5,
+            color: "#2f1f0c",
+            textTransform: "uppercase",
+            userSelect: "none",
+          }}
+        >
+          {name}
+        </div>
+      </Html>
+    </group>
+  );
+}
+
+// "WANTED" strip above each photo. Cached: one texture shared by every poster.
+let wantedHeaderCache: THREE.Texture | null = null;
+function wantedHeaderTex(): THREE.Texture {
+  if (wantedHeaderCache) return wantedHeaderCache;
+  const c = document.createElement("canvas");
+  c.width = 320;
+  c.height = 64;
+  const g = c.getContext("2d")!;
+  g.clearRect(0, 0, 320, 64);
+  g.fillStyle = "#2f1f0c";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.font = "bold 44px Georgia, serif";
+  g.fillText("WANTED", 160, 34);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  wantedHeaderCache = t;
+  return t;
+}
+
+// Hang one poster per player who has their camera on.
+//
+// Slots are assigned by SEAT, not by "index among those currently on camera" —
+// otherwise every join or leave would shuffle the posters to different walls and
+// you could never learn whose is whose. A player who is off camera just leaves
+// their slot empty, which reads correctly: they are not on cam.
+function WantedPosters({
+  players,
+  youSeat,
+  youId,
+  youName,
+  feeds,
+  felt,
+}: {
+  players: PlayerPublic[];
+  youSeat: number;
+  youId: string;
+  youName: string;
+  feeds?: Map<string, MediaStream>;
+  felt: number;
+}) {
+  if (!feeds || feeds.size === 0) return null;
+  const wall = (felt * 6.5) / 2 - 0.05;
+  const n = players.length;
+  // Same ordering the seats use: the player after you first, so the sequence
+  // matches how the avatars read left-to-right across the arc. You are not on the
+  // arc (you are the camera), so your slot goes on the near-left wall — the one
+  // closest to where you sit.
+  const others = players
+    .filter((p) => p.seat !== youSeat)
+    .sort((a, b) => ((a.seat - youSeat + n) % n) - ((b.seat - youSeat + n) % n));
+  const you = players.find((p) => p.seat === youSeat);
+  const ordered = [
+    { id: youId, name: youName, isTurn: !!you?.isTurn },
+    ...others.map((p) => ({ id: p.id, name: p.name, isTurn: p.isTurn })),
+  ];
+  const slots = posterSlots(felt, wall, FLOOR_Y, ordered.length);
+  return (
+    <>
+      {ordered.map((p, i) => {
+        const stream = feeds.get(p.id);
+        if (!stream || !slots[i]) return null;
+        return (
+          <WantedPoster key={p.id} slot={slots[i]} stream={stream} name={p.name} isTurn={p.isTurn} />
+        );
+      })}
+    </>
+  );
+}
+
 // The hanging oil lamp over the table: the scene's key light. It is the one thing
 // bright enough to trip Bloom's threshold, and being a point light directly above
 // the felt it also gives every figure a shadow that anchors it to the table.
@@ -776,7 +962,7 @@ function useStreamTexture(stream: MediaStream | null | undefined): THREE.VideoTe
   return tex;
 }
 
-function Avatar({ position, color, dead, sheriff, stream, ang = 0 }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean; stream?: MediaStream | null; ang?: number }) {
+function Avatar({ position, color, dead, sheriff, ang = 0 }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean; ang?: number }) {
   const shoulderY = 0.42; // torso top, just above the table rim (y=0)
   // Torso stops just under the table rim and a barrel carries it down to the floor.
   // It used to be one cone running the whole way from the shoulders to FLOOR_Y —
@@ -785,24 +971,17 @@ function Avatar({ position, color, dead, sheriff, stream, ang = 0 }: { position:
   // felt + 0.45, well outside the table body, so the entire cone was on show.
   const hipY = -0.5;
   const bodyH = shoulderY - hipY;
-  const face = useStreamTexture(dead ? null : stream);
-  // With a webcam feed the head becomes a framed portrait — and grows, because at
-  // the far seat a life-size head is only ~35px tall on screen, far too small to
-  // read a face. 2x lands around 70px.
-  const s = face ? 2 : 1;
-  const headR = 0.15 * s;
+  // Faces are NOT on the heads. A head sized to fit seven seats around a table is
+  // ~35px tall on screen, and a face needs 70-100px to read — the two demands are
+  // irreconcilable, and every fix (2x head, moved hat, billboarded disc) was a
+  // patch on that same mismatch. The webcams live on the wall posters instead,
+  // where they are rectangular, face-on, and free of body proportions.
+  const headR = 0.15;
   const headY = shoulderY + headR + 0.05; // sits just clear of the shoulders
-  // The hat is sized and placed SEPARATELY from the head. Scaling it with the
-  // portrait gave a 0.54-radius brim that dwarfed the body, and leaving it at the
-  // skull's height cut straight across the face — worse still because the camera
-  // looks down on the table, so a level brim hides far more than it would head-on.
-  // Riding just above the portrait's rim clears the line of sight: the brim's
-  // front edge sits ~0.11 below the sightline that grazes the top of the face.
-  const hatScale = face ? 1.35 : 1;
-  const brimY = face ? headY + headR + 0.01 : headY + 0.1;
+  const brimY = headY + 0.1;
   const shirt = dead ? "#4a4a4a" : color;
   const skin = dead ? "#7a7a7a" : "#e8c39a";
-  const shoulderR = face ? 0.3 : 0.25;
+  const shoulderR = 0.25;
   return (
     // Rotated so local +z points at the table centre: the arms have to reach
     // inward, which a radially symmetric cone never had to care about.
@@ -849,34 +1028,12 @@ function Avatar({ position, color, dead, sheriff, stream, ang = 0 }: { position:
           </mesh>
         </group>
       ))}
-      <group position={[0, headY, 0]}>
-        {face ? (
-          // Billboarded so the portrait squarely faces the camera. Fixed to +z it
-          // was seen at a slant and the circle foreshortened into an ellipse —
-          // and the slant differs per seat around the arc, so one static tilt
-          // could never suit them all.
-          <Billboard>
-            {/* the feed itself; `toneMapped` off so faces keep their true colour */}
-            <mesh position={[0, 0, 0.004]}>
-              <circleGeometry args={[headR, 40]} />
-              <meshBasicMaterial map={face} toneMapped={false} />
-            </mesh>
-            {/* wooden frame around the portrait */}
-            <mesh>
-              <torusGeometry args={[headR, headR * 0.055, 8, 40]} />
-              <meshStandardMaterial color="#6b4a24" roughness={0.8} />
-            </mesh>
-          </Billboard>
-        ) : (
-          <mesh castShadow>
-            <sphereGeometry args={[headR, 24, 24]} />
-            <meshStandardMaterial color={skin} roughness={0.6} />
-          </mesh>
-        )}
-      </group>
-      {/* cowboy hat: brim + crown. Stays level (not billboarded) so it reads as a
-          hat rather than a disc swivelling to follow the viewer. */}
-      <group position={[0, brimY, 0]} scale={hatScale}>
+      <mesh position={[0, headY, 0]} castShadow>
+        <sphereGeometry args={[headR, 24, 24]} />
+        <meshStandardMaterial color={skin} roughness={0.6} />
+      </mesh>
+      {/* cowboy hat: brim + crown */}
+      <group position={[0, brimY, 0]}>
         <mesh castShadow>
           <cylinderGeometry args={[0.27, 0.27, 0.02, 24]} />
           <meshStandardMaterial color="#6b4a24" roughness={0.85} />
@@ -1070,7 +1227,6 @@ function Opponents({
   onInspectPlayer,
   pickCardMode,
   onPickCard,
-  feeds,
 }: {
   players: PlayerPublic[];
   youSeat: number;
@@ -1083,7 +1239,6 @@ function Opponents({
   onInspectPlayer?: (p: PlayerPublic) => void;
   pickCardMode?: boolean;
   onPickCard?: (ownerId: string, cardId: string) => void;
-  feeds?: Map<string, MediaStream>;
 }) {
   // Order opponents by turn order relative to the viewer (the player right after
   // you first) so the seating reads the same from everyone's perspective.
@@ -1110,7 +1265,7 @@ function Opponents({
             </group>
             {p.alive && p.isTurn && <TurnArrow position={[ax, 1.75, az]} />}
             {p.alive ? (
-              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} stream={feeds?.get(p.id) ?? null} ang={ang} />
+              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} ang={ang} />
             ) : (
               <Tombstone position={[ax, FLOOR_Y, az]} />
             )}
@@ -1413,7 +1568,9 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} feeds={feeds} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
+      {/* live webcams, hung on the walls as WANTED posters */}
+      <WantedPosters players={view.players} youSeat={view.you.seat} youId={view.you.id} youName={view.you.name} feeds={feeds} felt={felt} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
       {/* cards drawn into your hand fly out of the deck toward you */}

@@ -356,7 +356,7 @@ export default function RoomPage() {
       <Header code={code} copied={copied} onCopy={copyCode} />
       {error && <p className="err">{tError(locale, error)}</p>}
 
-      <VideoChat code={code} onFeeds={setFeeds} />
+      <VideoChat code={code} selfPlayerId={view.you.id} onFeeds={setFeeds} />
 
       {view.phase === "lobby" && <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} />}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}

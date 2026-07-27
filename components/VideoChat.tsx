@@ -36,34 +36,28 @@ interface Tile {
   stream: MediaStream | null;
 }
 
-// Small <video> wrapper that binds a MediaStream via ref (srcObject can't be set
-// declaratively as an attribute).
-function VideoTile({ stream, name, muted, mirror }: { stream: MediaStream | null; name: string; muted?: boolean; mirror?: boolean }) {
-  const ref = useRef<HTMLVideoElement>(null);
+// The video now lives on the WANTED posters in the 3D scene, so nothing here is
+// on screen — but a peer's VOICE has to keep coming out of somewhere. It used to
+// come out of the visible tiles; the texture elements in TableScene are all
+// `muted` (they must be, or every voice would double), so without this the call
+// would go silent the moment the tiles were removed.
+//
+// Audio-only sink: no width/height, never painted, just plays.
+function AudioSink({ stream }: { stream: MediaStream | null }) {
+  const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream;
   }, [stream]);
-  return (
-    <div style={{ position: "relative", width: 132, height: 99, borderRadius: 10, overflow: "hidden", background: "#1a1410", border: "1px solid #3a2f22", flex: "0 0 auto" }}>
-      <video
-        ref={ref}
-        autoPlay
-        playsInline
-        muted={muted}
-        style={{ width: "100%", height: "100%", objectFit: "cover", transform: mirror ? "scaleX(-1)" : undefined }}
-      />
-      <span style={{ position: "absolute", left: 4, bottom: 3, right: 4, fontSize: "0.7rem", color: "#f4e9d6", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        {name}
-      </span>
-    </div>
-  );
+  return <audio ref={ref} autoPlay playsInline />;
 }
 
 export default function VideoChat({
   code,
+  selfPlayerId,
   onFeeds,
 }: {
   code: string;
+  selfPlayerId?: string; // your seat id, so your own feed gets a poster too
   // Publishes `playerId -> stream` upward so the 3D table can paint each feed
   // onto the matching seat. This component stays the sole owner of the peer
   // connections; it only shares the resulting streams.
@@ -250,25 +244,25 @@ export default function VideoChat({
 
   // Hand the seat-keyed feeds to the parent whenever they change. Peers whose
   // identity hasn't arrived yet (playerId "") are skipped rather than guessed.
+  // Your own stream goes in too, so your own poster hangs on the wall like
+  // everyone else's.
   useEffect(() => {
     if (!onFeeds) return;
     const m = new Map<string, MediaStream>();
+    if (selfPlayerId && localStream) m.set(selfPlayerId, localStream);
     for (const t of tiles) if (t.playerId && t.stream) m.set(t.playerId, t.stream);
     onFeeds(m);
-  }, [tiles, onFeeds]);
+  }, [tiles, onFeeds, selfPlayerId, localStream]);
 
   const btn: React.CSSProperties = { width: "auto", padding: "6px 10px", fontSize: "0.85rem" };
 
   return (
     <div style={{ position: "fixed", left: 12, bottom: 12, zIndex: 45, display: "flex", flexDirection: "column", gap: 8, maxWidth: "min(72vw, 640px)" }}>
-      {active && (
-        <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: 6, background: "rgba(20,16,12,0.72)", borderRadius: 12, backdropFilter: "blur(4px)" }}>
-          <VideoTile stream={localStream} name={L(locale, "Bạn", "You")} muted mirror />
-          {tiles.map((t) => (
-            <VideoTile key={t.id} stream={t.stream} name={t.name} />
-          ))}
-        </div>
-      )}
+      {/* Voice only — the picture is on the posters. Your own stream is never
+          sunk here: hearing yourself back is a feedback loop. */}
+      {tiles.map((t) => (
+        <AudioSink key={t.id} stream={t.stream} />
+      ))}
 
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         {!active ? (
