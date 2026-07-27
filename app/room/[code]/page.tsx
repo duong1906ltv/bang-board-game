@@ -11,6 +11,7 @@ import { CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import { toggleMusic, setMusicVolume, getMusicVolume } from "@/lib/music";
 import { getFx, setFx, getIntroSeen, setIntroSeen } from "@/lib/prefs";
+import TurnAlert, { AlertToggle } from "@/components/TurnAlert";
 import {
   L,
   useLocale,
@@ -161,6 +162,7 @@ function SettingsMenu({ fx, onToggleFx }: { fx: boolean; onToggleFx: () => void 
                 "Lamp bloom + vignette around the table. Turn off if the game runs slow."
               )}
             </div>
+            <AlertToggle />
           </div>
         </>,
         document.body
@@ -362,6 +364,9 @@ export default function RoomPage() {
       {error && <p className="err">{tError(locale, error)}</p>}
 
       <VideoChat code={code} selfPlayerId={view.you.id} onFeeds={setFeeds} />
+      {/* gọi bạn về khi tới lượt / phải phản ứng, lúc đang ở tab khác */}
+      <TurnAlert view={view} />
+
       {view.phase === "lobby" && (
         <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} onSetEventLevel={setEventLevel} />
       )}

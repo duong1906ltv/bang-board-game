@@ -357,15 +357,9 @@ function Barrel({ position }: { position: [number, number, number] }) {
 // piano, and a few barrels in the background. Sizes scale with the table.
 function Saloon({ felt }: { felt: number }) {
   const floorTex = useMemo(plankTexture, []);
-  const posterTex = useMemo(posterTexture, []);
-  const ronaldoTex = useMemo(ronaldoTexture, []);
   const signTex = useMemo(signTexture, []);
-  const ronaldoImg = useImageTexture(RONALDO_IMG); // real photo if available
   // Free the canvas-backed textures when the scene unmounts (r3f doesn't).
-  useEffect(
-    () => () => [floorTex, posterTex, ronaldoTex, signTex].forEach((t) => t.dispose()),
-    [floorTex, posterTex, ronaldoTex, signTex]
-  );
+  useEffect(() => () => [floorTex, signTex].forEach((t) => t.dispose()), [floorTex, signTex]);
   const roomW = felt * 6.5;
   const roomH = 7;
   const floorY = FLOOR_Y;
@@ -388,19 +382,11 @@ function Saloon({ felt }: { felt: number }) {
         <planeGeometry args={[roomW, roomW]} />
         <meshStandardMaterial map={floorTex} roughness={1} />
       </mesh>
-      {/* WANTED posters spread wide on the back wall, lowered to eye level */}
-      {[-wall * 0.62, wall * 0.62].map((x, i) => (
-        <mesh key={i} position={[x, floorY + 1.9, -wall + 0.02]}>
-          <planeGeometry args={[1, 1.4]} />
-          <meshStandardMaterial map={posterTex} roughness={1} />
-        </mesh>
-      ))}
-      {/* Ronaldo poster, centred (real photo if public/ronaldo.jpg exists,
-          otherwise the drawn tribute) */}
-      <mesh position={[0, floorY + 1.95, -wall + 0.02]}>
-        <planeGeometry args={[1.15, 1.6]} />
-        <meshStandardMaterial map={ronaldoImg ?? ronaldoTex} roughness={1} />
-      </mesh>
+      {/* The back wall is deliberately bare: it is now the players' poster wall
+          (see WantedPosters). The three decorative sheets that used to hang here —
+          two WANTED sheets at ±0.62·wall and the Ronaldo tribute in the middle —
+          were removed, which is what lets the player posters run right across the
+          wall evenly and roughly twice as large. */}
       {/* ── wall decor ─────────────────────────────────────────────── */}
       {/* back wall: carved SALOON sign above the posters + lucky horseshoes */}
       <mesh position={[0, floorY + 3.5, -wall + 0.03]}>
@@ -608,14 +594,17 @@ function Table({ felt }: { felt: number }) {
 
 // ─── Webcam WANTED posters ───────────────────────────────────────────────────
 //
-// Where the seats sit relative to the camera decides everything here. With the
-// camera pitched ~35° down and a 55° vertical fov, the top of frame at the BACK
-// wall lands at y≈1.41 while avatar heads reach ~0.8 — a clear band barely half a
-// unit tall, and the middle of it is screened by the figures themselves. The SIDE
-// walls are closer to the camera (horizontal distance ~9.2 vs 12.3), so their top
-// of frame is higher (y≈1.80), and no avatar ever reaches out to x=±wall to block
-// them. So the outermost slots go on the side walls, where posters are both
-// biggest and never occluded, and the middle ones fill the back wall.
+// Placement is dictated by what the fixed camera can actually see, which is much
+// less wall than it looks. Two constraints, both measured rather than eyeballed:
+//
+//  - Vertically: pitched ~35° down with a 55° vertical fov, the top of frame at the
+//    back wall lands at y≈1.41, and avatar heads reach ~0.8. So posters live in a
+//    thin band and want to be as high in it as they can get.
+//  - Horizontally: the back wall is nearly face-on and almost all of it is in frame,
+//    but the side walls recede from the camera and leave frame quickly — only their
+//    back-corner stretch is visible at all (see posterSlots).
+//
+// Hence: mostly back wall, one poster tucked into each back corner.
 const POSTER_W = 1.15;
 const POSTER_H = 1.5;
 
@@ -625,24 +614,35 @@ interface PosterSlot {
   rotY: number;
 }
 
-// Slots ordered LEFT → RIGHT as seen on screen, so slot order can be matched to
-// the on-screen order of the seats and the eye can pair a poster with a person.
+// Back-wall x positions as a fraction of `wall`, left → right. These dodge what is
+// already hanging there: the Ronaldo poster spans x ∈ [-0.58, 0.58] and the two
+// decorative WANTED sheets sit at ±0.62·wall, so with a 1.29-wide poster the centre
+// band |x| < 1.25 and the bands |x| ∈ [3.99, 6.27] are unusable.
+const BACK_X = [-0.85, -0.41, -0.22, 0.22, 0.41, 0.85];
+
+// Slots ordered LEFT → RIGHT as seen on screen, so slot order matches the on-screen
+// order of the seats and the eye can pair a poster with a person.
+//
+// The side walls take only ONE slot each, hard against the back corner. A side wall
+// runs away from the camera, so it leaves frame fast: at x = ±wall the angle off the
+// view axis is atan(wall / (camZ - z)), which must stay under the ~42.8° half-width
+// of a 16:9 frame — so only z < camZ - 1.08·wall is visible at all. Anything nearer
+// the camera than that is simply off screen.
 function posterSlots(felt: number, wall: number, floorY: number, n: number): PosterSlot[] {
-  const sideY = floorY + 2.05; // side walls have headroom; sit them higher
+  const sideY = floorY + 2.0;
   const backY = floorY + 1.62;
-  const left: PosterSlot = { pos: [-wall + 0.06, sideY, -felt * 0.15], rotY: Math.PI / 2 };
-  const right: PosterSlot = { pos: [wall - 0.06, sideY, -felt * 0.15], rotY: -Math.PI / 2 };
-  const leftB: PosterSlot = { pos: [-wall + 0.06, sideY, felt * 0.95], rotY: Math.PI / 2 };
-  const rightB: PosterSlot = { pos: [wall - 0.06, sideY, felt * 0.95], rotY: -Math.PI / 2 };
-  // Back-wall slots spread evenly, skipping the middle where the Ronaldo poster
-  // and the SALOON sign already hang.
-  const backCount = Math.max(0, n - 4);
-  const back: PosterSlot[] = Array.from({ length: backCount }, (_, i) => {
-    const t = backCount === 1 ? 0.5 : i / (backCount - 1);
-    return { pos: [(t * 2 - 1) * wall * 0.55, backY, -wall + 0.06] as [number, number, number], rotY: 0 };
-  });
-  // left-most first: near-left side wall, far-left side wall, back row, then right
-  return [leftB, left, ...back, right, rightB].slice(0, n);
+  const sideZ = -wall + 0.9; // in the back corner, the only in-frame stretch
+  const sideL: PosterSlot = { pos: [-wall + 0.06, sideY, sideZ], rotY: Math.PI / 2 };
+  const sideR: PosterSlot = { pos: [wall - 0.06, sideY, sideZ], rotY: -Math.PI / 2 };
+  const back: PosterSlot[] = BACK_X.map((f) => ({
+    pos: [f * wall, backY, -wall + 0.06] as [number, number, number],
+    rotY: 0,
+  }));
+  // Eight slots in all; take a centred run of n so a small table stays symmetric
+  // instead of bunching to one side.
+  const all = [sideL, ...back, sideR];
+  const start = Math.max(0, Math.floor((all.length - n) / 2));
+  return all.slice(start, start + n);
 }
 
 // A framed poster carrying one player's live webcam, with their name on a plaque
@@ -655,11 +655,13 @@ function WantedPoster({
   isTurn,
 }: {
   slot: PosterSlot;
-  stream: MediaStream;
+  stream?: MediaStream | null;
   name: string;
   isTurn: boolean;
 }) {
-  const tex = useStreamTexture(stream);
+  const live = useStreamTexture(stream);
+  // Falls back to the drawn mugshot so the slot is never an empty frame.
+  const tex = live ?? noCamTex();
   const frame = isTurn ? "#e0a955" : "#6b4a24";
   return (
     <group position={slot.pos} rotation={[0, slot.rotY, 0]}>
@@ -673,13 +675,17 @@ function WantedPoster({
         <planeGeometry args={[POSTER_W, 0.2]} />
         <meshBasicMaterial map={wantedHeaderTex()} transparent toneMapped={false} />
       </mesh>
-      {/* the live feed */}
-      {tex && (
-        <mesh>
-          <planeGeometry args={[POSTER_W, POSTER_H]} />
+      {/* the photo: live feed, or the drawn mugshot until the camera comes on.
+          `toneMapped` off only for a live feed — the sketch should sit in the
+          scene's lighting like the paper it's printed on. */}
+      <mesh>
+        <planeGeometry args={[POSTER_W, POSTER_H]} />
+        {live ? (
           <meshBasicMaterial map={tex} toneMapped={false} />
-        </mesh>
-      )}
+        ) : (
+          <meshStandardMaterial map={tex} roughness={1} />
+        )}
+      </mesh>
       {/* frame rails around the photo — lit up while it's this player's turn */}
       {[
         [0, POSTER_H / 2, POSTER_W + 0.06, 0.05],
@@ -722,6 +728,48 @@ function WantedPoster({
   );
 }
 
+// Stand-in for a player who hasn't turned their camera on: the classic drawn
+// mugshot. Every slot is filled from the moment the game starts, so the wall reads
+// as a complete set of suspects and a poster appearing is never a layout shift —
+// the picture simply changes from sketch to live feed. Cached and shared.
+let noCamCache: THREE.Texture | null = null;
+function noCamTex(): THREE.Texture {
+  if (noCamCache) return noCamCache;
+  const W = 320;
+  const H = 420;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d")!;
+  // aged paper
+  g.fillStyle = "#ddc79a";
+  g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 2600; i++) {
+    g.fillStyle = Math.random() > 0.5 ? "rgba(120,90,50,0.05)" : "rgba(255,240,200,0.05)";
+    g.fillRect(Math.random() * W, Math.random() * H, 2.5, 2.5);
+  }
+  // bust silhouette
+  g.fillStyle = "#8a6c47";
+  g.beginPath();
+  g.arc(W / 2, H * 0.42, W * 0.19, 0, Math.PI * 2); // head
+  g.fill();
+  g.beginPath();
+  g.moveTo(W * 0.16, H);
+  g.quadraticCurveTo(W * 0.5, H * 0.56, W * 0.84, H); // shoulders
+  g.closePath();
+  g.fill();
+  // hat over the silhouette so it still reads western
+  g.fillStyle = "#6b5030";
+  g.beginPath();
+  g.ellipse(W / 2, H * 0.29, W * 0.31, H * 0.035, 0, 0, Math.PI * 2);
+  g.fill();
+  g.fillRect(W * 0.34, H * 0.2, W * 0.32, H * 0.09);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  noCamCache = t;
+  return t;
+}
+
 // "WANTED" strip above each photo. Cached: one texture shared by every poster.
 let wantedHeaderCache: THREE.Texture | null = null;
 function wantedHeaderTex(): THREE.Texture {
@@ -742,12 +790,13 @@ function wantedHeaderTex(): THREE.Texture {
   return t;
 }
 
-// Hang one poster per player who has their camera on.
+// One poster per player, ALWAYS — the whole table's worth of suspects hangs on the
+// wall from the start, showing a drawn mugshot until that player's camera comes on.
 //
-// Slots are assigned by SEAT, not by "index among those currently on camera" —
-// otherwise every join or leave would shuffle the posters to different walls and
-// you could never learn whose is whose. A player who is off camera just leaves
-// their slot empty, which reads correctly: they are not on cam.
+// Slots are assigned by SEAT, not by "index among those currently on camera".
+// Assigning by the latter would shuffle every poster to a different wall each time
+// somebody joined or left the call, so you could never learn whose is whose; with
+// fixed slots, turning a camera on only swaps that one picture.
 function WantedPosters({
   players,
   youSeat,
@@ -763,7 +812,6 @@ function WantedPosters({
   feeds?: Map<string, MediaStream>;
   felt: number;
 }) {
-  if (!feeds || feeds.size === 0) return null;
   const wall = (felt * 6.5) / 2 - 0.05;
   const n = players.length;
   // Same ordering the seats use: the player after you first, so the sequence
@@ -781,13 +829,17 @@ function WantedPosters({
   const slots = posterSlots(felt, wall, FLOOR_Y, ordered.length);
   return (
     <>
-      {ordered.map((p, i) => {
-        const stream = feeds.get(p.id);
-        if (!stream || !slots[i]) return null;
-        return (
-          <WantedPoster key={p.id} slot={slots[i]} stream={stream} name={p.name} isTurn={p.isTurn} />
-        );
-      })}
+      {ordered.map((p, i) =>
+        slots[i] ? (
+          <WantedPoster
+            key={p.id}
+            slot={slots[i]}
+            stream={feeds?.get(p.id) ?? null}
+            name={p.name}
+            isTurn={p.isTurn}
+          />
+        ) : null
+      )}
     </>
   );
 }

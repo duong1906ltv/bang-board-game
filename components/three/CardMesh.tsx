@@ -6,7 +6,15 @@
 // cards show a simple card-back pattern.
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { Card, CARD_DEF_BY_ID, CARD_ICON, CARD_IMAGE, SUIT_SYMBOL, rankLabel } from "@/lib/cards";
+import {
+  Card,
+  CARD_DEF_BY_ID,
+  CARD_ICON,
+  SUIT_SYMBOL,
+  cardArtFillsPanel,
+  cardArtSources,
+  rankLabel,
+} from "@/lib/cards";
 
 // Poker-ish aspect ratio, in world units.
 export const CARD_W = 0.63;
@@ -31,59 +39,117 @@ function drawFace(card: Card): THREE.CanvasTexture {
   const def = CARD_DEF_BY_ID[card.defId];
   const red = card.suit === "hearts" || card.suit === "diamonds";
 
-  // Card body (matches the 2D PlayingCard: neutral outer edge + inner kind ring).
-  ctx.fillStyle = "#fdf9ef";
-  roundRect(ctx, 4, 4, W - 8, H - 8, 22);
+  // Card body — same construction as the 2D PlayingCard: a wooden frame with a
+  // screw in each corner holding an aged-parchment insert ringed by the kind
+  // colour.
+  const wood = ctx.createLinearGradient(0, 0, W, H);
+  wood.addColorStop(0, "#8a5c2c");
+  wood.addColorStop(0.55, "#55381a");
+  wood.addColorStop(1, "#6b471f");
+  ctx.fillStyle = wood;
+  roundRect(ctx, 2, 2, W - 4, H - 4, 22);
   ctx.fill();
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = "#d8c49a";
-  roundRect(ctx, 4, 4, W - 8, H - 8, 22);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#33200e";
+  roundRect(ctx, 2, 2, W - 4, H - 4, 22);
   ctx.stroke();
-  ctx.lineWidth = 5;
+  for (const [sx, sy] of [[16, 16], [W - 16, 16], [16, H - 16], [W - 16, H - 16]]) {
+    ctx.beginPath();
+    ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+    ctx.fillStyle = "#3a2410";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = "#e8d6ae";
+    ctx.fill();
+  }
+
+  const parch = ctx.createLinearGradient(0, PARCH_Y, 0, H - PARCH_Y);
+  parch.addColorStop(0, "#f7ebcf");
+  parch.addColorStop(0.65, "#ecdcb4");
+  parch.addColorStop(1, "#dfcb9f");
+  ctx.fillStyle = parch;
+  roundRect(ctx, PARCH_X, PARCH_Y, W - PARCH_X * 2, H - PARCH_Y * 2, 9);
+  ctx.fill();
+  ctx.lineWidth = 3;
   ctx.strokeStyle = KIND_BORDER[def?.kind ?? "brown"];
-  roundRect(ctx, 13, 13, W - 26, H - 26, 15);
+  roundRect(ctx, PARCH_X, PARCH_Y, W - PARCH_X * 2, H - PARCH_Y * 2, 9);
   ctx.stroke();
 
-  // Name at the top.
-  ctx.fillStyle = "#3a2a15";
-  ctx.font = "bold 30px system-ui, sans-serif";
+  // Name at the top, engraved serif to match the 2D face.
+  ctx.fillStyle = "#46290d";
+  ctx.font = "bold 29px Georgia, 'Times New Roman', serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.fillText(card.name, W / 2, 26);
+  ctx.fillText(card.name.toUpperCase(), W / 2, PARCH_Y + 12, W - PARCH_X * 2 - 16);
+  ctx.strokeStyle = "rgba(112,76,32,0.35)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(PARCH_X + 8, PARCH_Y + 48);
+  ctx.lineTo(W - PARCH_X - 8, PARCH_Y + 48);
+  ctx.stroke();
 
   // Rank + suit — only at the bottom-left (like the real card).
   ctx.fillStyle = red ? "#c0392b" : "#1c2733";
   ctx.font = "bold 32px system-ui, sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "bottom";
-  ctx.fillText(`${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`, 22, H - 22);
+  ctx.fillText(`${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`, PARCH_X + 10, H - PARCH_Y - 10);
 
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 8;
 
-  // Center art: prefer the SAME SVG illustration the 2D <PlayingCard> uses so a
-  // card looks identical in hand and on the table. It decodes async, so draw it
-  // when ready and flag the texture for re-upload; fall back to the emoji icon
-  // for cards that have no art yet.
-  const art = CARD_IMAGE[card.defId];
-  if (art) {
-    const img = new Image();
-    img.onload = () => {
-      const boxX = 26, boxY = 92, boxW = W - 52, boxH = 196;
-      const scale = Math.min(boxW / img.width, boxH / img.height);
-      const dw = img.width * scale, dh = img.height * scale;
-      ctx.drawImage(img, W / 2 - dw / 2, boxY + (boxH - dh) / 2, dw, dh);
-      tex.needsUpdate = true;
-    };
-    img.src = art;
-  } else {
-    ctx.font = `120px ${EMOJI_FONT}`;
+  // Center art: the SAME sources the 2D <PlayingCard> uses so a card looks
+  // identical in hand and on the table — illustration first, then our vector
+  // art, then the emoji icon. Images decode async, so draw when ready and flag
+  // the texture for re-upload.
+  const boxX = PARCH_X + 8, boxY = PARCH_Y + 56;
+  const boxW = W - (PARCH_X + 8) * 2, boxH = 196;
+  ctx.fillStyle = "#e7d6b0";
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(74,48,22,0.45)";
+  ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+  const drawEmoji = () => {
+    ctx.font = `110px ${EMOJI_FONT}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, H / 2);
-  }
+    ctx.fillStyle = "#2a2114";
+    ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, boxY + boxH / 2);
+    tex.needsUpdate = true;
+  };
+
+  const sources = cardArtSources(card.defId);
+  const tryFrom = (i: number) => {
+    if (i >= sources.length) return drawEmoji();
+    const src = sources[i];
+    const img = new Image();
+    img.onload = () => {
+      // Pre-padded illustrations fill the panel (only padding is cropped);
+      // vector art is letterboxed.
+      const scale = cardArtFillsPanel(src)
+        ? Math.max(boxW / img.width, boxH / img.height)
+        : Math.min(boxW / img.width, boxH / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(boxX, boxY, boxW, boxH);
+      ctx.clip();
+      ctx.drawImage(img, boxX + (boxW - dw) / 2, boxY + (boxH - dh) / 2, dw, dh);
+      ctx.restore();
+      tex.needsUpdate = true;
+    };
+    img.onerror = () => tryFrom(i + 1);
+    img.src = src;
+  };
+  tryFrom(0);
   return tex;
 }
+
+// Wooden-frame inset: where the parchment insert starts on the 256×358 face.
+const PARCH_X = 20;
+const PARCH_Y = 20;
 
 function drawBack(): THREE.CanvasTexture {
   const c = document.createElement("canvas");

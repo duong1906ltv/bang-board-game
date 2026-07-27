@@ -771,50 +771,93 @@ button.danger {
 }
 
 /* ─── Playing card face ───────────────────────────────────────────────────── */
-/* Name on top (large), art in the middle, description below, and a single
-   suit+rank corner at the bottom-left. The full border takes the card's kind
-   colour (brown / blue / grey gun). */
+/* Built like the physical card: a dark wooden frame with a screw in each corner
+   holding an aged-parchment insert. Inside, the name on top (serif, engraved),
+   the art panel in the middle, the effect text below, and a single suit+rank
+   corner at the bottom-left. The card's kind (brown / blue / grey gun) tints
+   the ring around the parchment. */
 .pcard {
   position: relative;
-  background: linear-gradient(160deg, #fdf6e3, #f0e2c0);
   color: #2a2114;
-  border-radius: 9px;
-  /* neutral outer edge; the kind colour is an inner accent ring instead */
-  border: 2px solid #d8c49a;
-  box-shadow: inset 0 0 0 2px var(--pc-accent, #a0672f), 0 2px 6px rgba(0, 0, 0, 0.35);
+  border-radius: 10px;
+  /* Wooden frame + the four corner screws, drawn as backgrounds so the face
+     needs no extra elements. */
+  background-image:
+    radial-gradient(circle, #e8d6ae 0 1.1px, #3a2410 1.4px 2.3px, rgba(0, 0, 0, 0) 2.5px),
+    radial-gradient(circle, #e8d6ae 0 1.1px, #3a2410 1.4px 2.3px, rgba(0, 0, 0, 0) 2.5px),
+    radial-gradient(circle, #e8d6ae 0 1.1px, #3a2410 1.4px 2.3px, rgba(0, 0, 0, 0) 2.5px),
+    radial-gradient(circle, #e8d6ae 0 1.1px, #3a2410 1.4px 2.3px, rgba(0, 0, 0, 0) 2.5px),
+    repeating-linear-gradient(96deg, rgba(255, 255, 255, 0.045) 0 2px, rgba(0, 0, 0, 0.05) 2px 5px),
+    linear-gradient(155deg, #8a5c2c, #55381a 55%, #6b471f);
+  background-repeat: no-repeat;
+  /* Every entry needs the 4-value form: one 3-value entry invalidates the whole
+     list and all four screws pile up in the top-left corner. */
+  background-position:
+    left 2px top 2px, right 2px top 2px, left 2px bottom 2px, right 2px bottom 2px,
+    left top, left top;
+  background-size: 7px 7px, 7px 7px, 7px 7px, 7px 7px, auto, auto;
+  border: 1px solid #33200e;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 226, 178, 0.28);
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
   overflow: hidden;
   user-select: none;
   flex: 0 0 auto;
-  padding: 4px;
 }
-.pcard-md { width: 104px; height: 150px; }
-.pcard-sm { width: 72px; height: 104px; }
+.pcard-md { width: 104px; height: 150px; padding: 7px; }
+.pcard-sm { width: 72px; height: 104px; padding: 5px; }
 .pc-brown { --pc-accent: #a06a2c; }
 .pc-blue { --pc-accent: #3b82f6; }
 .pc-gun { --pc-accent: #8a8f98; }
 .pc-character { --pc-accent: #a855f7; }
-.pc-red .pc-corner { color: #d12f2f; }
-.pc-black .pc-corner { color: #222; }
+.pc-red .pc-corner { color: #c0392b; }
+.pc-black .pc-corner { color: #241a10; }
 
-/* Card name — big, at the top */
-.pc-name {
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  text-align: center;
-  line-height: 1;
-  padding: 2px 2px 3px;
-  color: #3a2a15;
+/* The parchment insert held by the frame. */
+.pc-frame {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border-radius: 3px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, #fdf5e0, rgba(253, 245, 224, 0) 70%),
+    linear-gradient(165deg, #f7ebcf, #ecdcb4 65%, #dfcb9f);
+  box-shadow:
+    inset 0 0 0 1px var(--pc-accent, #a0672f),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.35),
+    inset 0 0 12px rgba(139, 96, 42, 0.3);
   overflow: hidden;
+}
+.pcard-md .pc-frame { padding: 3px; }
+.pcard-sm .pc-frame { padding: 2px; }
+
+/* Card name — engraved serif banner at the top */
+.pc-name {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  text-align: center;
+  line-height: 1.02;
+  padding: 1px 1px 2px;
+  color: #46290d;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+  border-bottom: 1px solid rgba(112, 76, 32, 0.35);
+  margin-bottom: 2px;
+  overflow: hidden;
+  /* Long single-word names (Winchester, Remington) must break rather than be
+     cut off mid-word by the clamp. */
+  overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.pcard-md .pc-name { font-size: 0.7rem; }
-.pcard-sm .pc-name { font-size: 0.58rem; -webkit-line-clamp: 2; }
+.pcard-md .pc-name { font-size: 0.66rem; }
+.pcard-sm .pc-name { font-size: 0.55rem; }
+.pcard-md .pc-name-long { font-size: 0.55rem; letter-spacing: 0; }
+.pcard-sm .pc-name-long { font-size: 0.46rem; letter-spacing: 0; }
 
 .pc-center {
   position: relative;
@@ -824,7 +867,9 @@ button.danger {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #efe2c2, #e4d3ad);
+  box-shadow: inset 0 0 0 1px rgba(74, 48, 22, 0.45);
   overflow: hidden;
 }
 .pc-art {
@@ -837,6 +882,8 @@ button.danger {
   -webkit-user-drag: none;
   user-select: none;
 }
+/* Pre-padded illustrations fill the panel; only their padding gets cropped. */
+.pc-art-full { object-fit: cover; }
 .pc-icon {
   pointer-events: none;
   user-select: none;
@@ -847,22 +894,23 @@ button.danger {
 /* Description — smaller text below the art */
 .pc-desc {
   text-align: center;
-  line-height: 1.12;
-  padding: 3px 2px 2px;
-  color: #5a4426;
+  line-height: 1.14;
+  padding: 3px 1px 1px;
+  color: #5b4123;
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
 }
-.pcard-md .pc-desc { font-size: 0.52rem; -webkit-line-clamp: 5; }
+.pcard-md .pc-desc { font-size: 0.5rem; -webkit-line-clamp: 4; }
 .pcard-sm .pc-desc { display: none; }
 
 /* Suit + rank — only at the bottom-left */
 .pc-corner {
   align-self: flex-start;
-  font-weight: 800;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
   line-height: 1;
-  padding: 1px 2px 2px 3px;
+  padding: 1px 2px 0 2px;
 }
 .pcard-md .pc-corner { font-size: 0.82rem; }
 .pcard-sm .pc-corner { font-size: 0.72rem; }

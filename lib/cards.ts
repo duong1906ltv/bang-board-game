@@ -5,7 +5,7 @@
 // like "2D-AD" mirrors the source and expands over the rank order
 // 2,3,…,10,J,Q,K,A (Ace high within ranges; stored as rank 1).
 
-import { CARD_ART } from "./cardArt";
+import { CARD_ART, CARD_PHOTO } from "./cardArt";
 
 export type Suit = "spades" | "hearts" | "diamonds" | "clubs";
 
@@ -156,6 +156,23 @@ export const CARD_ICON: Record<string, string> = {
 // Optional per-card artwork (data URI or path). Original SVG art lives in
 // cardArt.ts; add more entries there (or your own images) to illustrate cards.
 export const CARD_IMAGE: Record<string, string> = CARD_ART;
+
+// Illustrated art under public/cards/. Tried before CARD_IMAGE.
+export const CARD_PHOTO_IMAGE: Record<string, string> = CARD_PHOTO;
+
+// The art sources for a card, best first. Renderers walk this list and drop to
+// the next entry whenever one fails to load (missing file, decode error), so a
+// half-finished illustration set never leaves an empty card face.
+export function cardArtSources(defId: string): string[] {
+  return [CARD_PHOTO_IMAGE[defId], CARD_IMAGE[defId]].filter(Boolean) as string[];
+}
+
+// Illustrations under public/cards/ are pre-padded to roughly the art panel's
+// aspect (see scripts/import-card-art.sh), so they fill it edge to edge with no
+// visible letterbox band; the vector art (data URIs) is letterboxed instead.
+export function cardArtFillsPanel(src: string | undefined): boolean {
+  return !!src && !src.startsWith("data:");
+}
 
 // --- spec parsing ---
 

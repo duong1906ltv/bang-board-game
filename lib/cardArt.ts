@@ -61,6 +61,18 @@ const rifle = (barrel: number) =>
      <line x1='31' y1='46' x2='31' y2='51' stroke='#222' stroke-width='2'/>
    </g>`;
 
+// Illustrated (raster) card art dropped into public/cards/<defId>.png. Preferred
+// over the vector CARD_ART below when a file is present; if the file is missing
+// the <img> error path falls back to the SVG, then to the emoji icon, so an
+// unfinished set of illustrations degrades instead of breaking.
+export const CARD_PHOTO_IDS = [
+  "bang", "missed", "beer", "indians", "volcanic", "duel", "panic",
+];
+
+export const CARD_PHOTO: Record<string, string> = Object.fromEntries(
+  CARD_PHOTO_IDS.map((id) => [id, `/cards/${id}.png`])
+);
+
 export const CARD_ART: Record<string, string> = {
   // Revolver firing to the left with a muzzle flash.
   bang: svg(

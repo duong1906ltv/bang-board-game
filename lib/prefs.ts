@@ -5,6 +5,7 @@
 
 const FX_KEY = "bang:fx";
 const INTRO_KEY = "bang:intro-seen";
+const ALERT_KEY = "bang:alert";
 
 // Hiệu ứng đồ hoạ nâng cao (bloom + viền tối). Mặc định BẬT; người
 // chơi máy yếu có thể tắt trong menu Cài đặt để lấy lại FPS.
@@ -19,6 +20,22 @@ export function getFx(): boolean {
 export function setFx(on: boolean) {
   try {
     localStorage.setItem(FX_KEY, on ? "1" : "0");
+  } catch {}
+}
+
+// Gọi người chơi về khi tới lượt / phải phản ứng, lúc tab đang ẩn. Mặc định BẬT:
+// ván không có đồng hồ đếm nên một người đi mất là cả bàn đứng chờ vô hạn.
+export function getAlert(): boolean {
+  try {
+    return localStorage.getItem(ALERT_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setAlert(on: boolean) {
+  try {
+    localStorage.setItem(ALERT_KEY, on ? "1" : "0");
   } catch {}
 }
 

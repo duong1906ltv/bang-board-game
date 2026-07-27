@@ -1,10 +1,20 @@
 "use client";
 
 // A CSS playing-card face used everywhere a Bang! card is shown (hand, table,
-// General Store, Kit Carlson). No copyrighted art — a per-type emoji icon plus
-// an optional image slot (CARD_IMAGE) that can hold your own / AI-generated art.
-import { useState } from "react";
-import { Card, CARD_DEF_BY_ID, CARD_ICON, CARD_IMAGE, SUIT_SYMBOL, rankLabel } from "@/lib/cards";
+// General Store, Kit Carlson). Styled after a physical card: dark wooden frame
+// with corner screws, aged-parchment interior, art panel in the middle. Art is
+// an illustration from public/cards/ when present, else our vector art, else a
+// per-type emoji icon.
+import { useEffect, useState } from "react";
+import {
+  Card,
+  CARD_DEF_BY_ID,
+  CARD_ICON,
+  SUIT_SYMBOL,
+  cardArtFillsPanel,
+  cardArtSources,
+  rankLabel,
+} from "@/lib/cards";
 
 type Size = "sm" | "md";
 
@@ -13,6 +23,11 @@ const KIND_CLASS: Record<string, string> = {
   blue: "pc-blue",
   gun: "pc-gun",
 };
+
+// Sources that failed to load once, shared by every card face so a missing
+// illustration costs a single request for the whole session instead of one per
+// rendered copy of the card.
+const DEAD_SOURCES = new Set<string>();
 
 export function PlayingCard({
   card,
@@ -31,11 +46,23 @@ export function PlayingCard({
   title?: string;
   hideCorner?: boolean; // for synthetic cards (e.g. from the log) with no real suit/rank
 }) {
-  const [imgFailed, setImgFailed] = useState(false);
   const def = CARD_DEF_BY_ID[card.defId];
+  const [skip, setSkip] = useState(0);
+  // The same component instance can be reused for a different card (e.g. the
+  // 3D table's "active card" slot), so start the fallback chain over on change.
+  useEffect(() => setSkip(0), [card.defId]);
+
+  const sources = cardArtSources(card.defId);
+  let img: string | undefined;
+  for (let i = skip; i < sources.length; i++) {
+    if (!DEAD_SOURCES.has(sources[i])) {
+      img = sources[i];
+      break;
+    }
+  }
+
   const red = card.suit === "hearts" || card.suit === "diamonds";
   const corner = `${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`;
-  const img = imgFailed ? undefined : CARD_IMAGE[card.defId];
   const cls = [
     "pcard",
     `pcard-${size}`,
@@ -57,16 +84,30 @@ export function PlayingCard({
       draggable={false}
       onDragStart={(e) => e.preventDefault()}
     >
-      <div className="pc-name">{card.name}</div>
-      <div className="pc-center">
-        {img ? (
-          <img className="pc-art" src={img} alt="" draggable={false} onError={() => setImgFailed(true)} />
-        ) : (
-          <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
-        )}
+      <div className="pc-frame">
+        {/* Long names (Winchester, Rev. Carabine) get a smaller size so they
+            stay on one line instead of breaking mid-word. */}
+        <div className={card.name.length > 9 ? "pc-name pc-name-long" : "pc-name"}>{card.name}</div>
+        <div className="pc-center">
+          {img ? (
+            <img
+              key={img}
+              className={cardArtFillsPanel(img) ? "pc-art pc-art-full" : "pc-art"}
+              src={img}
+              alt=""
+              draggable={false}
+              onError={() => {
+                DEAD_SOURCES.add(img!);
+                setSkip(sources.indexOf(img!) + 1);
+              }}
+            />
+          ) : (
+            <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
+          )}
+        </div>
+        {def?.effect && <div className="pc-desc">{def.effect}</div>}
+        {!hideCorner && <span className="pc-corner">{corner}</span>}
       </div>
-      {def?.effect && <div className="pc-desc">{def.effect}</div>}
-      {!hideCorner && <span className="pc-corner">{corner}</span>}
     </div>
   );
 }
