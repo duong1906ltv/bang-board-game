@@ -1208,7 +1208,10 @@ function Table({
 
       <>
           {/* compact status — tap the role to see your objective */}
-          <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,18,16,0.82)", padding: "8px 12px", borderRadius: 10, color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "70vw" }}>
+          {/* One opaque slab rather than a row of translucent pills: at 0.82 alpha
+              with gaps, the WANTED poster on the wall behind showed through between
+              the badges and the whole corner read as clutter. */}
+          <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", alignItems: "center", gap: 8, background: "rgba(18,15,12,0.94)", padding: "7px 10px", borderRadius: 12, border: "1px solid rgba(120,95,60,0.6)", boxShadow: "0 6px 20px rgba(0,0,0,0.55)", color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "70vw" }}>
             {you.role && (
               <span className="role-badge" style={{ fontSize: "0.85rem", cursor: "pointer" }} onClick={showRole} title={L(locale, "Xem mục tiêu", "See objective")}>
                 {ROLE_EMOJI[you.role]} {roleLabel(locale, you.role)} ⓘ
@@ -1315,10 +1318,30 @@ function Table({
             </div>
           )}
 
-          {/* central actions, in the gap between the deck/discard piles above and
-              your own equipment cards below, so they cover neither */}
+          {/* Turn actions, docked just above your hand. They used to sit at
+              `top: 60%`, which put DOM buttons squarely on the green felt and made
+              the 3D table read as a web page with a picture of a table on it.
+              Down here they belong to the HUD, and the felt stays clear. */}
           {you.alive && isMyTurn && !aiming && (
-            <div style={{ position: "fixed", left: "50%", top: "60%", transform: "translateX(-50%)", zIndex: 55, width: 240, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div
+              style={{
+                position: "fixed",
+                left: "50%",
+                bottom: 212,
+                transform: "translateX(-50%)",
+                zIndex: 55,
+                width: 260,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                padding: 8,
+                borderRadius: 12,
+                background: "rgba(20,18,16,0.72)",
+                border: "1px solid rgba(120,95,60,0.6)",
+                boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
+                backdropFilter: "blur(3px)",
+              }}
+            >
               {you.turnPhase === "draw" ? (
                 <DrawControls you={you} onDraw={onDraw} aimJesse={() => setAiming({ id: "", defId: "jesse" })} />
               ) : (

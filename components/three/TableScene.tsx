@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, Html, Environment } from "@react-three/drei";
+import { OrbitControls, PerspectiveCamera, Html, Billboard } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { CardMesh } from "./CardMesh";
 import { PlayingCard } from "@/components/PlayingCard";
@@ -437,8 +437,6 @@ function Saloon({ felt }: { felt: number }) {
         <Piano floorY={floorY} />
       </group>
 
-      {/* sheriff star painted on the felt (large, subtle, behind the piles) */}
-      <SheriffStar radius={felt * 0.42} y={0.04} color="#b8912f" opacity={0.4} />
       {barrels.map((p, i) => (
         <Barrel key={i} position={p} />
       ))}
@@ -489,8 +487,85 @@ function layout(nOpp: number) {
   return { ring, felt, arc, camY, camZ, fov };
 }
 
+// The felt surface, drawn on a canvas instead of being a flat colour. A single
+// `meshStandardMaterial color` read as plastic clip-art; this bakes in the fibre
+// noise, a darkened rim, the inner ring and the sheriff star so the whole surface
+// is one texture (no extra ring mesh, no decal plane fighting for z).
+function feltTexture(): THREE.Texture {
+  const S = 1024;
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d")!;
+  const mid = S / 2;
+
+  // base: lit toward the middle (under the lamp), falling off to the rim
+  const grad = g.createRadialGradient(mid, mid * 0.9, S * 0.05, mid, mid, mid);
+  grad.addColorStop(0, "#2f7d47");
+  grad.addColorStop(0.55, "#246438");
+  grad.addColorStop(1, "#173f24");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+
+  // felt fibre: short strokes at random angles, half light and half dark, so the
+  // surface breaks up under the lamp instead of reading as a solid sheet
+  for (let i = 0; i < 24000; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const a = Math.random() * Math.PI;
+    const len = 1.5 + Math.random() * 3;
+    g.strokeStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.045)";
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+    g.stroke();
+  }
+
+  // sheriff star, worn into the felt rather than painted on top
+  g.save();
+  g.translate(mid, mid);
+  g.beginPath();
+  const spikes = 5;
+  const R = S * 0.2;
+  for (let i = 0; i < spikes * 2; i++) {
+    const r = i % 2 === 0 ? R : R * 0.42;
+    const a = (Math.PI / spikes) * i - Math.PI / 2;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+  }
+  g.closePath();
+  g.fillStyle = "rgba(190,150,70,0.13)";
+  g.fill();
+  g.strokeStyle = "rgba(0,0,0,0.16)";
+  g.lineWidth = 3;
+  g.stroke();
+  g.restore();
+
+  // faint betting ring
+  g.beginPath();
+  g.arc(mid, mid, S * 0.32, 0, Math.PI * 2);
+  g.strokeStyle = "rgba(0,0,0,0.18)";
+  g.lineWidth = 5;
+  g.stroke();
+
+  // darkened outer edge so the rim doesn't glow brighter than the middle
+  const rim = g.createRadialGradient(mid, mid, mid * 0.82, mid, mid, mid);
+  rim.addColorStop(0, "rgba(0,0,0,0)");
+  rim.addColorStop(1, "rgba(0,0,0,0.5)");
+  g.fillStyle = rim;
+  g.fillRect(0, 0, S, S);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 function Table({ felt }: { felt: number }) {
   const bodyR = felt + 0.12;
+  const felTex = useMemo(() => feltTexture(), []);
+  useEffect(() => () => felTex.dispose(), [felTex]);
   const legR = bodyR * 0.72;
   const legs: [number, number][] = [
     [legR, legR],
@@ -507,13 +582,13 @@ function Table({ felt }: { felt: number }) {
       </mesh>
       {/* green felt, lifted just above the body top to avoid z-fighting */}
       <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[felt, 72]} />
-        <meshStandardMaterial color="#1f6b3a" roughness={0.95} />
+        <circleGeometry args={[felt, 96]} />
+        <meshStandardMaterial map={felTex} roughness={0.98} />
       </mesh>
-      {/* darker felt inner ring for depth */}
-      <mesh position={[0, 0.031, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[felt * 0.62, felt * 0.66, 72]} />
-        <meshStandardMaterial color="#185c31" roughness={1} />
+      {/* padded leather rim around the felt */}
+      <mesh position={[0, 0.028, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[felt * 0.965, felt, 96]} />
+        <meshStandardMaterial color="#4a2c14" roughness={0.6} />
       </mesh>
       {/* legs */}
       {legs.map(([x, z], i) => (
@@ -531,32 +606,81 @@ function Table({ felt }: { felt: number }) {
   );
 }
 
+// The hanging oil lamp over the table: the scene's key light. It is the one thing
+// bright enough to trip Bloom's threshold, and being a point light directly above
+// the felt it also gives every figure a shadow that anchors it to the table.
+function TableLamp({ felt }: { felt: number }) {
+  const y = 2.55;
+  return (
+    <group position={[0, y, 0]}>
+      {/* chain up to the ceiling */}
+      <mesh position={[0, 0.75, 0]}>
+        <cylinderGeometry args={[0.012, 0.012, 1.5, 6]} />
+        <meshStandardMaterial color="#2b2b2e" metalness={0.6} roughness={0.5} />
+      </mesh>
+      {/* tin shade */}
+      <mesh position={[0, 0.12, 0]} castShadow>
+        <coneGeometry args={[0.46, 0.3, 24, 1, true]} />
+        <meshStandardMaterial color="#3a2a18" roughness={0.7} metalness={0.35} side={THREE.DoubleSide} />
+      </mesh>
+      {/* the flame globe — emissive so Bloom blooms it */}
+      <mesh position={[0, -0.05, 0]}>
+        <sphereGeometry args={[0.14, 18, 18]} />
+        <meshStandardMaterial color="#fff6d8" emissive="#ffc873" emissiveIntensity={3.4} toneMapped={false} />
+      </mesh>
+      {/* Key light. `decay={1.4}` rather than a physical 2 so the far seats stay
+          lit instead of falling away into the dark. */}
+      <pointLight
+        position={[0, -0.05, 0]}
+        color="#ffd79a"
+        intensity={26}
+        distance={felt * 5}
+        decay={1.4}
+        castShadow
+        shadow-mapSize={[1024, 1024]}
+        shadow-bias={-0.0012}
+      />
+    </group>
+  );
+}
+
 function Nameplate({ p, position, onClick }: { p: PlayerPublic; position?: [number, number, number]; onClick?: () => void }) {
   return (
     <Html center position={position} distanceFactor={6} style={{ pointerEvents: onClick ? "auto" : "none" }}>
       <div
         onClick={onClick}
         title={onClick ? "Xem thông tin" : undefined}
+        /* A solid plaque, not bare white text. Floating unbacked text read as
+           unanchored and collided illegibly with the wall posters behind it. */
         style={{
           whiteSpace: "nowrap",
           textAlign: "center",
           fontFamily: "system-ui, sans-serif",
-          color: "#fff",
-          textShadow: "0 1px 3px #000",
+          color: "#f4e9d6",
           cursor: onClick ? "pointer" : "default",
           userSelect: "none",
+          padding: "5px 11px 6px",
+          borderRadius: 9,
+          background: "rgba(24,18,12,0.82)",
+          border: `1px solid ${p.isTurn ? "#e0a955" : "rgba(120,95,60,0.75)"}`,
+          boxShadow: p.isTurn
+            ? "0 0 0 2px rgba(224,169,85,0.25), 0 3px 10px rgba(0,0,0,0.5)"
+            : "0 3px 10px rgba(0,0,0,0.5)",
+          backdropFilter: "blur(2px)",
         }}
       >
-        <div style={{ fontWeight: 700, fontSize: 15 }}>
+        <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
           {p.isTurn ? "▶ " : ""}
           {p.role ? ROLE_EMOJI[p.role] + " " : ""}
           {p.name}
         </div>
-        <div style={{ fontSize: 14 }}>
+        <div style={{ fontSize: 12, letterSpacing: -1, marginTop: 1 }}>
           {"❤️".repeat(Math.max(0, p.hp))}
-          <span style={{ opacity: 0.35 }}>{"🤍".repeat(Math.max(0, p.maxHp - p.hp))}</span>
+          <span style={{ opacity: 0.3 }}>{"🤍".repeat(Math.max(0, p.maxHp - p.hp))}</span>
         </div>
-        {p.character && <div style={{ fontSize: 11, opacity: 0.85 }}>{p.character.name}</div>}
+        {p.character && (
+          <div style={{ fontSize: 10, opacity: 0.75, marginTop: 1 }}>{p.character.name}</div>
+        )}
       </div>
     </Html>
   );
@@ -652,63 +776,117 @@ function useStreamTexture(stream: MediaStream | null | undefined): THREE.VideoTe
   return tex;
 }
 
-function Avatar({ position, color, dead, sheriff, stream }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean; stream?: MediaStream | null }) {
+function Avatar({ position, color, dead, sheriff, stream, ang = 0 }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean; stream?: MediaStream | null; ang?: number }) {
   const shoulderY = 0.42; // torso top, just above the table rim (y=0)
-  const bodyH = shoulderY - FLOOR_Y;
+  // Torso stops just under the table rim and a barrel carries it down to the floor.
+  // It used to be one cone running the whole way from the shoulders to FLOOR_Y —
+  // 1.97 tall under a 0.30 head, so it read as a traffic cone, not a person. The
+  // old code assumed the table edge hid its lower half, but seats sit at
+  // felt + 0.45, well outside the table body, so the entire cone was on show.
+  const hipY = -0.5;
+  const bodyH = shoulderY - hipY;
   const face = useStreamTexture(dead ? null : stream);
   // With a webcam feed the head becomes a framed portrait — and grows, because at
   // the far seat a life-size head is only ~35px tall on screen, far too small to
-  // read a face. 2x lands around 70px while the hat still fits on top.
+  // read a face. 2x lands around 70px.
   const s = face ? 2 : 1;
   const headR = 0.15 * s;
   const headY = shoulderY + headR + 0.05; // sits just clear of the shoulders
+  // The hat is sized and placed SEPARATELY from the head. Scaling it with the
+  // portrait gave a 0.54-radius brim that dwarfed the body, and leaving it at the
+  // skull's height cut straight across the face — worse still because the camera
+  // looks down on the table, so a level brim hides far more than it would head-on.
+  // Riding just above the portrait's rim clears the line of sight: the brim's
+  // front edge sits ~0.11 below the sightline that grazes the top of the face.
+  const hatScale = face ? 1.35 : 1;
+  const brimY = face ? headY + headR + 0.01 : headY + 0.1;
+  const shirt = dead ? "#4a4a4a" : color;
+  const skin = dead ? "#7a7a7a" : "#e8c39a";
+  const shoulderR = face ? 0.3 : 0.25;
   return (
-    <group position={position}>
-      {/* torso: a slim tapered column from the floor up to the shoulders (kept
-          narrow so it doesn't spill over the felt) */}
-      <mesh position={[0, FLOOR_Y + bodyH / 2, 0]} castShadow>
-        <cylinderGeometry args={[0.16, 0.26, bodyH, 20]} />
-        <meshStandardMaterial color={dead ? "#4a4a4a" : color} roughness={0.75} />
+    // Rotated so local +z points at the table centre: the arms have to reach
+    // inward, which a radially symmetric cone never had to care about.
+    <group position={position} rotation={[0, -ang - Math.PI / 2, 0]}>
+      {/* the stool: a saloon barrel, so the figure sits on something instead of
+          tapering into thin air above the floor */}
+      <group position={[0, (FLOOR_Y + hipY) / 2 + 0.02, 0]}>
+        <mesh castShadow receiveShadow>
+          <cylinderGeometry args={[0.3, 0.27, hipY - FLOOR_Y - 0.04, 16]} />
+          <meshStandardMaterial color="#6b4626" roughness={0.9} />
+        </mesh>
+        {[-0.22, 0.22].map((y) => (
+          <mesh key={y} position={[0, y, 0]}>
+            <torusGeometry args={[0.295, 0.022, 6, 20]} />
+            <meshStandardMaterial color="#4a4a4f" metalness={0.5} roughness={0.55} />
+          </mesh>
+        ))}
+      </group>
+      {/* torso */}
+      <mesh position={[0, hipY + bodyH / 2, 0]} castShadow>
+        <cylinderGeometry args={[shoulderR * 0.8, shoulderR * 1.08, bodyH, 20]} />
+        <meshStandardMaterial color={shirt} roughness={0.8} />
       </mesh>
-      {/* Head + hat, in local coords around the head centre so one scale drives
-          the lot. The group is unrotated and world +z faces the camera, so the
-          portrait plate needs no billboarding. */}
-      <group position={[0, headY, 0]} scale={s}>
+      {/* shoulders + arms reaching in to the table edge — the silhouette cue that
+          turns a column into someone seated at a table */}
+      {[-1, 1].map((sx) => (
+        <group key={sx}>
+          <mesh position={[sx * shoulderR * 0.78, shoulderY - 0.04, 0]} castShadow>
+            <sphereGeometry args={[shoulderR * 0.42, 14, 14]} />
+            <meshStandardMaterial color={shirt} roughness={0.8} />
+          </mesh>
+          <mesh
+            position={[sx * shoulderR * 0.8, shoulderY - 0.12, 0.2]}
+            rotation={[1.16, 0, sx * 0.12]}
+            castShadow
+          >
+            <cylinderGeometry args={[shoulderR * 0.3, shoulderR * 0.26, 0.5, 12]} />
+            <meshStandardMaterial color={shirt} roughness={0.8} />
+          </mesh>
+          {/* hand resting on the felt */}
+          <mesh position={[sx * shoulderR * 0.86, shoulderY - 0.28, 0.44]} castShadow>
+            <sphereGeometry args={[shoulderR * 0.25, 12, 12]} />
+            <meshStandardMaterial color={skin} roughness={0.7} />
+          </mesh>
+        </group>
+      ))}
+      <group position={[0, headY, 0]}>
         {face ? (
-          <>
+          // Billboarded so the portrait squarely faces the camera. Fixed to +z it
+          // was seen at a slant and the circle foreshortened into an ellipse —
+          // and the slant differs per seat around the arc, so one static tilt
+          // could never suit them all.
+          <Billboard>
             {/* the feed itself; `toneMapped` off so faces keep their true colour */}
-            <mesh position={[0, 0, 0.02]}>
-              <circleGeometry args={[0.15, 40]} />
+            <mesh position={[0, 0, 0.004]}>
+              <circleGeometry args={[headR, 40]} />
               <meshBasicMaterial map={face} toneMapped={false} />
             </mesh>
             {/* wooden frame around the portrait */}
-            <mesh position={[0, 0, 0.02]}>
-              <torusGeometry args={[0.15, 0.016, 8, 40]} />
+            <mesh>
+              <torusGeometry args={[headR, headR * 0.055, 8, 40]} />
               <meshStandardMaterial color="#6b4a24" roughness={0.8} />
             </mesh>
-            {/* backing disc so the portrait isn't see-through from behind */}
-            <mesh position={[0, 0, 0.005]} rotation={[0, Math.PI, 0]}>
-              <circleGeometry args={[0.152, 40]} />
-              <meshStandardMaterial color="#3a2a18" roughness={0.9} />
-            </mesh>
-          </>
+          </Billboard>
         ) : (
           <mesh castShadow>
-            <sphereGeometry args={[0.15, 24, 24]} />
-            <meshStandardMaterial color={dead ? "#7a7a7a" : "#e8c39a"} roughness={0.6} />
+            <sphereGeometry args={[headR, 24, 24]} />
+            <meshStandardMaterial color={skin} roughness={0.6} />
           </mesh>
         )}
-        {/* cowboy hat: brim + crown */}
-        <mesh position={[0, 0.1, 0]} castShadow>
+      </group>
+      {/* cowboy hat: brim + crown. Stays level (not billboarded) so it reads as a
+          hat rather than a disc swivelling to follow the viewer. */}
+      <group position={[0, brimY, 0]} scale={hatScale}>
+        <mesh castShadow>
           <cylinderGeometry args={[0.27, 0.27, 0.02, 24]} />
           <meshStandardMaterial color="#6b4a24" roughness={0.85} />
         </mesh>
-        <mesh position={[0, 0.16, 0]} castShadow>
+        <mesh position={[0, 0.06, 0]} castShadow>
           <cylinderGeometry args={[0.13, 0.16, 0.14, 24]} />
           <meshStandardMaterial color="#5a3a1c" roughness={0.85} />
         </mesh>
         {/* Sheriff badge: a gold star pinned on top of the hat */}
-        {sheriff && <SheriffStar radius={0.1} y={0.25} color="#f5c518" />}
+        {sheriff && <SheriffStar radius={0.1} y={0.15} color="#f5c518" />}
       </group>
     </group>
   );
@@ -932,7 +1110,7 @@ function Opponents({
             </group>
             {p.alive && p.isTurn && <TurnArrow position={[ax, 1.75, az]} />}
             {p.alive ? (
-              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} stream={feeds?.get(p.id) ?? null} />
+              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} stream={feeds?.get(p.id) ?? null} ang={ang} />
             ) : (
               <Tombstone position={[ax, FLOOR_Y, az]} />
             )}
@@ -1207,11 +1385,31 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
         enableZoom={false}
         enablePan={false}
       />
-      {/* Bright, warm room lighting. */}
-      <ambientLight intensity={1.05} color="#fff2dc" />
-      <hemisphereLight args={["#fff0d0", "#4a3420", 0.85]} />
-      <directionalLight position={[3, 6, 4]} intensity={1.0} color="#fff3e0" />
-      <Environment preset="warehouse" />
+      {/* Lighting: one warm lamp over the table doing the real work, everything
+          else just lifting the shadows off black.
+          Before, ambient 1.05 + hemisphere 0.85 + directional 1.0 + a "warehouse"
+          environment lit every surface almost equally, and the directional light
+          never had castShadow — so nothing cast a shadow and the whole table read
+          as flat decals. It also left no bright spot for Bloom to catch and no
+          dark corner for the Vignette to deepen, which is why neither effect was
+          doing anything visible. */}
+      <ambientLight intensity={0.26} color="#ffeccd" />
+      <hemisphereLight args={["#ffe8c0", "#2a1c10", 0.22]} />
+      <directionalLight
+        position={[3.5, 7, 4]}
+        intensity={0.45}
+        color="#fff3e0"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-near={0.5}
+        shadow-camera-far={30}
+        shadow-camera-left={-felt * 2.4}
+        shadow-camera-right={felt * 2.4}
+        shadow-camera-top={felt * 2.4}
+        shadow-camera-bottom={-felt * 2.4}
+        shadow-bias={-0.0006}
+      />
+      <TableLamp felt={felt} />
       <Saloon felt={felt} />
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
@@ -1222,13 +1420,14 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       {/* Draw!-check reveal (any kind) over the table centre */}
       <CheckFx check={view.checks.at(-1) ?? null} felt={felt} />
-      {/* Cinematic pass: soft lamp bloom + a vignette that pulls the eye to the
-          table. Kept subtle — the felt is already brightly lit. Skipped entirely
-          when the player turns effects off (weak devices). */}
+      {/* Cinematic pass: the lamp globe blooms, the corners fall away. Threshold
+          dropped from 0.78 to 0.58 — under the old flat lighting nothing in frame
+          was bright enough to cross 0.78, so Bloom rendered no visible glow at all.
+          Skipped entirely when the player turns effects off (weak devices). */}
       {fx && (
         <EffectComposer>
-          <Bloom intensity={0.5} luminanceThreshold={0.78} luminanceSmoothing={0.3} mipmapBlur />
-          <Vignette offset={0.28} darkness={0.55} eskil={false} />
+          <Bloom intensity={0.75} luminanceThreshold={0.58} luminanceSmoothing={0.25} mipmapBlur />
+          <Vignette offset={0.22} darkness={0.68} eskil={false} />
         </EffectComposer>
       )}
     </>
