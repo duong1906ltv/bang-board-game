@@ -142,6 +142,15 @@ app.prepare().then(() => {
       broadcast(code);
     });
 
+    // Random-event frequency. Host only, and only between games: changing the
+    // density mid-game would rewrite the odds a live board was built around.
+    socket.on("setEventLevel", ({ code, level }) => {
+      if (!isHost(code, socket.id)) return;
+      const room = game.getRoom(code);
+      if (!room || room.phase === "playing") return;
+      if (game.setEventLevel(code, level)) broadcast(code);
+    });
+
     socket.on("addBot", ({ code }) => {
       if (!isHost(code, socket.id)) return; // host only
       const res = game.addBot(code);

@@ -101,6 +101,23 @@ export interface PendingView {
   waiting?: string[]; // multi: names of players who haven't reacted yet
 }
 
+// ─── Random events ───────────────────────────────────────────────────────────
+
+import type { EventLevel, EventScope, EventTrack } from "./events";
+export type { EventLevel };
+
+// One active (or just-fired) event, as shown to clients. Names/descriptions are
+// localized on the client from `id` — see lib/i18n.ts.
+export interface EventView {
+  seq: number; // monotonic: lets the client detect a NEW event to announce
+  id: string;
+  emoji: string;
+  track: EventTrack; // "turn" (only the active player) | "table" (everyone)
+  scope: EventScope;
+  turnsLeft?: number; // lasting / curse only
+  targetName?: string; // curse target
+}
+
 // ─── Views sent to clients ───────────────────────────────────────────────────
 
 export interface PlayerPublic {
@@ -160,6 +177,8 @@ export interface PlayerView {
     range: number; // how far you can Bang! (weapon range, default 1)
     canBang: boolean; // may you still play a Bang! this turn (once, or unlimited w/ Volcanic/Willy)
     playedDefsThisTurn: string[]; // house rule: card types already played this turn (each once; Bang!/guns exempt)
+    blockedDefIds: string[]; // card types you cannot play right now (house rule + events)
+    handLimit: number; // cards you may keep at end of turn (= hp, ± events)
     wins: number; // số ván bạn đã thắng trong phòng này (cộng dồn)
     rewardUrl: string | null; // link phần thưởng escape (chỉ có khi thắng đủ ngưỡng)
   };
@@ -174,20 +193,26 @@ export interface PlayerView {
   discardCount: number; // cards in the discard pile
   topDiscard: Card | null; // top card of the discard pile (for the center play area)
   log: LogEntry[]; // recent action history (oldest → newest)
+  eventLevel: EventLevel; // room setting: how often random events fire
+  events: EventView[]; // events currently in force
+  eventFeed: EventView[]; // recently fired events, oldest first — announce any `seq` you haven't shown
 }
 
 // One entry in the action history. Formatted per-locale on the client.
 export interface LogEntry {
   id: number;
-  kind: "play" | "hit" | "heal" | "death" | "draw" | "turn" | "react" | "check" | "discard" | "surrender";
+  kind:
+    | "play" | "hit" | "heal" | "death" | "draw" | "turn" | "react"
+    | "check" | "discard" | "surrender" | "event" | "skip" | "reveal";
   a?: string; // primary actor name
   b?: string; // target name
   card?: string; // card name (or the drawn card label for a check, e.g. "5♠")
   n?: number; // count (cards drawn, life points, cards discarded)
   hp?: number; // resulting HP
-  role?: Role; // revealed role (death)
+  role?: Role; // revealed role (death / reveal)
   checkKind?: string; // Draw! check type (dynamite/jail/barrel/blackjack)
   outcome?: string; // Draw! check outcome key
+  event?: string; // random-event id (kind "event" / "skip")
 }
 
 // ─── Socket.IO event payloads ────────────────────────────────────────────────
@@ -206,6 +231,7 @@ export interface ClientToServerEvents {
     cb: (res: { ok: boolean; error?: string }) => void
   ) => void;
   startGame: (data: { code: string }) => void;
+  setEventLevel: (data: { code: string; level: EventLevel }) => void; // host: random-event frequency
   addBot: (data: { code: string }) => void; // host: add an AI player (testing)
   removeBot: (data: { code: string }) => void; // host: remove the last AI player
   pickCharacter: (data: { code: string; characterId: string }) => void;

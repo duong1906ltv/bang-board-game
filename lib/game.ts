@@ -19,9 +19,23 @@ import {
   TurnPhase,
   Winner,
   LogEntry,
+  EventView,
 } from "./types";
 import { buildDeck, Card, CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL } from "./cards";
 import { buildEscapeRewardUrl } from "./escapeReward";
+import {
+  BAG_SIZE,
+  BAG_TOKENS,
+  EVENT_BY_ID,
+  EventCtx,
+  EventEffect,
+  EventLevel,
+  eligible,
+  GameEventDef,
+  mergeEffect,
+  pickWeighted,
+  TABLE_GAP,
+} from "./events";
 
 // Số ván phải THẮNG (cộng dồn trong cùng một phòng) để mở khoá phần thưởng liên game.
 const REWARD_WIN_THRESHOLD = 3;
@@ -57,6 +71,14 @@ export interface Player {
   rewardTicket?: string | null; // link thưởng escape — cấp khi thắng đủ ngưỡng (1 lần)
 }
 
+// A random event currently in force (or the one that just fired).
+interface ActiveEvent {
+  seq: number; // monotonic id, so the client can tell a NEW event from a repeat
+  defId: string; // key into EVENT_BY_ID
+  targetId?: string; // curse target
+  turnsLeft: number; // "turn" scope = 1; lasting/curse = def.turns
+}
+
 export interface Room {
   code: string;
   phase: Phase;
@@ -65,6 +87,7 @@ export interface Room {
   turnIndex: number; // index into players[] whose turn it is (playing phase)
   turnPhase: TurnPhase; // sub-phase of the current player's turn
   bangsThisTurn: number; // Bang!s played by the active player this turn
+  playsThisTurn: number; // cards played by the active player this turn (for maxPlays events)
   playedDefsThisTurn: string[]; // house rule: each card type only once per turn (Bang!/guns exempt)
   pending: Pending | null; // unresolved reaction locking the table
   winner: Winner | null; // set when the game ends
@@ -75,6 +98,25 @@ export interface Room {
   discard: Card[]; // discard pile
   log: LogEntry[]; // action history (oldest → newest, trimmed)
   logSeq: number; // monotonic id for log entries
+
+  // --- random events (see lib/events.ts) ---
+  eventLevel: EventLevel; // room setting, survives restart()
+  events: ActiveEvent[]; // in force now (turn / lasting / curse)
+  // Rolling feed of the most recently FIRED events, newest last. A single action
+  // can fire more than one (a table event at a round boundary plus that player's
+  // own turn event), so a "latest event" field would silently drop the first —
+  // clients announce every entry they haven't seen yet, by `seq`.
+  eventFeed: ActiveEvent[];
+  eventSeq: number;
+  eventBag: boolean[]; // shuffled turn-event slots (bag randomizer)
+  eventBagPos: number;
+  recentEventIds: string[]; // last few fired ids, excluded from the next pool
+  turnCounter: number; // turns begun this game (drives the opening-round immunity)
+  turnDir: 1 | -1; // play direction (the "reverse" event flips it)
+  roundStarterId: string | null; // whoever opens each round — the round boundary marker
+  roundEventDue: boolean; // a table event is queued for the next turn start
+  turnsSinceTableEvent: number;
+  revealedRoleIds: string[]; // roles made public by the "role leak" event
 }
 
 const rooms = new Map<string, Room>();
@@ -187,6 +229,7 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     turnIndex: 0,
     turnPhase: "draw",
     bangsThisTurn: 0,
+    playsThisTurn: 0,
     playedDefsThisTurn: [],
     pending: null,
     winner: null,
@@ -197,6 +240,19 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     discard: [],
     log: [],
     logSeq: 0,
+    eventLevel: "normal",
+    events: [],
+    eventFeed: [],
+    eventSeq: 0,
+    eventBag: [],
+    eventBagPos: 0,
+    recentEventIds: [],
+    turnCounter: 0,
+    turnDir: 1,
+    roundStarterId: null,
+    roundEventDue: false,
+    turnsSinceTableEvent: 0,
+    revealedRoleIds: [],
   };
   rooms.set(code, room);
   return { room, player };
@@ -372,7 +428,360 @@ function finalizeDraft(room: Room) {
   room.winner = null;
   room.pending = null;
   room.phase = "playing";
+  // Random events start from a clean slate each game; the Sheriff opens round 1
+  // and therefore marks every later round boundary.
+  resetEventState(room);
+  room.roundStarterId = room.players[room.turnIndex].id;
   beginTurn(room); // Sheriff begins (runs upkeep if they somehow have blue cards)
+}
+
+// --- random events ---------------------------------------------------------
+// Two schedulers: `rollTurnEvent` (every turn, bag randomizer, affects only the
+// active player) and `rollTableEvent` (once per round, affects everyone). Every
+// enforcement point in this file reads the merged result of `effectFor`, so
+// adding an event never means touching the engine — see lib/events.ts.
+
+// Host setting: how often events fire (persists across restart()).
+export function setEventLevel(code: string, level: EventLevel): boolean {
+  const room = rooms.get(code);
+  if (!room) return false;
+  room.eventLevel = level;
+  room.eventBag = []; // rebuild the bag at the new density
+  room.eventBagPos = 0;
+  return true;
+}
+
+// Wipe every per-game event field. `eventLevel` is a ROOM setting and survives,
+// so the host doesn't have to re-pick the frequency after every game.
+function resetEventState(room: Room) {
+  room.events = [];
+  room.eventFeed = [];
+  room.eventSeq = 0;
+  room.eventBag = [];
+  room.eventBagPos = 0;
+  room.recentEventIds = [];
+  room.turnCounter = 0;
+  room.turnDir = 1;
+  room.roundStarterId = null;
+  room.roundEventDue = false;
+  room.turnsSinceTableEvent = 0;
+  room.revealedRoleIds = [];
+}
+
+// The effects in force for `p`: every table-wide event, the current turn's event
+// (it is the "weather" of this turn, so it applies regardless of who is looking),
+// plus any curse aimed specifically at `p`.
+export function effectFor(room: Room, p?: Player | null): EventEffect {
+  const out: EventEffect = {};
+  for (const ev of room.events) {
+    const def = EVENT_BY_ID[ev.defId];
+    if (!def?.effect) continue;
+    if (def.scope === "curse" && ev.targetId !== p?.id) continue;
+    mergeEffect(out, def.effect);
+  }
+  return out;
+}
+
+// Turn-scope events end with the turn; lasting/curse events tick down once per
+// turn. `tickLasting` is separated so a turn skipped by Jail doesn't burn two
+// turns off a 3-turn sandstorm.
+function clearTurnScopeEvents(room: Room) {
+  room.events = room.events.filter((ev) => EVENT_BY_ID[ev.defId]?.scope !== "turn");
+}
+function tickLastingEvents(room: Room) {
+  room.events = room.events.filter((ev) => {
+    if (EVENT_BY_ID[ev.defId]?.scope === "turn") return true; // handled above
+    ev.turnsLeft -= 1;
+    return ev.turnsLeft > 0;
+  });
+}
+
+function aliveBySeat(room: Room): Player[] {
+  return [...room.players].sort((a, b) => a.seat - b.seat).filter((p) => p.alive);
+}
+
+// Remember the last few fired ids so the same event can't repeat back to back.
+function noteFired(room: Room, id: string) {
+  room.recentEventIds.push(id);
+  if (room.recentEventIds.length > 3) room.recentEventIds.shift();
+}
+
+// Nobody gets an event until every living player has taken one turn: an event on
+// turn 1 lands before anyone has a weapon or a full hand, which is pure bad luck
+// rather than drama.
+function eventsUnlocked(room: Room): boolean {
+  return room.eventLevel !== "off" && room.turnCounter > aliveBySeat(room).length;
+}
+
+// Draw the next slot from the bag, refilling+shuffling when exhausted.
+function nextBagSlot(room: Room): boolean {
+  const tokens = BAG_TOKENS[room.eventLevel];
+  if (tokens <= 0) return false;
+  if (room.eventBagPos >= room.eventBag.length) {
+    room.eventBag = shuffle(
+      Array.from({ length: BAG_SIZE }, (_, i) => i < tokens)
+    );
+    room.eventBagPos = 0;
+  }
+  return room.eventBag[room.eventBagPos++];
+}
+
+// Resolve a curse's victim. "other" never targets the active player, so a curse
+// always creates tension between two seats.
+function pickTarget(room: Room, def: GameEventDef, current: Player): Player | null {
+  const alive = aliveBySeat(room);
+  const others = alive.filter((p) => p.id !== current.id);
+  switch (def.target) {
+    case "current": return current;
+    case "lowestHp": return alive.slice().sort((a, b) => a.hp - b.hp)[0] ?? null;
+    case "mostCards": return alive.slice().sort((a, b) => b.hand.length - a.hand.length)[0] ?? null;
+    case "other":
+    default: return others.length ? others[Math.floor(Math.random() * others.length)] : null;
+  }
+}
+
+// Fire one event: log it, run its one-shot effect, and register any modifier.
+function fireEvent(room: Room, def: GameEventDef, current: Player) {
+  const target = def.scope === "curse" ? pickTarget(room, def, current) : null;
+  if (def.scope === "curse" && !target) return; // nobody to curse — skip the roll
+
+  const ev: ActiveEvent = {
+    seq: ++room.eventSeq,
+    defId: def.id,
+    targetId: target?.id,
+    turnsLeft: def.scope === "turn" ? 1 : def.turns ?? 1,
+  };
+  noteFired(room, def.id);
+  room.eventFeed.push(ev);
+  if (room.eventFeed.length > 8) room.eventFeed.shift();
+  pushLog(room, { kind: "event", event: def.id, a: current.name, b: target?.name });
+  // Instant events keep no modifier — they just happen.
+  if (def.scope !== "instant") room.events.push(ev);
+  if (def.onFire) def.onFire(makeCtx(room, current));
+}
+
+// Luồng A — one roll at the start of each turn, from the bag.
+function rollTurnEvent(room: Room, current: Player) {
+  if (!eventsUnlocked(room)) return;
+  if (!nextBagSlot(room)) return;
+  const pool = eligible("turn", aliveBySeat(room).length, room.recentEventIds);
+  const def = pickWeighted(pool, Math.random);
+  if (def) fireEvent(room, def, current);
+}
+
+// Luồng B — one roll per round, with a minimum turn gap so a 7-player table
+// doesn't take three table-wide events in a single lap.
+function rollTableEvent(room: Room, current: Player) {
+  if (!eventsUnlocked(room)) return;
+  if (room.turnsSinceTableEvent < TABLE_GAP[room.eventLevel]) return;
+  // Never stack two table-wide modifiers.
+  const hasLasting = room.events.some((ev) => EVENT_BY_ID[ev.defId]?.scope === "lasting");
+  let pool = eligible("table", aliveBySeat(room).length, room.recentEventIds);
+  if (hasLasting) pool = pool.filter((e) => e.scope !== "lasting");
+  const def = pickWeighted(pool, Math.random);
+  if (!def) return;
+  room.turnsSinceTableEvent = 0;
+  fireEvent(room, def, current);
+}
+
+// The narrow surface an event's `onFire` may touch. Everything that can hurt a
+// player routes through applyDamage (so Bart Cassidy, El Gringo, the death queue
+// and the win check all still fire) and event damage is UNSAVEABLE, which is what
+// keeps events fully synchronous: no event can open a reaction window.
+function makeCtx(room: Room, current: Player): EventCtx {
+  const alive = () => aliveBySeat(room);
+  const others = () => alive().filter((p) => p.id !== current.id);
+  const someOf = (from: Player[], n: number) => shuffle(from).slice(0, n);
+  const hurt = (p: Player, n: number) => {
+    if (!p.alive || room.phase !== "playing") return;
+    applyDamage(room, p, n, null, false);
+  };
+  return {
+    current,
+    alive,
+    others,
+    randomAlive: (n) => someOf(alive(), n),
+    randomOthers: (n) => someOf(others(), n),
+    lowestHp: () => alive().slice().sort((a, b) => a.hp - b.hp)[0] ?? null,
+    mostCards: () => alive().slice().sort((a, b) => b.hand.length - a.hand.length)[0] ?? null,
+
+    damage: hurt,
+    damageAll: (n, opts) => {
+      // Snapshot first: killing one player must not change who else is hit.
+      for (const p of alive()) {
+        if (opts?.onlyAbove != null && p.hp <= opts.onlyAbove) continue;
+        hurt(p, n);
+      }
+    },
+    heal: (p, n) => {
+      if (!p.alive || effectFor(room, p).noHeal) return;
+      const before = p.hp;
+      p.hp = Math.min(p.maxHp, p.hp + n);
+      if (p.hp > before) pushLog(room, { kind: "heal", a: p.name, n: p.hp - before });
+    },
+    healAll: (n) => { for (const p of alive()) makeCtx(room, current).heal(p, n); },
+    draw: (p, n) => {
+      let got = 0;
+      for (let i = 0; i < n; i++) {
+        const c = drawOne(room);
+        if (c) { p.hand.push(c); got++; }
+      }
+      if (got) pushLog(room, { kind: "draw", a: p.name, n: got });
+    },
+    drawAll: (n) => { for (const p of alive()) makeCtx(room, current).draw(p, n); },
+    discardRandom: (p, n) => {
+      let lost = 0;
+      for (let i = 0; i < n && p.hand.length > 0; i++) {
+        room.discard.push(p.hand.splice(Math.floor(Math.random() * p.hand.length), 1)[0]);
+        lost++;
+      }
+      if (lost) pushLog(room, { kind: "discard", a: p.name, n: lost });
+    },
+    discardAllRandom: (n) => { for (const p of alive()) makeCtx(room, current).discardRandom(p, n); },
+    trimToLimit: (p) => {
+      const limit = handLimitOf(room, p);
+      const over = p.hand.length - limit;
+      if (over > 0) makeCtx(room, current).discardRandom(p, over);
+    },
+    stealRandom: (from, to, n) => {
+      for (let i = 0; i < n && from.hand.length > 0; i++) {
+        to.hand.push(from.hand.splice(Math.floor(Math.random() * from.hand.length), 1)[0]);
+      }
+    },
+
+    swapHands: (a, b) => { const t = a.hand; a.hand = b.hand; b.hand = t; },
+    swapSeats: (a, b) => { const t = a.seat; a.seat = b.seat; b.seat = t; },
+    passHandsAround: () => {
+      const ps = alive();
+      if (ps.length < 2) return;
+      const hands = ps.map((p) => p.hand);
+      ps.forEach((p, i) => (p.hand = hands[(i + ps.length - room.turnDir) % ps.length]));
+    },
+    passGunsAround: () => {
+      const ps = alive();
+      if (ps.length < 2) return;
+      const guns = ps.map((p) => {
+        const g = p.equipment.find((c) => CARD_DEF_BY_ID[c.defId]?.kind === "gun") ?? null;
+        if (g) p.equipment = p.equipment.filter((c) => c.id !== g.id);
+        return g;
+      });
+      ps.forEach((p, i) => {
+        const g = guns[(i + ps.length - room.turnDir) % ps.length];
+        if (g) p.equipment.push(g);
+      });
+    },
+    passDynamiteAround: () => {
+      for (const p of alive()) {
+        const dyn = p.equipment.find((c) => c.defId === "dynamite");
+        if (!dyn) continue;
+        const left = leftNeighbor(room, p);
+        if (!left || left.equipment.some((c) => c.defId === "dynamite")) continue;
+        p.equipment = p.equipment.filter((c) => c.id !== dyn.id);
+        left.equipment.push(dyn);
+      }
+    },
+    clearEquip: (defId) => {
+      let n = 0;
+      for (const p of room.players) {
+        const hit = p.equipment.filter((c) => c.defId === defId);
+        if (!hit.length) continue;
+        p.equipment = p.equipment.filter((c) => c.defId !== defId);
+        room.discard.push(...hit);
+        n += hit.length;
+      }
+      return n;
+    },
+    reshuffleDiscard: () => {
+      if (room.discard.length === 0) return;
+      room.deck = shuffle([...room.deck, ...room.discard]);
+      room.discard = [];
+    },
+    reverseOrder: () => { room.turnDir = room.turnDir === 1 ? -1 : 1; },
+    revealRole: (p) => {
+      if (!p.role || p.role === "sheriff" || room.revealedRoleIds.includes(p.id)) return;
+      room.revealedRoleIds.push(p.id);
+      pushLog(room, { kind: "reveal", a: p.name, role: p.role });
+    },
+    generalStore: () => {
+      if (room.pending) return; // never overwrite a live reaction
+      openGeneralStore(room, current);
+    },
+  };
+}
+
+// Build the client-facing shape of one active event.
+function toEventView(room: Room, ev: ActiveEvent): EventView {
+  const def = EVENT_BY_ID[ev.defId];
+  return {
+    seq: ev.seq,
+    id: ev.defId,
+    emoji: def?.emoji ?? "🎲",
+    track: def?.track ?? "turn",
+    scope: def?.scope ?? "instant",
+    turnsLeft: def && def.scope !== "turn" && def.scope !== "instant" ? ev.turnsLeft : undefined,
+    targetName: ev.targetId ? room.players.find((p) => p.id === ev.targetId)?.name : undefined,
+  };
+}
+
+// --- event-aware rule queries ----------------------------------------------
+// Single source of truth, used by BOTH the engine (to validate) and lib/bot.ts
+// (to filter). If the bot used its own copy it would keep attempting plays the
+// engine rejects, and since a failed bot step stops the scheduler, the table
+// would freeze with no timeout to break it.
+
+// Cards whose whole point is restoring life — suppressed together by `noHeal`.
+const HEAL_DEF_IDS = ["beer", "saloon"];
+
+// Cards a player may keep at the end of their turn.
+export function handLimitOf(room: Room, p: Player): number {
+  return Math.max(0, p.hp + (effectFor(room, p).handLimitDelta ?? 0));
+}
+
+// How many more Bang!s the player may fire this turn (0 = none).
+export function bangBudget(room: Room, p: Player): number {
+  const eff = effectFor(room, p);
+  if (eff.noBang) return 0;
+  const unlimited = hasEquip(p, "volcanic") || p.character?.id === "willy-the-kid";
+  const cap = eff.bangLimit ?? (unlimited ? 99 : 1);
+  return Math.max(0, cap - room.bangsThisTurn);
+}
+
+// Why this card can't be played right now, or null if it can. Covers the
+// once-per-turn house rule and every event restriction; range/target validity is
+// still checked by the individual play handlers.
+export function playBlock(room: Room, p: Player, card: Card, targetId?: string): string | null {
+  const def = CARD_DEF_BY_ID[card.defId];
+  if (!def) return "Lá không hợp lệ";
+  const eff = effectFor(room, p);
+
+  if (eff.bannedDefIds?.includes(card.defId)) return `Sự kiện đang cấm ${def.name}`;
+  if (eff.bannedKinds?.includes(def.kind)) return `Sự kiện đang cấm loại lá này`;
+  if (eff.maxPlays != null && room.playsThisTurn >= eff.maxPlays) {
+    return `Sự kiện: chỉ được đánh ${eff.maxPlays} lá lượt này`;
+  }
+  // Healing plays, blocked as a group. Note this covers the PROACTIVE Beer only —
+  // a dying player may still drink to survive (respond()), so "no healing" never
+  // becomes "no saving throw".
+  if (HEAL_DEF_IDS.includes(card.defId) && eff.noHeal) return "Sự kiện đang cấm hồi máu";
+  if (isBangLike(p, card, targetId) && bangBudget(room, p) <= 0) {
+    return eff.noBang ? "Sự kiện: không được bắn lượt này" : "Chỉ 1 Bang!/lượt (trừ Volcanic/Willy)";
+  }
+  if (!isExemptPlay(room, p, card, targetId) && room.playedDefsThisTurn.includes(card.defId)) {
+    return `Đã dùng ${def.name} trong lượt này`;
+  }
+  return null;
+}
+
+// The distinct card types in `p`'s hand that cannot be played right now. Sent in
+// the view so the client can grey those cards out instead of letting the player
+// aim into a silent server rejection.
+function blockedDefIdsFor(room: Room, p: Player): string[] {
+  const out = new Set<string>();
+  for (const c of p.hand) {
+    if (out.has(c.defId)) continue;
+    if (playBlock(room, p, c)) out.add(c.defId);
+  }
+  return [...out];
 }
 
 // --- deck helpers ---
@@ -389,14 +798,18 @@ function drawOne(room: Room): Card | null {
 
 // --- distance & range ---
 
-// Weapon range: the equipped gun's range, or 1 (Colt .45) if unarmed.
-export function rangeOf(p: Player): number {
+// Weapon range: the equipped gun's range, or 1 (Colt .45) if unarmed. Events may
+// override it outright (Short Barrel / Sniper Nest) or shift it (Eagle Eye).
+export function rangeOf(p: Player, room?: Room): number {
   let range = 1;
   for (const c of p.equipment) {
     const def = CARD_DEF_BY_ID[c.defId];
     if (def?.kind === "gun" && def.range) range = def.range;
   }
-  return range;
+  if (!room) return range;
+  const eff = effectFor(room, p);
+  if (eff.rangeOverride != null) range = eff.rangeOverride;
+  return Math.max(1, range + (eff.rangeDelta ?? 0));
 }
 
 // Does a player have a given blue card equipped (e.g. mustang / scope)?
@@ -426,6 +839,8 @@ export function distanceBetween(room: Room, from: Player, to: Player): number {
   if (hasEquip(to, "mustang") || to.character?.id === "paul-regret") dist += 1;
   // Viewer sees farther/closer (Scope, Rose Doolan's ability).
   if (hasEquip(from, "scope") || from.character?.id === "rose-doolan") dist -= 1;
+  // Weather events stretch or flatten the whole table (Fog / Open Plains).
+  dist += effectFor(room, from).distanceDelta ?? 0;
 
   return Math.max(1, dist);
 }
@@ -446,20 +861,24 @@ export function drawCards(
   if (!current || current.id !== playerId) return false;
   room.checks = [];
   const beforeDraw = current.hand.length;
+  // How many cards this draw phase yields: 2 by default, overridden by events
+  // (Card Rain 3 / Empty Pockets 1) and topped up by additive ones (Gold Rush).
+  const eff = effectFor(room, current);
+  const drawTotal = Math.max(0, (eff.drawCount ?? 2) + (eff.extraDraw ?? 0));
 
   // Kit Carlson: reveal the top 3, pick 2 (the third returns to the deck bottom).
-  if (current.character?.id === "kit-carlson") {
+  if (current.character?.id === "kit-carlson" && drawTotal > 0) {
     const cards: Card[] = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < drawTotal + 1; i++) {
       const c = drawOne(room);
       if (c) cards.push(c);
     }
-    room.pending = { kind: "kit", playerId: current.id, cards, picksLeft: 2 };
+    room.pending = { kind: "kit", playerId: current.id, cards, picksLeft: drawTotal };
     return true; // stays in draw phase until picks resolve
   }
 
   // Jesse Jones: draw the first card from a chosen player's hand.
-  if (current.character?.id === "jesse-jones" && source === "player" && targetId) {
+  if (current.character?.id === "jesse-jones" && source === "player" && targetId && drawTotal > 0) {
     const t = room.players.find((p) => p.id === targetId);
     if (t && t.id !== current.id && t.hand.length > 0) {
       current.hand.push(t.hand.splice(Math.floor(Math.random() * t.hand.length), 1)[0]);
@@ -467,24 +886,28 @@ export function drawCards(
       const c = drawOne(room);
       if (c) current.hand.push(c);
     }
-    const c2 = drawOne(room);
-    if (c2) current.hand.push(c2);
+    for (let k = 1; k < drawTotal; k++) {
+      const c = drawOne(room);
+      if (c) current.hand.push(c);
+    }
     room.turnPhase = "play";
     pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
     return true;
   }
 
   // Pedro Ramirez: draw the first card from the discard pile.
-  if (current.character?.id === "pedro-ramirez" && source === "discard" && room.discard.length > 0) {
+  if (current.character?.id === "pedro-ramirez" && source === "discard" && room.discard.length > 0 && drawTotal > 0) {
     current.hand.push(room.discard.pop()!);
-    const c2 = drawOne(room);
-    if (c2) current.hand.push(c2);
+    for (let k = 1; k < drawTotal; k++) {
+      const c = drawOne(room);
+      if (c) current.hand.push(c);
+    }
     room.turnPhase = "play";
     pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
     return true;
   }
 
-  if (current.character?.id === "black-jack") {
+  if (current.character?.id === "black-jack" && drawTotal >= 2) {
     // Draw 1; reveal the 2nd — on Heart/Diamond, draw a bonus card.
     const c1 = drawOne(room);
     if (c1) current.hand.push(c1);
@@ -499,8 +922,12 @@ export function drawCards(
         if (c3) current.hand.push(c3);
       }
     }
+    for (let k = 2; k < drawTotal; k++) {
+      const c = drawOne(room);
+      if (c) current.hand.push(c);
+    }
   } else {
-    for (let k = 0; k < 2; k++) {
+    for (let k = 0; k < drawTotal; k++) {
       const c = drawOne(room);
       if (c) current.hand.push(c);
     }
@@ -518,10 +945,17 @@ export function drawCards(
 //  • a Bang! — including Calamity Janet firing a Missed! as a Bang! — which is
 //    governed by its OWN limit instead (bangsThisTurn: once, or unlimited with
 //    Volcanic / Willy the Kid; see playBang).
-function isExemptPlay(p: Player, card: Card, targetId?: string): boolean {
+// A Bang! being fired — including Calamity Janet using a Missed! as one. Governed
+// by the Bang!/turn budget rather than the once-per-turn house rule.
+function isBangLike(p: Player, card: Card, targetId?: string): boolean {
+  return card.defId === "bang" || (card.defId === "missed" && p.character?.id === "calamity-janet" && !!targetId);
+}
+
+function isExemptPlay(room: Room, p: Player, card: Card, targetId?: string): boolean {
+  if (effectFor(room, p).ignoreOncePerTurn) return true; // Frenzy suspends the house rule
   const def = CARD_DEF_BY_ID[card.defId];
   if (def?.kind === "gun") return true;
-  return card.defId === "bang" || (card.defId === "missed" && p.character?.id === "calamity-janet" && !!targetId);
+  return isBangLike(p, card, targetId);
 }
 
 export function playCard(
@@ -536,10 +970,11 @@ export function playCard(
   const actor = room?.players[room.turnIndex];
   const playedCard = actor?.hand.find((c) => c.id === cardId);
   const cardName = playedCard?.name;
-  const exempt = !!playedCard && !!actor && isExemptPlay(actor, playedCard, targetId);
+  const exempt = !!playedCard && !!actor && !!room && isExemptPlay(room, actor, playedCard, targetId);
   const targetName = targetId ? room?.players.find((p) => p.id === targetId)?.name : undefined;
   const res = playCardImpl(code, playerId, cardId, targetId, targetCardId);
   if (res.ok && room) {
+    room.playsThisTurn += 1; // events may cap how many cards a turn allows
     // Mark this card type as used this turn (exempt plays don't consume a slot).
     if (!exempt && playedCard) room.playedDefsThisTurn.push(playedCard.defId);
     if (actor && cardName) pushLog(room, { kind: "play", a: actor.name, card: cardName, b: targetName });
@@ -566,12 +1001,12 @@ function playCardImpl(
   const def = CARD_DEF_BY_ID[card.defId];
   if (!def) return { ok: false };
 
-  // House rule: each card type may be played only ONCE per turn. Gun swaps and
-  // Bang! are exempt (see isExemptPlay). The defId is recorded in `playCard` once
-  // the play succeeds, so a rejected play never uses up its once-per-turn slot.
-  if (!isExemptPlay(current, card, _targetId) && room.playedDefsThisTurn.includes(card.defId)) {
-    return { ok: false, error: `Đã dùng ${def.name} trong lượt này` };
-  }
+  // One gate for the house rule ("each card type once per turn"; gun swaps and
+  // Bang! exempt) AND every random-event restriction. Shared with lib/bot.ts so
+  // bots never retry a play the engine will reject. The defId is recorded in
+  // `playCard` only once the play succeeds, so a rejection never burns the slot.
+  const blocked = playBlock(room, current, card, _targetId);
+  if (blocked) return { ok: false, error: blocked };
 
   if (def.kind === "gun") {
     // Equip the new gun, discarding any gun already in play (only one allowed).
@@ -653,23 +1088,36 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
 function playDuel(room: Room, current: Player, handIdx: number, targetId?: string): { ok: boolean; error?: string } {
   const target = room.players.find((p) => p.id === targetId);
   if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
+  if (effectFor(room, current).protectSheriff && target.role === "sheriff") {
+    return { ok: false, error: "Hiệp Ước: không được bắn Cảnh Sát Trưởng" };
+  }
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   room.pending = { kind: "duel", aId: current.id, bId: target.id, turnId: target.id };
   return { ok: true };
 }
 
 // General Store: reveal one card per living player; each picks one in turn order.
-function playGeneralStore(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
-  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
-  const alive = [...room.players].sort((a, b) => a.seat - b.seat).filter((p) => p.alive);
+// Split out from the card play so the Flea Market event can open a free round.
+function openGeneralStore(room: Room, current: Player) {
+  const alive = aliveBySeat(room);
   const start = alive.findIndex((p) => p.id === current.id);
-  const order = alive.slice(start).concat(alive.slice(0, start)).map((p) => p.id); // current first, clockwise
+  const from = start < 0 ? 0 : start;
+  const order = alive.slice(from).concat(alive.slice(0, from)).map((p) => p.id); // current first, clockwise
   const cards: Card[] = [];
   for (let i = 0; i < order.length; i++) {
     const c = drawOne(room);
     if (c) cards.push(c);
   }
-  room.pending = { kind: "store", sourceId: current.id, cards, order };
+  if (cards.length === 0) return; // deck and discard both empty — nothing to offer
+  // A drained deck can yield fewer cards than players; trim the pick order to
+  // match, otherwise the last players would have nothing to choose and the
+  // pending would never resolve.
+  room.pending = { kind: "store", sourceId: current.id, cards, order: order.slice(0, cards.length) };
+}
+
+function playGeneralStore(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
+  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  openGeneralStore(room, current);
   return { ok: true };
 }
 
@@ -690,6 +1138,7 @@ function playDraw(room: Room, current: Player, handIdx: number, n: number): { ok
 
 // Saloon: every living player heals 1 (capped at their max).
 function playSaloon(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
+  if (effectFor(room, current).noHeal) return { ok: false, error: "Sự kiện đang cấm hồi máu" };
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   for (const p of room.players) {
     if (p.alive) p.hp = Math.min(p.maxHp, p.hp + 1);
@@ -741,19 +1190,33 @@ function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: s
 // Play Bang! at a target: check the 1-per-turn limit and range, discard the
 // card, then open a reaction window for the target.
 function playBang(room: Room, current: Player, handIdx: number, targetId?: string): { ok: boolean; error?: string } {
-  const target = room.players.find((p) => p.id === targetId);
+  let target = room.players.find((p) => p.id === targetId);
   if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
-  const unlimited = hasEquip(current, "volcanic") || current.character?.id === "willy-the-kid";
-  if (!unlimited && room.bangsThisTurn >= 1) {
-    return { ok: false, error: "Chỉ 1 Bang!/lượt (trừ Volcanic/Willy)" };
-  }
-  if (distanceBetween(room, current, target) > rangeOf(current)) {
+  const eff = effectFor(room, current);
+  // Truce: the Sheriff can't be shot while the pact holds.
+  if (eff.protectSheriff && target.role === "sheriff") return { ok: false, error: "Hiệp Ước: không được bắn Cảnh Sát Trưởng" };
+  const range = rangeOf(current, room);
+  if (distanceBetween(room, current, target) > range) {
     return { ok: false, error: "Mục tiêu ngoài tầm bắn" };
+  }
+  // Drunk: the shot goes wide — it lands on a random valid target instead.
+  if (eff.drunkAim) {
+    const candidates = room.players.filter(
+      (p) =>
+        p.alive &&
+        p.id !== current.id &&
+        distanceBetween(room, current, p) <= range &&
+        !(eff.protectSheriff && p.role === "sheriff")
+    );
+    if (candidates.length) target = candidates[Math.floor(Math.random() * candidates.length)];
   }
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   room.bangsThisTurn += 1;
-  const missedNeeded = current.character?.id === "slab-the-killer" ? 2 : 1;
+  const missedNeeded = Math.max(
+    1,
+    (current.character?.id === "slab-the-killer" ? 2 : 1) + (eff.missedNeededDelta ?? 0)
+  );
   const pending = {
     kind: "bang" as const,
     targetId: target.id,
@@ -789,7 +1252,8 @@ function playBeer(room: Room, current: Player, handIdx: number): { ok: boolean; 
   if (current.hp >= current.maxHp) return { ok: false, error: "Máu đã đầy" };
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
-  current.hp = Math.min(current.maxHp, current.hp + 1);
+  // Happy Hour makes a Beer worth 2 life points.
+  current.hp = Math.min(current.maxHp, current.hp + (effectFor(room, current).beerHeal ?? 1));
   return { ok: true };
 }
 
@@ -816,8 +1280,9 @@ export function endTurn(code: string, playerId: string): { ok: boolean; error?: 
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return { ok: false };
   if (room.turnPhase === "draw") return { ok: false, error: "Bạn phải rút bài trước" };
-  if (current.hand.length > current.hp) {
-    return { ok: false, error: `Bỏ bớt ${current.hand.length - current.hp} lá (giới hạn = máu)` };
+  const limit = handLimitOf(room, current);
+  if (current.hand.length > limit) {
+    return { ok: false, error: `Bỏ bớt ${current.hand.length - limit} lá (giới hạn = máu)` };
   }
   if (!advanceToNextAlive(room)) return { ok: false };
   beginTurn(room);
@@ -870,24 +1335,43 @@ export function surrender(code: string, playerId: string): { ok: boolean; error?
 
 // Move the turn to the next living player (by seat, wrapping). Returns false if
 // nobody living is found.
+// Move the turn to the next living player, following `turnDir` (the Reverse event
+// flips it) and marking the round boundary that schedules table events.
 function advanceToNextAlive(room: Room): boolean {
   const n = room.players.length;
   for (let step = 1; step <= n; step++) {
-    const idx = (room.turnIndex + step) % n;
+    const idx = (room.turnIndex + step * room.turnDir + n * n) % n;
     if (room.players[idx].alive) {
       room.turnIndex = idx;
+      markRoundBoundary(room);
       return true;
     }
   }
   return false;
 }
 
-// The living player to the left (next in play order) of `p`.
+// A round ends when play returns to whoever opened it. If that player has died,
+// the marker moves to whoever is up now — otherwise the boundary would be lost
+// for the rest of the game and table events would never fire again.
+function markRoundBoundary(room: Room) {
+  const cur = room.players[room.turnIndex];
+  if (!cur) return;
+  const starter = room.players.find((p) => p.id === room.roundStarterId);
+  if (!starter || !starter.alive) {
+    room.roundStarterId = cur.id;
+    room.roundEventDue = true;
+    return;
+  }
+  if (cur.id === starter.id) room.roundEventDue = true;
+}
+
+// The living player to the left (next in play order) of `p` — Dynamite follows the
+// current play direction, so Reverse turns the fuse around too.
 function leftNeighbor(room: Room, p: Player): Player | null {
-  const alive = [...room.players].sort((a, b) => a.seat - b.seat).filter((x) => x.alive);
+  const alive = aliveBySeat(room);
   const i = alive.findIndex((x) => x.id === p.id);
   if (i < 0 || alive.length < 2) return null;
-  return alive[(i + 1) % alive.length];
+  return alive[(i + room.turnDir + alive.length) % alive.length];
 }
 
 // A Draw!: flip the top card to discard and return it. Lucky Duke flips two and
@@ -895,13 +1379,25 @@ function leftNeighbor(room: Room, p: Player): Player | null {
 function drawCheck(room: Room, drawer?: Player, isGood?: (c: Card) => boolean): Card | null {
   const first = drawOne(room);
   if (!first) return null;
-  if (drawer?.character?.id === "lucky-duke") {
+  const eff = effectFor(room, drawer);
+  const isLuckyDuke = drawer?.character?.id === "lucky-duke";
+  // Lucky Duke (or a Lucky Table event) flips two and keeps the better card; Bad
+  // Weather flips two and keeps the worse one. Lucky Duke's own skill beats the
+  // weather rather than cancelling out with it.
+  const lucky = isLuckyDuke || !!eff.luckyDraw;
+  const cursed = !!eff.badDraw && !isLuckyDuke && !eff.luckyDraw;
+  if (lucky || cursed) {
     const second = drawOne(room);
     room.discard.push(first);
     if (second) room.discard.push(second);
     if (second && isGood) {
-      if (isGood(first)) return first;
-      if (isGood(second)) return second;
+      if (lucky) {
+        if (isGood(first)) return first;
+        if (isGood(second)) return second;
+      } else {
+        if (!isGood(first)) return first;
+        if (!isGood(second)) return second;
+      }
     }
     return first;
   }
@@ -920,11 +1416,29 @@ const goodBarrel = (c: Card) => c.suit === "hearts"; // counts as Missed!
 // since Dynamite damage cannot be saved by Beer in this variant).
 function beginTurn(room: Room) {
   room.checks = [];
+  // Turn-scope events end here; lasting/curse timers tick exactly once per call,
+  // so a turn skipped by Jail doesn't burn two turns off a 3-turn sandstorm.
+  clearTurnScopeEvents(room);
+  tickLastingEvents(room);
   while (room.phase === "playing") {
     const cur = room.players[room.turnIndex];
     if (!cur) return;
     room.bangsThisTurn = 0;
+    room.playsThisTurn = 0;
     room.playedDefsThisTurn = [];
+    room.turnsSinceTableEvent += 1;
+
+    // --- Table event (luồng B): fires at the top of a new round, before upkeep ---
+    if (room.roundEventDue) {
+      room.roundEventDue = false;
+      rollTableEvent(room, cur);
+      if (room.phase !== "playing") return; // an event ended the game
+      if (!cur.alive) {
+        // The event killed whoever was about to play — pass the turn on.
+        if (!advanceToNextAlive(room)) return;
+        continue;
+      }
+    }
 
     // --- Dynamite ---
     const dyn = cur.equipment.find((c) => c.defId === "dynamite");
@@ -965,6 +1479,21 @@ function beginTurn(room: Room) {
         if (!advanceToNextAlive(room)) return;
         continue; // skipped turn — next player's upkeep
       }
+    }
+
+    // --- Turn event (luồng A): the active player's own roll from the bag ---
+    room.turnCounter += 1;
+    rollTurnEvent(room, cur);
+    if (room.phase !== "playing") return;
+    if (!cur.alive) {
+      if (!advanceToNextAlive(room)) return;
+      continue;
+    }
+    if (effectFor(room, cur).skipTurn) {
+      pushLog(room, { kind: "skip", a: cur.name });
+      clearTurnScopeEvents(room); // don't let the skip leak into the next player's turn
+      if (!advanceToNextAlive(room)) return;
+      continue;
     }
 
     room.turnPhase = "draw";
@@ -1154,6 +1683,7 @@ export function sidHeal(code: string, playerId: string, cardIds: string[]): { ok
   const sid = room.players.find((p) => p.id === playerId);
   if (!sid || !sid.alive) return { ok: false };
   if (sid.character?.id !== "sid-ketchum") return { ok: false, error: "Chỉ Sid Ketchum dùng được" };
+  if (effectFor(room, sid).noHeal) return { ok: false, error: "Sự kiện đang cấm hồi máu" };
   if (sid.hp >= sid.maxHp) return { ok: false, error: "Máu đã đầy" };
   if (cardIds.length !== 2 || cardIds[0] === cardIds[1]) return { ok: false, error: "Chọn đúng 2 lá khác nhau" };
   const idxs = cardIds.map((id) => sid.hand.findIndex((c) => c.id === id));
@@ -1221,6 +1751,16 @@ function processDeathQueue(room: Room) {
 // dropping to <=0 HP. Shared by single hits and multi (Indians!/Gatling) so
 // those effects fire no matter how the life point is lost.
 function dealDamage(room: Room, target: Player, amount: number, sourceId: string | null) {
+  const eff = effectFor(room, target);
+  // Ceasefire nullifies damage outright; Guardian Angel shields one player.
+  if (eff.noDamage || eff.immune) {
+    pushLog(room, { kind: "hit", a: target.name, n: 0, hp: target.hp });
+    return;
+  }
+  // Wartime / Piercing Round add to every hit; Marked Man adds to hits this
+  // player receives.
+  amount = Math.max(0, amount + (eff.damageDelta ?? 0) + (eff.incomingDamageDelta ?? 0));
+  if (amount === 0) return;
   target.hp -= amount;
   pushLog(room, { kind: "hit", a: target.name, n: amount, hp: Math.max(0, target.hp) });
   // Bart Cassidy: draw a card for each life point lost.
@@ -1267,9 +1807,19 @@ function killPlayer(room: Room, target: Player, killerId: string | null = null) 
   if (sam) sam.hand.push(...cards);
   else room.discard.push(...cards);
 
+  // A bounty (the "Wanted" event) pays out on top of the normal rewards.
+  const hadBounty = !!effectFor(room, target).bounty;
+  room.events = room.events.filter((ev) => ev.targetId !== target.id); // curses die with them
+
   // Death rewards / penalty for whoever landed the killing blow.
   const killer = killerId ? room.players.find((p) => p.id === killerId) : null;
   if (killer && killer.alive && killer.id !== target.id) {
+    if (hadBounty) {
+      for (let i = 0; i < 3; i++) {
+        const c = drawOne(room);
+        if (c) killer.hand.push(c);
+      }
+    }
     if (target.role === "outlaw") {
       for (let i = 0; i < 3; i++) {
         const c = drawOne(room);
@@ -1344,12 +1894,14 @@ export function restart(code: string): boolean {
   room.turnIndex = 0;
   room.turnPhase = "draw";
   room.bangsThisTurn = 0;
+  room.playsThisTurn = 0;
   room.playedDefsThisTurn = [];
   room.winner = null;
   room.deathQueue = [];
   room.checks = [];
   room.deck = [];
   room.discard = [];
+  resetEventState(room);
   room.players.forEach((p) => {
     p.role = null;
     p.character = null;
@@ -1379,6 +1931,7 @@ function visibleRole(p: Player, room: Room): Role | null {
   if (room.phase === "result") return p.role; // all roles revealed at the end
   if (PUBLIC_ROLES.includes(p.role)) return p.role;
   if (!p.alive) return p.role;
+  if (room.revealedRoleIds.includes(p.id)) return p.role; // leaked by an event
   return null;
 }
 
@@ -1517,13 +2070,16 @@ export function buildView(room: Room, playerId: string): PlayerView {
       equipment: me?.equipment ?? [],
       alive: me?.alive ?? true,
       turnPhase: isMyTurn ? room.turnPhase : null,
-      range: me ? rangeOf(me) : 1,
-      // Bang! limit: once per turn, or unlimited with Volcanic / Willy the Kid.
-      canBang:
-        isMyTurn &&
-        (room.bangsThisTurn < 1 || (!!me && (hasEquip(me, "volcanic") || me.character?.id === "willy-the-kid"))),
+      range: me ? rangeOf(me, room) : 1,
+      // Bang! budget: once per turn by default, unlimited with Volcanic / Willy
+      // the Kid, and overridden by events (Hot Streak / Jammed Gun).
+      canBang: isMyTurn && !!me && bangBudget(room, me) > 0,
       // House rule: each card type only once per turn — defIds already used.
       playedDefsThisTurn: isMyTurn ? [...room.playedDefsThisTurn] : [],
+      // Everything you may NOT play right now, resolved server-side so the client
+      // never has to re-implement the house rule or any event restriction.
+      blockedDefIds: isMyTurn && me ? blockedDefIdsFor(room, me) : [],
+      handLimit: me ? handLimitOf(room, me) : 0,
       wins: me?.wins ?? 0,
       rewardUrl: me?.rewardTicket ?? null, // chỉ view của CHÍNH người thắng đủ ngưỡng mới có link
     },
@@ -1538,5 +2094,8 @@ export function buildView(room: Room, playerId: string): PlayerView {
     discardCount: room.discard.length,
     topDiscard: room.discard.length > 0 ? room.discard[room.discard.length - 1] : null,
     log: room.log,
+    eventLevel: room.eventLevel,
+    events: room.events.map((ev) => toEventView(room, ev)),
+    eventFeed: room.eventFeed.map((ev) => toEventView(room, ev)),
   };
 }

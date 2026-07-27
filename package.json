@@ -6,7 +6,8 @@
     "dev": "tsx watch server.ts",
     "build": "next build",
     "start": "NODE_ENV=production tsx server.ts",
-    "lint": "next lint"
+    "lint": "next lint",
+    "sim": "tsx scripts/sim-events.ts"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

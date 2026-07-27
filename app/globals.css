@@ -880,3 +880,16 @@ button.danger {
   margin-top: 10px;
   min-height: 40px;
 }
+
+/* Random-event announcement: drops in with a slight overshoot so it reads as an
+   interruption rather than another panel that was always there. */
+@keyframes eventPop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-18px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}

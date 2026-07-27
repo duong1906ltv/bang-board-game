@@ -5,7 +5,8 @@ import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
-import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
+import { Character, PlayerView, PlayerPublic, ROLE_EMOJI, type EventLevel, type EventView } from "@/lib/types";
+import { EVENT_LEVELS } from "@/lib/events";
 import { CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import { toggleMusic, setMusicVolume, getMusicVolume } from "@/lib/music";
@@ -18,6 +19,9 @@ import {
   roleLabel,
   roleGoal,
   charAbility,
+  eventName,
+  eventDesc,
+  eventLevelLabel,
   winnerText,
   formatPending,
   checkText,
@@ -327,6 +331,7 @@ export default function RoomPage() {
   const start = () => socket.emit("startGame", { code });
   const addBot = () => socket.emit("addBot", { code });
   const removeBot = () => socket.emit("removeBot", { code });
+  const setEventLevel = (level: EventLevel) => socket.emit("setEventLevel", { code, level });
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
   const draw = (source?: "deck" | "discard" | "player", targetId?: string) =>
     socket.emit("drawCards", { code, source, targetId });
@@ -357,8 +362,9 @@ export default function RoomPage() {
       {error && <p className="err">{tError(locale, error)}</p>}
 
       <VideoChat code={code} selfPlayerId={view.you.id} onFeeds={setFeeds} />
-
-      {view.phase === "lobby" && <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} />}
+      {view.phase === "lobby" && (
+        <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} onSetEventLevel={setEventLevel} />
+      )}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
         <Table view={view} feeds={feeds} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} />
@@ -554,11 +560,13 @@ function Lobby({
   onStart,
   onAddBot,
   onRemoveBot,
+  onSetEventLevel,
 }: {
   view: PlayerView;
   onStart: () => void;
   onAddBot: () => void;
   onRemoveBot: () => void;
+  onSetEventLevel: (level: EventLevel) => void;
 }) {
   const locale = useLocale();
   const n = view.players.length;
@@ -601,6 +609,35 @@ function Lobby({
           </div>
         </>
       )}
+
+      {/* Random events: the house layer on top of the base rules. Host picks the
+          density; everyone else just sees what the room is set to. */}
+      <label style={{ marginTop: 12 }}>{L(locale, "Sự kiện ngẫu nhiên", "Random events")}</label>
+      {view.you.isHost ? (
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          {EVENT_LEVELS.map((lv) => (
+            <button
+              key={lv}
+              className={lv === view.eventLevel ? "" : "ghost"}
+              style={{ width: "auto", padding: "6px 14px", fontSize: "0.85rem" }}
+              onClick={() => onSetEventLevel(lv)}
+            >
+              {eventLevelLabel(locale, lv)}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <span className="badge" style={{ alignSelf: "flex-start" }}>
+          🎲 {eventLevelLabel(locale, view.eventLevel)}
+        </span>
+      )}
+      <p className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
+        {L(
+          locale,
+          "Mỗi lượt có thể xảy ra một sự kiện riêng cho người đang chơi (kẹt súng, mưa bài…), và mỗi vòng một sự kiện cho cả bàn (bão cát, dịch bệnh…). Vòng đầu luôn yên bình. Ở mức Hỗn Mang thì AI CŨNG có sự kiện riêng, không lượt nào trống.",
+          "Each turn may bring an event for the active player (jammed gun, card rain…), and each round one for the whole table (sandstorm, plague…). The opening round is always quiet. On Mayhem EVERY player gets their own event — no quiet turns at all."
+        )}
+      </p>
 
       {view.you.isHost && (
         <>
@@ -677,6 +714,109 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
   );
 }
 
+// Full-screen announcement for a newly-fired random event. Keyed on the event's
+// `seq` so the same event firing twice still re-animates, and self-dismissing so
+// it never sits on top of the table.
+function EventBanner({ ev, onDone }: { ev: EventView; onDone: () => void }) {
+  const locale = useLocale();
+  // Short enough that back-to-back events at high density stay in sync with play.
+  useEffect(() => {
+    const t = window.setTimeout(onDone, 2200);
+    return () => window.clearTimeout(t);
+  }, [onDone]);
+  // Table-wide events read as "weather" (blue); a turn/curse event is personal (amber).
+  const wide = ev.track === "table";
+  return (
+    <div
+      style={{
+        position: "fixed", left: "50%", top: "26%", transform: "translateX(-50%)",
+        zIndex: 1120, pointerEvents: "none", width: "min(420px, 92vw)",
+        padding: "16px 20px", borderRadius: 16, textAlign: "center",
+        fontFamily: "system-ui, sans-serif",
+        background: wide ? "rgba(16,32,52,0.95)" : "rgba(46,30,12,0.95)",
+        border: `1px solid ${wide ? "#5b9bd5" : "#e0a955"}`,
+        boxShadow: `0 10px 40px rgba(0,0,0,0.6), 0 0 24px ${wide ? "rgba(91,155,213,0.35)" : "rgba(224,169,85,0.35)"}`,
+        animation: "eventPop .45s cubic-bezier(0.2,0.9,0.25,1) both",
+      }}
+    >
+      <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", opacity: 0.65, color: "#f0e2c0" }}>
+        {wide ? L(locale, "Sự kiện của cả bàn", "Table event") : L(locale, "Sự kiện của lượt này", "Turn event")}
+      </div>
+      <div style={{ fontSize: 44, lineHeight: 1.1, marginTop: 4 }}>{ev.emoji}</div>
+      <div style={{ fontSize: "1.25rem", fontWeight: 800, color: wide ? "#bfe0ff" : "#ffd873" }}>
+        {eventName(locale, ev.id)}
+      </div>
+      <div style={{ fontSize: 13.5, lineHeight: 1.5, color: "#f0e2c0", opacity: 0.9, marginTop: 6 }}>
+        {eventDesc(locale, ev.id)}
+      </div>
+      {ev.targetName && (
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#ff9f80", marginTop: 6 }}>🎯 {ev.targetName}</div>
+      )}
+    </div>
+  );
+}
+
+// Compact list of the events still in force, docked under the HUD. Tap a chip to
+// read what it actually does.
+function EventChips({ events }: { events: EventView[] }) {
+  const locale = useLocale();
+  const [open, setOpen] = useState<EventView | null>(null);
+  if (events.length === 0) return null;
+  return (
+    <>
+      <div
+        style={{
+          position: "fixed", top: 56, left: 12, zIndex: 55, display: "flex", gap: 6,
+          flexWrap: "wrap", maxWidth: "46vw", fontFamily: "system-ui, sans-serif",
+        }}
+      >
+        {events.map((ev) => (
+          <button
+            key={`${ev.id}-${ev.seq}`}
+            onClick={() => setOpen(ev)}
+            style={{
+              width: "auto", padding: "3px 8px", fontSize: "0.78rem", fontWeight: 700,
+              borderRadius: 8, color: "#f0e2c0",
+              background: ev.track === "table" ? "rgba(16,32,52,0.92)" : "rgba(46,30,12,0.92)",
+              border: `1px solid ${ev.track === "table" ? "rgba(91,155,213,0.7)" : "rgba(224,169,85,0.7)"}`,
+            }}
+            title={eventDesc(locale, ev.id)}
+          >
+            {ev.emoji} {eventName(locale, ev.id)}
+            {ev.targetName ? ` → ${ev.targetName}` : ""}
+            {ev.turnsLeft ? ` ·${ev.turnsLeft}` : ""}
+          </button>
+        ))}
+      </div>
+      {open && (
+        <div
+          onClick={() => setOpen(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 1160, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 360, padding: "22px 24px", borderRadius: 16, textAlign: "center", background: "var(--panel)", border: "1px solid var(--border)", fontFamily: "system-ui, sans-serif" }}
+          >
+            <div style={{ fontSize: 40 }}>{open.emoji}</div>
+            <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--accent)", marginTop: 4 }}>
+              {eventName(locale, open.id)}
+            </div>
+            <p className="muted" style={{ lineHeight: 1.6, marginTop: 8 }}>{eventDesc(locale, open.id)}</p>
+            {open.turnsLeft != null && (
+              <p className="muted" style={{ fontSize: "0.85rem", marginTop: 6 }}>
+                ⏳ {L(locale, `Còn ${open.turnsLeft} lượt`, `${open.turnsLeft} turn(s) left`)}
+              </p>
+            )}
+            <button style={{ width: "auto", padding: "10px 24px", marginTop: 14 }} onClick={() => setOpen(null)}>
+              {L(locale, "Đóng", "Close")}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // One shared popup for showing a card face full-size on a dimmed backdrop. Used
 // for inspecting a card (with its effect text) and for play/discard confirmations
 // (with action buttons). Click the backdrop to dismiss.
@@ -745,7 +885,9 @@ function Table({
   const locale = useLocale();
   const isMyTurn = view.turnSeat != null && view.turnSeat === view.you.seat && view.you.alive;
   const you = view.you;
-  const overLimit = Math.max(0, you.hand.length - you.hp);
+  // The end-of-turn hand limit is normally your life total, but events shift it
+  // (Drought / Hangover), so the server sends the resolved number.
+  const overLimit = Math.max(0, you.hand.length - you.handLimit);
   const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
   const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null);
   const [sidPick, setSidPick] = useState<string[]>([]);
@@ -805,6 +947,23 @@ function Table({
     const cardLabel = c.card ? ` (${rankLabel(c.card.rank)}${SUIT_SYMBOL[c.card.suit]})` : "";
     setMarquee(`${CHECK_ICON[c.kind] ?? "🎴"} ${c.name} — ${t.kind}${cardLabel}: ${t.outcome}`);
   }, [view.checks, locale]);
+
+  // Random events waiting to be announced. A queue, not a single slot: one action
+  // can fire a table event AND that player's turn event, and both deserve a banner.
+  // `seq` is the watermark, so a view arriving mid-banner never re-announces.
+  const [eventQueue, setEventQueue] = useState<EventView[]>([]);
+  const seenSeqRef = useRef<number>(0);
+  useEffect(() => {
+    const fresh = view.eventFeed.filter((e) => e.seq > seenSeqRef.current);
+    if (fresh.length === 0) return;
+    seenSeqRef.current = fresh[fresh.length - 1].seq;
+    // At the Mayhem density events fire faster than banners can play out; showing
+    // a backlog would put the announcements minutes behind the table, so only the
+    // two most recent are ever queued.
+    setEventQueue((q) => [...q, ...fresh].slice(-2));
+  }, [view.eventFeed]);
+  const eventBanner = eventQueue[0] ?? null;
+  const dismissEventBanner = () => setEventQueue((q) => q.slice(1));
 
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const flash = (msg: string) => {
@@ -888,22 +1047,22 @@ function Table({
   const bangLike = (defId: string) => defId === "bang" || (isCalamity && defId === "missed");
   const needsTarget = (defId: string) => TARGETED.includes(defId) || bangLike(defId);
 
-  // House rule: each card type may be played only ONCE per turn. Exempt: gun swaps
-  // (unlimited) and Bang! (its own limit — once, or unlimited w/ Volcanic/Willy).
-  // Returns true (and flashes why) when a play is blocked up front, so we don't let
-  // the player aim into a silent server rejection.
-  const isGun = (defId: string) => CARD_DEF_BY_ID[defId]?.kind === "gun";
+  // Which plays are unavailable right now. The reasons (once-per-turn house rule,
+  // random-event bans, the Bang! budget) are all resolved server-side and arrive as
+  // `blockedDefIds` / `canBang`, so the client never re-derives a rule and can't
+  // disagree with the engine. Returns true (and flashes why) when blocked, so the
+  // player never aims into a silent server rejection.
   const blockOneCard = (defId: string) => {
-    if (isGun(defId)) return false;
-    if (bangLike(defId)) {
-      if (!you.canBang) {
-        flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
-        return true;
-      }
-      return false;
+    if (bangLike(defId) && !you.canBang) {
+      flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
+      return true;
     }
-    if (you.playedDefsThisTurn.includes(defId)) {
-      flash(L(locale, "Lá này đã dùng trong lượt này", "This card was already played this turn."));
+    if (you.blockedDefIds.includes(defId)) {
+      flash(
+        you.playedDefsThisTurn.includes(defId)
+          ? L(locale, "Lá này đã dùng trong lượt này", "This card was already played this turn.")
+          : L(locale, "Sự kiện đang chặn lá này", "An event blocks this card.")
+      );
       return true;
     }
     return false;
@@ -958,8 +1117,8 @@ function Table({
   const discardGesture = (card: { id: string }) => {
     // Only discard when over the hand limit (hand > hp).
     if (!inPlayPhase) return;
-    if (you.hand.length <= you.hp) {
-      return flash(L(locale, "Chỉ bỏ được khi số bài > máu.", "Can only discard when over the hand limit."));
+    if (you.hand.length <= you.handLimit) {
+      return flash(L(locale, "Chỉ bỏ được khi số bài > giới hạn.", "Can only discard when over the hand limit."));
     }
     // Confirm first so a stray drag can't throw away a card.
     const c = you.hand.find((h) => h.id === card.id);
@@ -1024,6 +1183,8 @@ function Table({
           </span>
         </div>
       )}
+
+      {eventBanner && <EventBanner key={eventBanner.seq} ev={eventBanner} onDone={dismissEventBanner} />}
 
       {notice && (
         <div
@@ -1240,6 +1401,9 @@ function Table({
             )}
           </div>
 
+          {/* random events still in force — under the HUD, on the free left edge */}
+          <EventChips events={view.events} />
+
           {/* action history — top-right, collapsible, scrollable, drag-to-resize */}
           {view.log.length > 0 && (
             <div
@@ -1352,7 +1516,7 @@ function Table({
                     title={overLimit > 0 ? L(locale, "Kéo bài sang PHẢI để bỏ bớt", "Drag cards RIGHT to discard") : undefined}
                   >
                     {overLimit > 0
-                      ? L(locale, `Giữ tối đa ${you.hp} lá (còn dư ${overLimit})`, `Keep max ${you.hp} (${overLimit} over)`)
+                      ? L(locale, `Giữ tối đa ${you.handLimit} lá (còn dư ${overLimit})`, `Keep max ${you.handLimit} (${overLimit} over)`)
                       : L(locale, "Kết thúc lượt →", "End turn →")}
                   </button>{" "}
                 </>
