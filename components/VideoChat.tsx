@@ -28,7 +28,8 @@ interface PeerRecord {
   pending: RTCIceCandidateInit[]; // ICE candidates that arrived before the answer/offer
 }
 
-// What the UI renders: one tile per remote peer.
+// One entry per remote peer. Nothing renders them directly: audio goes to AudioSink
+// and the streams are published upward for the 3D WANTED posters.
 interface Tile {
   id: string; // socket id
   playerId: string; // seat identity — used to place this feed on the 3D table
@@ -64,7 +65,7 @@ export default function VideoChat({
   onFeeds?: (feeds: Map<string, MediaStream>) => void;
 }) {
   const locale = useLocale();
-  const [active, setActive] = useState(false); // is media on?
+  const [active, setActive] = useState(false);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [error, setError] = useState("");
@@ -125,6 +126,17 @@ export default function VideoChat({
     setActive(false);
   }
 
+  // Leaving the room unmounts this component without going through stopMedia, and
+  // the [active] cleanup only tears down the peers — the local tracks keep the
+  // camera light on for the rest of the tab's life.
+  useEffect(
+    () => () => {
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+    },
+    []
+  );
+
   function toggleMic() {
     const s = localStreamRef.current;
     if (!s) return;
@@ -149,7 +161,7 @@ export default function VideoChat({
 
     const send = (to: string, data: RtcSignalData) => socket.emit("rtcSignal", { code, to, data });
 
-    // Build (or fetch) the connection to one peer. `initiator` sends the offer.
+    // `initiator` = the side that sends the offer; see the glare rule in the header.
     function ensurePeer(peerId: string, playerId: string, name: string, initiator: boolean): PeerRecord {
       const existing = peersRef.current.get(peerId);
       if (existing) {
@@ -178,7 +190,7 @@ export default function VideoChat({
         if (pc.connectionState === "failed" || pc.connectionState === "closed") dropPeer(peerId);
       };
 
-      upsertTile({ id: peerId, playerId, name, stream: null }); // show a placeholder tile immediately
+      upsertTile({ id: peerId, playerId, name, stream: null }); // register the peer now, so audio and poster wiring exist before the stream lands
 
       if (initiator) {
         (async () => {

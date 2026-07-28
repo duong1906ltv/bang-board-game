@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity } from "@/lib/socketClient";
-import { Character, PlayerView, PlayerPublic, ROLE_EMOJI, type EventLevel, type EventView } from "@/lib/types";
+import { Character, PlayerView, PlayerPublic, ROLE_EMOJI, type EventLevel, type EventView, MAX_PLAYERS, MIN_PLAYERS } from "@/lib/types";
 import { CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import { toggleMusic, setMusicVolume, getMusicVolume } from "@/lib/music";
@@ -29,29 +29,15 @@ import {
   tError,
   logText,
 } from "@/lib/i18n";
+import { LangToggle } from "@/components/LangToggle";
+import type { GameError } from "@/lib/errors";
 
-const MIN_PLAYERS = 4;
-const MAX_PLAYERS = 7;
 
 // 3D table (react-three-fiber). Loaded client-only: Three.js needs the browser.
 const TableScene = dynamic(() => import("@/components/three/TableScene"), { ssr: false });
 
 // In-game voice/video (WebRTC). Client-only: uses getUserMedia / RTCPeerConnection.
 const VideoChat = dynamic(() => import("@/components/VideoChat"), { ssr: false });
-
-function LangToggle() {
-  const locale = useLocale();
-  return (
-    <button
-      className="ghost"
-      style={{ width: "auto", padding: "6px 10px" }}
-      onClick={() => setLocale(locale === "vi" ? "en" : "vi")}
-      title="Đổi ngôn ngữ / Switch language"
-    >
-      {locale === "vi" ? "🇻🇳 VI" : "🇬🇧 EN"}
-    </button>
-  );
-}
 
 // Toggle + volume for the procedural wild-west background music (starts on this
 // user gesture).
@@ -89,17 +75,31 @@ function MusicToggle() {
   );
 }
 
-// ─── Nút Cài đặt (⚙️): bật/tắt hiệu ứng đồ hoạ ────────────────────────────────
-// Panel sổ xuống, đóng khi bấm ra ngoài (pattern lấy từ escape room).
+// ─── Settings button (⚙️) ────────────────────────────────────────────────────
+// Everything that is NOT match state lives in here (graphics, music, language, turn
+// alerts, surrender), so the HUD outside can stay down to what you read constantly
+// while playing: role, life, character, range.
 //
-// Nút nằm trong HUD (`position:fixed; zIndex:55`) — một stacking context, nên một
-// panel `position:absolute` con sẽ bị KẸP vào mức 55 và bị các phần tử HUD sau nó
-// trong DOM (banner 56, hàng lá 55) vẽ đè. Vì vậy panel được PORTAL ra body để
-// zIndex 1300 đứng thật trên thang chung (scene 40 < cam/mic 45 < HUD 55 < modal).
-function SettingsMenu({ fx, onToggleFx }: { fx: boolean; onToggleFx: () => void }) {
+//
+// The button sits inside the HUD (`position:fixed; zIndex:55`), which is its own
+// stacking context: an `absolute` child panel would be CLAMPED to level 55 and drawn
+// over by later HUD siblings (banner 56, card row 55). Hence the panel is PORTALed to
+// body, where zIndex 1300 really does sit above the shared ladder
+// (scene 40 < cam/mic 45 < HUD 55 < modal).
+function SettingsMenu({
+  fx,
+  onToggleFx,
+  canSurrender,
+  onSurrender,
+}: {
+  fx: boolean;
+  onToggleFx: () => void;
+  canSurrender?: boolean;
+  onSurrender?: () => void;
+}) {
   const locale = useLocale();
   const [open, setOpen] = useState(false);
-  // Portal chỉ dựng được sau khi mount (SSR không có document).
+  // Portals need a document, so nothing renders until after mount.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   return (
@@ -114,11 +114,10 @@ function SettingsMenu({ fx, onToggleFx }: { fx: boolean; onToggleFx: () => void 
       </button>
       {open && mounted && createPortal(
         <>
-          {/* lớp bắt click ra ngoài để đóng panel */}
           <div style={{ position: "fixed", inset: 0, zIndex: 1300 }} onClick={() => setOpen(false)} />
           <div
             style={{
-              // Neo dưới HUD (HUD ở top:12 cao ~40px) vì portal đã rời khỏi nút.
+              // Anchored under the HUD by hand (top:12 + ~40px tall): the portal left the button behind.
               position: "fixed",
               top: 62,
               left: 12,
@@ -162,6 +161,37 @@ function SettingsMenu({ fx, onToggleFx }: { fx: boolean; onToggleFx: () => void 
               )}
             </div>
             <AlertToggle />
+
+            <Divider />
+            {/* Set once and forget — not worth HUD space. */}
+            <Row label={L(locale, "Nhạc nền", "Music")}>
+              <MusicToggle />
+            </Row>
+            <Row label={L(locale, "Ngôn ngữ", "Language")}>
+              <LangToggle padding="6px 10px" />
+            </Row>
+
+            {canSurrender && onSurrender && (
+              <>
+                <Divider />
+                <button
+                  style={{
+                    width: "100%", padding: "8px 10px", fontSize: 13,
+                    background: "transparent", border: "1px solid #c0392b", color: "#ffb3a7",
+                  }}
+                  onClick={() => { setOpen(false); onSurrender(); }}
+                >
+                  {L(locale, "🏳️ Đầu hàng", "🏳️ Surrender")}
+                </button>
+                <div style={{ fontSize: 11, opacity: 0.6, marginTop: 6, lineHeight: 1.45 }}>
+                  {L(
+                    locale,
+                    "Rời khỏi ván: lộ vai, bỏ hết bài. Có bước xác nhận.",
+                    "Leave the game: role revealed, cards discarded. You'll be asked to confirm."
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </>,
         document.body
@@ -170,9 +200,21 @@ function SettingsMenu({ fx, onToggleFx }: { fx: boolean; onToggleFx: () => void 
   );
 }
 
-// ─── Màn briefing khi vào ván ─────────────────────────────────────────────────
-// Nhắc vai + mục tiêu + ability nhân vật + cách điều khiển, trước khi vào bàn.
-// Chỉ hiện lần đầu mỗi máy (localStorage) — sau đó mở lại bằng badge vai ⓘ.
+function Divider() {
+  return <div style={{ height: 1, background: "var(--border)", margin: "12px 0 10px" }} />;
+}
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 32 }}>
+      <span style={{ fontSize: 13, opacity: 0.85 }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+// ─── Entry briefing ─────────────────────────────────────────────────────────
+// Shown automatically only on this device's first game (localStorage); afterwards it
+// is reachable from the ⓘ role badge.
 function Briefing({
   role,
   character,
@@ -280,7 +322,7 @@ export default function RoomPage() {
   const locale = useLocale();
 
   const [view, setView] = useState<PlayerView | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<GameError | string | null>(null);
   const [copied, setCopied] = useState(false);
   // Webcam feeds keyed by playerId, published by VideoChat and painted onto the
   // matching seat in the 3D table.
@@ -299,7 +341,7 @@ export default function RoomPage() {
       }
       socket.timeout(8000).emit("rejoin", { code, playerId }, (err, res) => {
         if (err || !res?.ok) {
-          setError(res?.error || "Không vào lại được phòng");
+          setError(res?.error ?? { code: "no-such-room" as const });
           redirectTimer = setTimeout(() => router.replace("/"), 1200);
         }
       });
@@ -363,7 +405,7 @@ export default function RoomPage() {
       {error && <p className="err">{tError(locale, error)}</p>}
 
       <VideoChat code={code} selfPlayerId={view.you.id} onFeeds={setFeeds} />
-      {/* gọi bạn về khi tới lượt / phải phản ứng, lúc đang ở tab khác */}
+      {/* calls you back when it is your turn or you must react while the tab is hidden */}
       <TurnAlert view={view} />
 
       {view.phase === "lobby" && (
@@ -423,7 +465,7 @@ function PendingNote({ view }: { view: PlayerView }) {
 }
 
 const PENDING_EMOJI: Record<string, string> = { bang: "🔫", dying: "💀", multi: "🎯", duel: "⚔️", store: "🏪", kit: "🎴" };
-const CHECK_ICON: Record<string, string> = { dynamite: "🧨", jail: "⛓️", barrel: "🛢️", blackjack: "🎴", "lucky-duke": "🍀" };
+const CHECK_ICON: Record<string, string> = { dynamite: "🧨", jail: "⛓️", barrel: "🛢️", blackjack: "🎴" };
 // Card name → definition, so a card mentioned in the log can be clicked to view it.
 const CARD_DEF_BY_NAME: Record<string, { id: string; name: string; effect: string }> = Object.fromEntries(
   Object.values(CARD_DEF_BY_ID).map((d) => [d.name, d])
@@ -446,15 +488,15 @@ function ReactionPanel({
 
   const doAction = (a: "missed" | "beer" | "bang" | "pass") => {
     if (a === "pass") return onRespond("pass");
-    // Calamity Janet may play Bang! as Missed! (and vice versa) — fall back to the
-    // swapped card so she can react even without the literal card in hand.
+    // Some characters may play one card as another (Calamity Janet swaps
+    // Bang!/Missed!) — fall back to the swapped card so the reaction is still
+    // possible without the literal card in hand.
+    const swap = you.character?.effect.useAs;
     const alt =
-      you.character?.id === "calamity-janet"
-        ? a === "missed"
-          ? "bang"
-          : a === "bang"
-          ? "missed"
-          : null
+      swap && swap.includes(a)
+        ? swap[0] === a
+          ? swap[1]
+          : swap[0]
         : null;
     const card = you.hand.find((c) => c.defId === a) ?? (alt ? you.hand.find((c) => c.defId === alt) : undefined);
     onRespond(a, card?.id);
@@ -553,7 +595,7 @@ function Header({ code, copied, onCopy }: { code: string; copied: boolean; onCop
         <button className="ghost" style={{ width: "auto", padding: "8px 12px" }} onClick={onCopy}>
           {copied ? L(locale, "Đã chép ✓", "Copied ✓") : L(locale, "Chép", "Copy")}
         </button>
-        <LangToggle />
+        <LangToggle padding="6px 10px" />
       </div>
     </div>
   );
@@ -633,8 +675,8 @@ function Lobby({
       <p className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
         {L(
           locale,
-          "Đầu MỖI VÒNG — đúng lúc tới lượt Cảnh Sát Trưởng — bàn nhận 2–4 sự kiện cùng lúc, áp cho TẤT CẢ mọi người cho tới hết vòng: cấm bắn, bão cát, mưa bài, đảo chiều… Các sự kiện xung đột nhau không bao giờ ra cùng nhau. Vòng đầu tiên luôn yên bình.",
-          "EVERY round — as play returns to the Sheriff — the table draws 2–4 events at once, all applying to EVERYONE until the round ends: no shooting, sandstorm, card rain, reversed order… Conflicting events are never drawn together. The opening round is always quiet."
+          "Đầu MỖI VÒNG — đúng lúc tới lượt Cảnh Sát Trưởng — bàn nhận 2–4 sự kiện cùng lúc, áp cho TẤT CẢ mọi người cho tới hết vòng: cấm bắn, bão cát, mưa bài, đảo chiều… Có hiệu lực ngay từ vòng đầu. Các sự kiện xung đột nhau không bao giờ ra cùng nhau, và không sự kiện nào lặp lại trong một ván.",
+          "EVERY round — as play returns to the Sheriff — the table draws 2–4 events at once, all applying to EVERYONE until the round ends: no shooting, sandstorm, card rain, reversed order… Live from the very first round. Conflicting events are never drawn together, and no event repeats within a game."
         )}
       </p>
 
@@ -899,6 +941,18 @@ function Table({
   // User-resizable size for the 3D history panel; persisted across re-renders so
   // socket updates don't snap it back.
   const [logSize, setLogSize] = useState<{ w: number; h: number }>({ w: 240, h: 300 });
+  // Newest-first log rows, with the card-name link position resolved. Formatting all
+  // 40 entries is not free and this component re-renders on every pointermove while
+  // a card is being dragged, so it only re-runs when the log or the language changes.
+  const logRows = useMemo(
+    () =>
+      [...view.log].reverse().map((e) => {
+        const text = logText(locale, e, you.name);
+        const def = (e.kind === "play" || e.kind === "react") && e.card ? CARD_DEF_BY_NAME[e.card] : undefined;
+        return { e, text, def, idx: def && e.card ? text.indexOf(e.card) : -1 };
+      }),
+    [view.log, locale, you.name]
+  );
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
   const [notice, setNotice] = useState("");
   const [infoCard, setInfoCard] = useState<Card | null>(null);
@@ -907,9 +961,9 @@ function Table({
   const [confirmDiscard, setConfirmDiscard] = useState<Card | null>(null);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [playerInfo, setPlayerInfo] = useState<PlayerPublic | null>(null);
-  // Hiệu ứng đồ hoạ 3D — đọc localStorage sau khi mount (tránh lệch SSR/CSR).
+  // Read after mount: localStorage is not available during SSR and would mismatch.
   const [fx, setFxState] = useState(true);
-  // Briefing đầu ván: chỉ tự mở lần đầu trên máy này.
+  // Auto-opens only on this device's first game.
   const [briefing, setBriefing] = useState(false);
   useEffect(() => {
     setFxState(getFx());
@@ -927,15 +981,12 @@ function Table({
   };
 
   const inspectCard = (c: Card) => setInfoCard(c);
-  // Open a card mentioned in the log as the same card-face popup as a table card.
   const showLogCard = (def: { id: string; name: string }) =>
     setInfoCard({ id: "log", defId: def.id, name: def.name, suit: "spades", rank: 1 });
-  // Mở lại màn briefing (vai + mục tiêu + ability + cách chơi).
   const showRole = () => setBriefing(true);
   // Cards freshly added to your hand — animated in for a "draw" effect.
   const [justDrew, setJustDrew] = useState<Set<string>>(new Set());
   const prevHandRef = useRef<string[]>([]);
-  // Scrolling ticker announcing the latest Draw!-check result.
   const [marquee, setMarquee] = useState<string | null>(null);
   const lastCheckRef = useRef<string | null>(null);
 
@@ -1025,23 +1076,23 @@ function Table({
   };
   useEffect(() => () => resizeTeardownRef.current?.(), []);
 
-  // End-of-turn discard mode: once trimmed to the hand limit, end the turn.
   useEffect(() => {
     if (discarding && overLimit === 0) {
       onEndTurn();
       setDiscarding(false);
     }
   }, [discarding, overLimit, onEndTurn]);
-  // Leaving your turn cancels any pending discard mode.
   useEffect(() => {
     if (!inPlayPhase && discarding) setDiscarding(false);
   }, [inPlayPhase, discarding]);
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
-  const isSid = you.character?.id === "sid-ketchum";
-  const isCalamity = you.character?.id === "calamity-janet";
-  // Calamity Janet may fire a Missed! as a Bang! — so a Missed! in hand aims like
-  // a Bang! (targeting + range), and it counts against her Bang!/turn limit.
-  const bangLike = (defId: string) => defId === "bang" || (isCalamity && defId === "missed");
+  const canBurnToHeal = !!you.character?.effect.burnTwoToHeal;
+  // A character whose useAs pair covers Bang! can fire the swapped card as one, so
+  // that card aims like a Bang! (targeting + range) and counts against the
+  // Bang!/turn limit.
+  const swapPair = you.character?.effect.useAs;
+  const bangLike = (defId: string) =>
+    defId === "bang" || (!!swapPair && swapPair.includes("bang") && swapPair.includes(defId));
   const needsTarget = (defId: string) => TARGETED.includes(defId) || bangLike(defId);
 
   // Which plays are unavailable right now. The reasons (once-per-turn house rule,
@@ -1088,7 +1139,8 @@ function Table({
     onPlay(card.id);
   };
 
-  // 3D drag gestures: drag a card UP to play/aim, drag RIGHT to discard.
+  // Dragging a card UP plays or aims it. Also reached from the confirm dialog, so it
+  // must not assume a gesture is in progress.
   const playGesture = (card: { id: string; defId: string }) => {
     if (!inPlayPhase) return;
     if (blockOneCard(card.defId)) return;
@@ -1114,7 +1166,7 @@ function Table({
   };
 
   const discardGesture = (card: { id: string }) => {
-    // Only discard when over the hand limit (hand > hp).
+    // Only when over the hand limit — which events can move, so it is not just hp.
     if (!inPlayPhase) return;
     if (you.hand.length <= you.handLimit) {
       return flash(L(locale, "Chỉ bỏ được khi số bài > giới hạn.", "Can only discard when over the hand limit."));
@@ -1129,15 +1181,12 @@ function Table({
     if (c) onDiscard(c.id);
   };
 
+  // The engine resolves who each card may be aimed at (targetProblem in game.ts)
+  // and ships the answer in the view, so this is pure lookup — no second rulebook.
   const canTarget = (p: (typeof view.players)[number]) => {
-    if (!aiming || !p.alive || p.id === you.id) return false;
-    if (bangLike(aiming.defId)) return p.distance != null && p.distance <= you.range;
-    if (aiming.defId === "jail") return p.role !== "sheriff" && !p.equipment.some((c) => c.defId === "jail");
-    if (aiming.defId === "panic") return p.distance != null && p.distance <= 1;
-    if (aiming.defId === "cat-balou") return p.handCount > 0 || p.equipment.length > 0;
-    if (aiming.defId === "duel") return true;
-    if (aiming.defId === "jesse") return p.handCount > 0;
-    return false;
+    if (!aiming) return false;
+    const ids = aiming.defId === "jesse" ? you.legalDrawTargets : you.legalTargets[aiming.defId];
+    return !!ids?.includes(p.id);
   };
   const fireAt = (targetId: string, targetCardId?: string) => {
     if (!aiming) return;
@@ -1210,7 +1259,6 @@ function Table({
         </div>
       )}
 
-      {/* one shared card popup: inspect (with effect) or play/discard confirm */}
       {infoCard && <CardModal card={infoCard} onClose={() => setInfoCard(null)} showEffect />}
       {confirmPlay && (
         <CardModal
@@ -1251,7 +1299,6 @@ function Table({
         />
       )}
 
-      {/* confirm before surrendering */}
       {confirmSurrender && (
         <div
           onClick={() => setConfirmSurrender(false)}
@@ -1271,7 +1318,6 @@ function Table({
         </div>
       )}
 
-      {/* another player's info: role (if revealed) + character card */}
       {playerInfo && (
         <div
           onClick={() => setPlayerInfo(null)}
@@ -1296,7 +1342,6 @@ function Table({
         </div>
       )}
 
-      {/* character card popup */}
       {charView && (
         <div
           onClick={() => setCharView(null)}
@@ -1311,17 +1356,15 @@ function Table({
         </div>
       )}
 
-      {/* briefing: vai + mục tiêu + ability + cách chơi (tự mở ván đầu, mở lại qua badge vai) */}
       {briefing && you.role && (
         <Briefing role={you.role} character={you.character} onClose={closeBriefing} />
       )}
 
-      {/* end-of-game overlay */}
       {view.phase === "result" && view.winner && (
         <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.78)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, fontFamily: "system-ui, sans-serif", padding: 20, overflowY: "auto" }}>
           <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#f0e2c0", textAlign: "center" }}>{winnerText(locale, view.winner)}</div>
 
-          {/* Phần thưởng liên game: thắng đủ 3 ván trong phòng -> link mở phòng thoát bí ẩn */}
+          {/* Cross-game reward: enough wins in one room unlocks the escape-room link */}
           {view.you.rewardUrl ? (
             <a
               href={view.you.rewardUrl}
@@ -1346,7 +1389,6 @@ function Table({
             </div>
           ) : null}
 
-          {/* everyone's roles, revealed */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 460 }}>
             <div style={{ color: "#f0e2c0", opacity: 0.8, fontSize: "0.9rem", textAlign: "center" }}>
               {L(locale, "Vai trò của mọi người", "Everyone's roles")}
@@ -1392,8 +1434,7 @@ function Table({
               narrow screens, so a chip row pinned to a fixed `top` would slide under
               it and disappear. */}
           <div style={{ position: "fixed", top: 12, left: 12, zIndex: 55, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, maxWidth: "70vw" }}>
-          {/* compact status — tap the role to see your objective */}
-          {/* One opaque slab rather than a row of translucent pills: at 0.82 alpha
+            {/* One opaque slab rather than a row of translucent pills: at 0.82 alpha
               with gaps, the WANTED poster on the wall behind showed through between
               the badges and the whole corner read as clutter. */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(18,15,12,0.94)", padding: "7px 10px", borderRadius: 12, border: "1px solid rgba(120,95,60,0.6)", boxShadow: "0 6px 20px rgba(0,0,0,0.55)", color: "#f0e2c0", fontFamily: "system-ui, sans-serif", flexWrap: "wrap", maxWidth: "100%" }}>
@@ -1410,27 +1451,18 @@ function Table({
                 {L(locale, "🏠 Phòng chờ", "🏠 Lobby")}
               </button>
             )}
-            <MusicToggle />
-            <LangToggle />
-            <SettingsMenu fx={fx} onToggleFx={toggleFx} />
-            {you.alive && view.phase === "playing" && (
-              <button
-                className="ghost"
-                style={{ width: "auto", padding: "4px 10px", fontSize: "0.8rem", borderColor: "#c0392b", color: "#ffb3a7" }}
-                onClick={() => setConfirmSurrender(true)}
-                title={L(locale, "Đầu hàng — rời khỏi ván", "Surrender — leave the game")}
-              >
-                {L(locale, "🏳️ Đầu hàng", "🏳️ Surrender")}
-              </button>
-            )}
+            <SettingsMenu
+              fx={fx}
+              onToggleFx={toggleFx}
+              canSurrender={you.alive && view.phase === "playing"}
+              onSurrender={() => setConfirmSurrender(true)}
+            />
           </div>
 
-          {/* random events still in force — stacked directly under the status slab */}
-          <EventChips events={view.events} />
+            <EventChips events={view.events} />
           </div>
 
-          {/* action history — top-right, collapsible, scrollable, drag-to-resize */}
-          {view.log.length > 0 && (
+            {view.log.length > 0 && (
             <div
               style={{
                 position: "fixed",
@@ -1458,11 +1490,7 @@ function Table({
                 <span>{logOpen ? "▾" : "▸"}</span>
               </div>
               <div style={{ flex: "1 1 auto", minHeight: 0, maxHeight: logOpen ? undefined : 118, overflowY: "auto", padding: "6px 10px", display: "flex", flexDirection: "column", gap: 3, fontSize: 12, lineHeight: 1.3 }}>
-                {[...view.log].reverse().map((e) => {
-                  const text = logText(locale, e, you.name);
-                  // Make a played/reacted card name a link that opens its info.
-                  const def = (e.kind === "play" || e.kind === "react") && e.card ? CARD_DEF_BY_NAME[e.card] : undefined;
-                  const idx = def && e.card ? text.indexOf(e.card) : -1;
+                {logRows.map(({ e, text, def, idx }) => {
                   return (
                     <div
                       key={e.id}
@@ -1571,7 +1599,7 @@ function Table({
           )}
 
           {/* Sid Ketchum: discard 2 → heal 1, usable ANY time (even off-turn / dying) */}
-          {isSid && you.alive && you.hp < you.maxHp && you.hand.length >= 2 && (
+          {canBurnToHeal && you.alive && you.hp < you.maxHp && you.hand.length >= 2 && (
             <button
               onClick={() => { setSidPicking((v) => !v); setSidPick([]); }}
               style={{
@@ -1637,8 +1665,7 @@ function Table({
             })()
           )}
 
-          {/* draggable hand */}
-          {you.alive && (
+            {you.alive && (
             <div style={{ position: "fixed", left: 0, right: 0, bottom: 10, zIndex: 55, display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 4, pointerEvents: "none" }}>
               {you.hand.map((c) => (
                 <div key={c.id} style={{ pointerEvents: "auto" }}>
@@ -1675,7 +1702,6 @@ function Table({
 const DRAG_PLAY = 55;
 const DRAG_DISC = 80;
 const TAP_MAX = 10; // movement under this = a tap
-// Which drop zone a drag delta is over ("play" up / "discard" right).
 function dragZone(d: { dx: number; dy: number } | null, canDiscard: boolean): "play" | "discard" | null {
   if (!d) return null;
   if (d.dy < -DRAG_PLAY && Math.abs(d.dy) > Math.abs(d.dx)) return "play";
@@ -1772,26 +1798,31 @@ function DrawControls({
   aimJesse: () => void;
 }) {
   const locale = useLocale();
-  const char = you.character?.id;
-  if (char === "jesse-jones") {
-    return (
-      <>
-        <button onClick={() => onDraw()}>{L(locale, "Rút 2 lá thường 🂠", "Draw 2 normally 🂠")}</button>
-        <div style={{ height: 8 }} />
-        <button className="ghost" onClick={aimJesse}>{L(locale, "Rút 1 lá từ tay người khác", "Draw 1 from a hand")}</button>
-      </>
-    );
-  }
-  if (char === "pedro-ramirez") {
-    return (
-      <>
-        <button onClick={() => onDraw()}>{L(locale, "Rút 2 lá thường 🂠", "Draw 2 normally 🂠")}</button>
-        <div style={{ height: 8 }} />
-        <button className="ghost" onClick={() => onDraw("discard")}>{L(locale, "Rút lá bỏ trên cùng + 1", "Take top discard + 1")}</button>
-      </>
-    );
-  }
-  return <button onClick={() => onDraw()}>{L(locale, "Rút 2 lá 🂠", "Draw 2 🂠")}</button>;
+  // Draw modes that offer a second, non-deck source. The other two modes (Kit
+  // Carlson, Black Jack) change what the deck hands over, not where it comes from,
+  // so they need no extra button.
+  const alt: Partial<Record<string, { label: [string, string]; onClick: () => void }>> = {
+    jesse: { label: ["Rút 1 lá từ tay người khác", "Draw 1 from a hand"], onClick: aimJesse },
+    pedro: { label: ["Rút lá bỏ trên cùng + 1", "Take top discard + 1"], onClick: () => onDraw("discard") },
+  };
+  const extra = alt[you.character?.effect.drawMode ?? ""];
+  return (
+    <>
+      <button onClick={() => onDraw()}>
+        {extra
+          ? L(locale, "Rút 2 lá thường 🂠", "Draw 2 normally 🂠")
+          : L(locale, "Rút 2 lá 🂠", "Draw 2 🂠")}
+      </button>
+      {extra && (
+        <>
+          <div style={{ height: 8 }} />
+          <button className="ghost" onClick={extra.onClick}>
+            {L(locale, extra.label[0], extra.label[1])}
+          </button>
+        </>
+      )}
+    </>
+  );
 }
 
 function CharacterCard({ c }: { c: Character }) {
@@ -1811,7 +1842,7 @@ function CharacterCard({ c }: { c: Character }) {
 }
 
 // The character rendered as a playing-card face: title banner, portrait, then
-// the full ability text below. Bullets (max HP) top-right; no tier rank.
+// the full ability text below. Bullets (max HP); no tier rank.
 function CharacterFace({ c }: { c: Character }) {
   const locale = useLocale();
   return (

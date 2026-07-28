@@ -22,20 +22,27 @@ function findCard(p: Player, defId: string): Card | undefined {
   return p.hand.find((c) => c.defId === defId);
 }
 
-// A card usable AS `defId` (Calamity Janet may swap Bang!/Missed!).
+// The other card this player may use in place of `defId`, per their character's
+// `useAs` pair (Calamity Janet swaps Bang!/Missed!). The engine validates with
+// game.canUseAs; a bot that offers a play the engine rejects stops the scheduler,
+// so both sides must read the same field.
+function swappedFor(p: Player, defId: string): string | null {
+  const pair = p.character?.effect.useAs;
+  if (!pair) return null;
+  const [a, b] = pair;
+  return defId === a ? b : defId === b ? a : null;
+}
+
 function findUsableAs(p: Player, defId: "bang" | "missed"): Card | undefined {
   const direct = findCard(p, defId);
   if (direct) return direct;
-  if (p.character?.id === "calamity-janet") {
-    return findCard(p, defId === "bang" ? "missed" : "bang");
-  }
-  return undefined;
+  const alt = swappedFor(p, defId);
+  return alt ? findCard(p, alt) : undefined;
 }
 
-// How many cards can serve as `defId` (Calamity Janet may count Bang!⇄Missed!).
 function countUsableAs(p: Player, defId: "bang" | "missed"): number {
-  const alt = p.character?.id === "calamity-janet" ? (defId === "bang" ? "missed" : "bang") : null;
-  return p.hand.filter((c) => c.defId === defId || (alt && c.defId === alt)).length;
+  const alt = swappedFor(p, defId);
+  return p.hand.filter((c) => c.defId === defId || (alt !== null && c.defId === alt)).length;
 }
 
 // Rough alliance model (bots are omniscient server-side, which is fine for a
@@ -171,7 +178,6 @@ function pendingAction(room: Room): (() => boolean) | null {
 function turnAction(room: Room, me: Player): (() => boolean) | null {
   const code = room.code;
 
-  // Draw step first.
   if (room.turnPhase === "draw") {
     return () => game.drawCards(code, me.id, "deck");
   }
@@ -186,8 +192,7 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   // timeouts anywhere, the table would then freeze for good.
   const ok = (c: Card | undefined, targetId?: string): c is Card =>
     !!c && game.playBlock(room, me, c, targetId) === null;
-  // A card of this type that is legal to play right now.
-  const usable = (defId: string) => {
+    const usable = (defId: string) => {
     const c = findCard(me, defId);
     return ok(c) ? c : undefined;
   };
@@ -235,8 +240,7 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
 
   // 8. Discard down to the hand limit (events can tighten it), then end the turn.
   if (me.hand.length > game.handLimitOf(room, me)) {
-    // Drop the least useful card first.
-    const worst = [...me.hand].sort((a, b) => cardValue(a) - cardValue(b))[0];
+      const worst = [...me.hand].sort((a, b) => cardValue(a) - cardValue(b))[0];
     return () => game.discardCard(code, me.id, worst.id);
   }
   return () => game.endTurn(code, me.id).ok;

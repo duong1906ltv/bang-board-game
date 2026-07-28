@@ -2,9 +2,9 @@
 
 // First-person 3D table for Bang!. Reads the SAME PlayerView the 2D room uses,
 // so the game logic / socket layer is untouched — this is purely a render layer.
-// The camera sits at "your" seat looking across a round table; your hand is
-// fanned in front of you, opponents are arranged around the far arc.
-import { useEffect, useMemo, useRef, useState } from "react";
+// A fixed 3/4 view across a round table, opponents around the far arc. Your own
+// hand is 2D DOM UI, not part of this scene.
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html } from "@react-three/drei";
@@ -157,7 +157,6 @@ function Bar({ floorY, len = 2.6 }: { floorY: number; len?: number }) {
       {/* counter body + top */}
       <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[0.6, 1.0, len]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.85} /></mesh>
       <mesh position={[0, 1.02, 0]}><boxGeometry args={[0.72, 0.06, len + 0.12]} /><meshStandardMaterial color={WOOD} roughness={0.7} /></mesh>
-      {/* bottles on the counter */}
       {bottleZ.map((z, i) => (<Bottle key={i} position={[0.05, 1.15, z]} tint={tints[i]} />))}
       {/* back shelf against the wall + its bottles */}
       <mesh position={[-0.42, 1.55, 0]}><boxGeometry args={[0.18, 0.05, len * 0.85]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
@@ -253,7 +252,7 @@ function Barrel({ position }: { position: [number, number, number] }) {
 
 // Western saloon shell: plank floor, warm wood walls, wall decor, a bar, a
 // piano, and a few barrels in the background. Sizes scale with the table.
-function Saloon({ felt }: { felt: number }) {
+function SaloonInner({ felt }: { felt: number }) {
   const floorTex = useMemo(plankTexture, []);
   const signTex = useMemo(signTexture, []);
   // Free the canvas-backed textures when the scene unmounts (r3f doesn't).
@@ -285,7 +284,6 @@ function Saloon({ felt }: { felt: number }) {
           two WANTED sheets at ±0.62·wall and the Ronaldo tribute in the middle —
           were removed, which is what lets the player posters run right across the
           wall evenly and roughly twice as large. */}
-      {/* ── wall decor ─────────────────────────────────────────────── */}
       {/* back wall: carved SALOON sign above the posters + lucky horseshoes */}
       <mesh position={[0, floorY + 3.5, -wall + 0.03]}>
         <planeGeometry args={[2.6, 0.76]} />
@@ -330,7 +328,7 @@ function Saloon({ felt }: { felt: number }) {
   );
 }
 
-// A five-pointed sheriff star as a flat emblem (built from ten triangles).
+// Flat star emblem — a Shape, so it sits flush on the hat or the felt with no depth.
 function SheriffStar({ radius, y, color, opacity = 1 }: { radius: number; y: number; color: string; opacity?: number }) {
   const geo = useMemo(() => {
     const shape = new THREE.Shape();
@@ -356,6 +354,29 @@ function SheriffStar({ radius, y, color, opacity = 1 }: { radius: number; y: num
 }
 
 // Layout scales with the number of opponents so a 7-player table isn't cramped.
+// Opponents clockwise from your own seat, so avatars and posters run in the same
+// order. Note posters prepend YOU, so a poster is one slot right of its avatar.
+// The green scope players tap to pick a card or a target. One component so both
+// affordances read as the same UI element — the aim prompt says to look for it.
+function Crosshair({ size, color, fill, stroke }: { size: number; color: string; fill: string; stroke: number }) {
+  return (
+    <svg viewBox="0 0 100 100" width={size} height={size}>
+      <circle cx="50" cy="50" r="34" fill={fill} stroke={color} strokeWidth={stroke} />
+      <line x1="50" y1="8" x2="50" y2="28" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
+      <line x1="50" y1="72" x2="50" y2="92" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
+      <line x1="8" y1="50" x2="28" y2="50" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
+      <line x1="72" y1="50" x2="92" y2="50" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
+      <circle cx="50" cy="50" r="6" fill={color} />
+    </svg>
+  );
+}
+
+function othersInTurnOrder<T extends { seat: number }>(players: T[], youSeat: number, n: number): T[] {
+  return players
+    .filter((p) => p.seat !== youSeat)
+    .sort((a, b) => ((a.seat - youSeat + n) % n) - ((b.seat - youSeat + n) % n));
+}
+
 function layout(nOpp: number) {
   const ring = 1.4 + 0.13 * nOpp; // radius of the opponent circle
   const felt = ring + 0.5; // felt top radius
@@ -446,7 +467,7 @@ function feltTexture(): THREE.Texture {
   return tex;
 }
 
-function Table({ felt }: { felt: number }) {
+function TableInner({ felt }: { felt: number }) {
   const bodyR = felt + 0.12;
   const felTex = useMemo(() => feltTexture(), []);
   useEffect(() => () => felTex.dispose(), [felTex]);
@@ -474,18 +495,12 @@ function Table({ felt }: { felt: number }) {
         <ringGeometry args={[felt * 0.965, felt, 96]} />
         <meshStandardMaterial color="#4a2c14" roughness={0.6} />
       </mesh>
-      {/* legs */}
       {legs.map(([x, z], i) => (
         <mesh key={i} position={[x, -0.95, z]} castShadow>
           <cylinderGeometry args={[0.1, 0.08, 1.3, 16]} />
           <meshStandardMaterial color="#3f2410" roughness={0.85} />
         </mesh>
       ))}
-      {/* wooden floor */}
-      <mesh position={[0, -1.55, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[80, 80]} />
-        <meshStandardMaterial color="#241d18" roughness={1} />
-      </mesh>
     </group>
   );
 }
@@ -502,7 +517,7 @@ function Table({ felt }: { felt: number }) {
 //    but the side walls recede from the camera and leave frame quickly — only their
 //    back-corner stretch is visible at all (see posterSlots).
 //
-// Hence: mostly back wall, one poster tucked into each back corner.
+// Hence: every poster on the back wall, spread evenly across its full width.
 // One slot: where the poster hangs and how big it is.
 interface PosterSlot {
   pos: [number, number, number];
@@ -732,9 +747,7 @@ function WantedPosters({
   // matches how the avatars read left-to-right across the arc. You are not on the
   // arc (you are the camera), so your slot goes on the near-left wall — the one
   // closest to where you sit.
-  const others = players
-    .filter((p) => p.seat !== youSeat)
-    .sort((a, b) => ((a.seat - youSeat + n) % n) - ((b.seat - youSeat + n) % n));
+  const others = othersInTurnOrder(players, youSeat, n);
   const you = players.find((p) => p.seat === youSeat);
   const ordered = [
     { id: youId, name: youName, isTurn: !!you?.isTurn },
@@ -785,7 +798,7 @@ function StaticShadows({ trigger }: { trigger: string }) {
 // The hanging oil lamp over the table: the scene's key light. It is the one thing
 // bright enough to trip Bloom's threshold, and being a point light directly above
 // the felt it also gives every figure a shadow that anchors it to the table.
-function TableLamp({ felt }: { felt: number }) {
+function TableLampInner({ felt }: { felt: number }) {
   const y = 2.55;
   return (
     <group position={[0, y, 0]}>
@@ -898,7 +911,7 @@ const FLOOR_Y = -1.55;
 // instead of floating above the felt.
 // Turn a live MediaStream into a texture we can paint on a mesh.
 //
-// The stream is already being decoded by VideoChat's own <video> tiles, but a
+// This is the ONLY decode of a remote peer's video (VideoChat renders audio only), but a
 // THREE.VideoTexture needs an element of its own. Two things are load-bearing:
 //  - `muted`: the audio is already playing through VideoChat's tile, and an
 //    unmuted element here would double every voice (and block autoplay).
@@ -923,8 +936,8 @@ function useStreamTexture(stream: MediaStream | null | undefined): THREE.VideoTe
 
     const t = new THREE.VideoTexture(el);
     t.colorSpace = THREE.SRGBColorSpace;
-    // Centre-crop to a square: the plate is round, so a raw 4:3 frame would
-    // squash the face sideways. Recomputed once the real resolution is known.
+    // Centre-crop to a square so the poster plate never squashes the face sideways.
+    // Recomputed once the real resolution is known.
     const crop = () => {
       const w = el.videoWidth;
       const h = el.videoHeight;
@@ -953,8 +966,15 @@ function useStreamTexture(stream: MediaStream | null | undefined): THREE.VideoTe
   return tex;
 }
 
+// Head geometry lives at module scope because the aim crosshair is placed on the
+// head too — as two separate literals they would silently drift apart the first
+// time the figure is resized.
+const AVATAR_SHOULDER_Y = 0.42; // torso top, just above the table rim (y=0)
+const AVATAR_HEAD_R = 0.15;
+const AVATAR_HEAD_Y = AVATAR_SHOULDER_Y + AVATAR_HEAD_R + 0.05; // clear of the shoulders
+
 function Avatar({ position, color, dead, sheriff }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean }) {
-  const shoulderY = 0.42; // torso top, just above the table rim (y=0)
+  const shoulderY = AVATAR_SHOULDER_Y;
   // Torso stops just under the table rim and a barrel carries it down to the floor.
   // It used to be one cone running the whole way from the shoulders to FLOOR_Y —
   // 1.97 tall under a 0.30 head, so it read as a traffic cone, not a person. The
@@ -967,8 +987,8 @@ function Avatar({ position, color, dead, sheriff }: { position: [number, number,
   // irreconcilable, and every fix (2x head, moved hat, billboarded disc) was a
   // patch on that same mismatch. The webcams live on the wall posters instead,
   // where they are rectangular, face-on, and free of body proportions.
-  const headR = 0.15;
-  const headY = shoulderY + headR + 0.05; // sits just clear of the shoulders
+  const headR = AVATAR_HEAD_R;
+  const headY = AVATAR_HEAD_Y;
   const brimY = headY + 0.1;
   const shirt = dead ? "#4a4a4a" : color;
   const skin = dead ? "#7a7a7a" : "#e8c39a";
@@ -1085,7 +1105,6 @@ function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard 
       {cards.map((c, i) => {
         const o = (i - (cards.length - 1) / 2) * gap;
         const def = CARD_DEF_BY_ID[c.defId];
-        // Icon only, plus a number for guns / range modifiers (no card name).
         const suffix =
           def?.kind === "gun" && def.range
             ? `${def.range}`
@@ -1105,14 +1124,7 @@ function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard 
                   title="Chọn lá này"
                   style={{ cursor: "pointer", filter: "drop-shadow(0 0 6px #33d17a)" }}
                 >
-                  <svg viewBox="0 0 100 100" width={42} height={42}>
-                    <circle cx="50" cy="50" r="34" fill="rgba(51,209,122,0.18)" stroke="#33d17a" strokeWidth="8" />
-                    <line x1="50" y1="8" x2="50" y2="28" stroke="#33d17a" strokeWidth="8" strokeLinecap="round" />
-                    <line x1="50" y1="72" x2="50" y2="92" stroke="#33d17a" strokeWidth="8" strokeLinecap="round" />
-                    <line x1="8" y1="50" x2="28" y2="50" stroke="#33d17a" strokeWidth="8" strokeLinecap="round" />
-                    <line x1="72" y1="50" x2="92" y2="50" stroke="#33d17a" strokeWidth="8" strokeLinecap="round" />
-                    <circle cx="50" cy="50" r="6" fill="#33d17a" />
-                  </svg>
+                  <Crosshair size={42} color="#33d17a" fill="rgba(51,209,122,0.18)" stroke={8} />
                 </div>
               </Html>
             )}
@@ -1167,14 +1179,12 @@ function TargetMarker({ position, onClick }: { position: [number, number, number
         style={{ cursor: "pointer", filter: `drop-shadow(0 0 6px ${col})` }}
         title="Bắn mục tiêu này"
       >
-        <svg viewBox="0 0 100 100" width={hover ? 66 : 58} height={hover ? 66 : 58}>
-          <circle cx="50" cy="50" r="34" fill={hover ? "rgba(255,210,74,0.18)" : "rgba(51,209,122,0.12)"} stroke={col} strokeWidth="7" />
-          <line x1="50" y1="6" x2="50" y2="26" stroke={col} strokeWidth="7" strokeLinecap="round" />
-          <line x1="50" y1="74" x2="50" y2="94" stroke={col} strokeWidth="7" strokeLinecap="round" />
-          <line x1="6" y1="50" x2="26" y2="50" stroke={col} strokeWidth="7" strokeLinecap="round" />
-          <line x1="74" y1="50" x2="94" y2="50" stroke={col} strokeWidth="7" strokeLinecap="round" />
-          <circle cx="50" cy="50" r="6" fill={col} />
-        </svg>
+        <Crosshair
+          size={hover ? 66 : 58}
+          color={col}
+          fill={hover ? "rgba(255,210,74,0.18)" : "rgba(51,209,122,0.12)"}
+          stroke={7}
+        />
       </div>
     </Html>
   );
@@ -1208,9 +1218,7 @@ function Opponents({
   // Order opponents by turn order relative to the viewer (the player right after
   // you first) so the seating reads the same from everyone's perspective.
   const n = players.length;
-  const others = players
-    .filter((p) => p.seat !== youSeat)
-    .sort((a, b) => ((a.seat - youSeat + n) % n) - ((b.seat - youSeat + n) % n));
+  const others = othersInTurnOrder(players, youSeat, n);
   const seatR = felt + 0.45; // avatars out past the felt so bodies don't cover it
   return (
     <>
@@ -1234,11 +1242,17 @@ function Opponents({
             ) : (
               <Tombstone position={[ax, FLOOR_Y, az]} />
             )}
-            {/* name / hp / character floating above the avatar's head */}
-            <Nameplate p={p} position={[ax, 1.35, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
+                  <Nameplate p={p} position={[ax, 1.35, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
             <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} pickable={!!pickCardMode && targetable} onPickCard={(cid) => onPickCard?.(p.id, cid)} />
             {targetable && onPickTarget && (
-              <TargetMarker position={[ax, 1.6, az]} onClick={() => onPickTarget(p.id)} />
+              // Right on the head — you are aiming at them, so the crosshair rings
+              // the face. It used to float at y=1.6, above even the nameplate, which
+              // put it in the top band of the screen where the aiming instruction bar
+              // covers it. That bar cannot be drawn under: it is `position: fixed` at
+              // zIndex 56 while the whole canvas is a zIndex-40 stacking context, so
+              // nothing inside the scene can ever paint over it. The head sits well
+              // below that band, which is what keeps the scope clickable.
+              <TargetMarker position={[ax, AVATAR_HEAD_Y, az]} onClick={() => onPickTarget(p.id)} />
             )}
           </group>
         );
@@ -1277,8 +1291,8 @@ function CenterPiles({ deckCount, discardCount, topDiscard }: { deckCount: numbe
 }
 
 // A single card animating from the draw pile at table centre toward "you" (the
-// camera), arcing up and turning face-up along the way — the "rút bài kéo về
-// phía mình" effect. Removes itself once it reaches the near edge.
+// camera), arcing up and turning face-up along the way, so a draw reads as "that
+// card came to me". Removes itself once it reaches the near edge.
 function DrawFlight({
   card,
   delay,
@@ -1401,7 +1415,7 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
   const divRef = useRef<HTMLDivElement>(null);
   const blastRef = useRef<THREE.Mesh>(null);
   const lightRef = useRef<THREE.PointLight>(null);
-  const cy = 0.3 + felt * 0.32; // stage height above the felt (lowered toward table centre)
+  const cy = 0.3 + felt * 0.32; // stage height above the felt
 
   useEffect(() => {
     if (!check) return;
@@ -1490,7 +1504,19 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
   );
 }
 
-function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, fx, feeds }: { view: PlayerView; targetIds?: string[]; onPickTarget?: (id: string) => void; onInspect?: (c: Card) => void; onInspectPlayer?: (p: PlayerPublic) => void; pickCardMode?: boolean; onPickCard?: (ownerId: string, cardId: string) => void; fx?: boolean; feeds?: Map<string, MediaStream> }) {
+interface SceneProps {
+  view: PlayerView;
+  targetIds?: string[];
+  onPickTarget?: (id: string) => void;
+  onInspect?: (c: Card) => void;
+  onInspectPlayer?: (p: PlayerPublic) => void;
+  pickCardMode?: boolean;
+  onPickCard?: (ownerId: string, cardId: string) => void;
+  fx?: boolean; // advanced effects (bloom / vignette) — switchable off for weak devices
+  feeds?: Map<string, MediaStream>; // playerId -> webcam, painted onto that player's WANTED poster
+}
+
+function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, fx, feeds }: SceneProps) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   return (
@@ -1532,7 +1558,6 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
         shadow-bias={-0.0006}
       />
       <TableLamp felt={felt} />
-      {/* refresh the shadow map only when something that casts one can have changed */}
       <StaticShadows
         trigger={`${view.turnSeat}|${view.players.map((p) => (p.alive ? 1 : 0)).join("")}|${view.players.length}`}
       />
@@ -1540,13 +1565,10 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <Table felt={felt} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
-      {/* live webcams, hung on the walls as WANTED posters */}
       <WantedPosters players={view.players} youSeat={view.you.seat} youId={view.you.id} youName={view.you.name} feeds={feeds} felt={felt} />
       {/* your own in-play cards, on the near edge of the felt */}
       <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
-      {/* cards drawn into your hand fly out of the deck toward you */}
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
-      {/* Draw!-check reveal (any kind) over the table centre */}
       <CheckFx check={view.checks.at(-1) ?? null} felt={felt} />
       {/* Cinematic pass: the lamp globe blooms, the corners fall away. Threshold
           dropped from 0.78 to 0.58 — under the old flat lighting nothing in frame
@@ -1572,25 +1594,23 @@ export default function TableScene({
   onPickCard,
   fx = true,
   feeds,
-}: {
-  view: PlayerView;
-  targetIds?: string[];
-  onPickTarget?: (id: string) => void;
-  onInspect?: (c: Card) => void;
-  onInspectPlayer?: (p: PlayerPublic) => void;
-  pickCardMode?: boolean;
-  onPickCard?: (ownerId: string, cardId: string) => void;
-  fx?: boolean; // hiệu ứng nâng cao (bloom / vignette) — tắt được cho máy yếu
-  feeds?: Map<string, MediaStream>; // playerId -> webcam, vẽ lên đầu từng nhân vật
-}) {
+}: SceneProps) {
+
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
       {/* dpr cap 1.5, not 2: at 2 a retina screen renders FOUR times the pixels of a
           1x screen every frame, and on a table of flat colours the difference is
           barely visible while the cost is not. 1.5 is 44% fewer pixels than 2. */}
       <Canvas shadows dpr={fx ? [1, 1.5] : [1, 1.25]}>
-        <Scene view={view} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} fx={fx} feeds={feeds} />
+        <Scene {...{ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, fx, feeds }} />
       </Canvas>
     </div>
   );
 }
+
+// Scene re-renders on every broadcast — each play, each 850ms bot tick. These three
+// take only `felt`, so without memo the whole static room (a few hundred meshes:
+// piano keys, bottles, wheel spokes, table legs) is rebuilt to reconcile to nothing.
+const Saloon = memo(SaloonInner);
+const Table = memo(TableInner);
+const TableLamp = memo(TableLampInner);

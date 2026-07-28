@@ -3,6 +3,7 @@
 // Lightweight i18n for the client. Proper nouns (card & character names) stay as
 // printed; roles, abilities, UI chrome, banners and messages are translated.
 import { useEffect, useState } from "react";
+import type { ErrorCode, GameError } from "./errors";
 import type { Role } from "./types";
 import type { PlayerView, LogEntry } from "./types";
 // Pure data (no engine import at runtime), so it is safe in a client bundle.
@@ -49,7 +50,6 @@ export function useLocale(): Locale {
   return current;
 }
 
-// Pick one of two strings by locale (used for inline UI text).
 export function L(locale: Locale, vi: string, en: string): string {
   return locale === "vi" ? vi : en;
 }
@@ -181,7 +181,7 @@ export function formatPending(l: Locale, p: PlayerView["pending"], youName?: str
 // --- random events (keyed by id in lib/events.ts) ---
 // [vi name, en name, vi description, en description]
 const EVENT_TEXT: Record<string, [string, string, string, string]> = {
-  // cấm đoán — cả bàn, hết vòng
+  // restrictions
   "jammed-gun": ["Súng Kẹt Đạn", "Jammed Guns", "Hết vòng này không ai đánh được Bang!.", "Nobody may play Bang! for the rest of the round."],
   "short-barrel": ["Nòng Cụt", "Short Barrels", "Tầm bắn của mọi người về 1 tới hết vòng.", "Everyone's range drops to 1 for the round."],
   prohibition: ["Lệnh Cấm Rượu", "Prohibition", "Beer và Saloon vô hiệu với tất cả tới hết vòng.", "Beer and Saloon do nothing for anyone this round."],
@@ -196,7 +196,7 @@ const EVENT_TEXT: Record<string, [string, string, string, string]> = {
   survival: ["Chế Độ Sinh Tồn", "Survival", "Cả vòng không ai hồi máu được (vẫn cứu được khi sắp gục).", "No healing this round — a dying player may still drink to survive."],
   truce: ["Hiệp Ước", "Truce", "Cả vòng không ai được bắn hay Duel Cảnh Sát Trưởng.", "Nobody may Bang! or Duel the Sheriff this round."],
 
-  // tăng cường — cả bàn, hết vòng
+  // buffs
   "hot-streak": ["Đạn Vô Hạn", "Hot Streak", "Cả vòng ai cũng bắn Bang! không giới hạn.", "Everyone may fire unlimited Bang! this round."],
   "gun-oil": ["Dầu Súng", "Gun Oil", "Cả vòng ai cũng được bắn 2 lá Bang! mỗi lượt.", "Everyone may fire two Bang! per turn this round."],
   "eagle-eye": ["Mắt Đại Bàng", "Eagle Eyes", "Tầm bắn của mọi người +1 cả vòng.", "Everyone gets +1 range this round."],
@@ -206,7 +206,7 @@ const EVENT_TEXT: Record<string, [string, string, string, string]> = {
   frenzy: ["Cơn Điên", "Frenzy", "Cả vòng bỏ luật mỗi loại lá 1 lần/lượt.", "The once-per-turn card rule is suspended this round."],
   "happy-hour": ["Giờ Vàng", "Happy Hour", "Cả vòng, mỗi Beer hồi 2 máu.", "Each Beer restores 2 life this round."],
 
-  // thời tiết — cả bàn, hết vòng
+  // weather
   sandstorm: ["Bão Cát", "Sandstorm", "Cả vòng, mọi Bang! cần thêm 1 Missed! để né.", "Every Bang! needs one more Missed! this round."],
   fog: ["Sương Mù", "Fog", "Cả vòng, mọi người thấy nhau xa hơn 1.", "Everyone sees everyone 1 farther this round."],
   "open-plains": ["Đồng Bằng", "Open Plains", "Cả vòng, mọi người thấy nhau gần hơn 1.", "Everyone sees everyone 1 closer this round."],
@@ -215,49 +215,33 @@ const EVENT_TEXT: Record<string, [string, string, string, string]> = {
   "lucky-table": ["Bàn May", "Lucky Table", "Cả vòng, mọi Draw! lật 2 lá và lấy lá tốt hơn.", "Every Draw! keeps the better of two this round."],
   "drunk-table": ["Cả Bàn Say", "Everyone's Drunk", "Cả vòng, mọi Bang! bay vào một mục tiêu ngẫu nhiên trong tầm.", "Every Bang! hits a random target in range this round."],
 
-  // trừng phạt — nổ một lần
+  // punishments
   plague: ["Dịch Bệnh", "Plague", "Mọi người đang trên 1 máu mất 1 máu.", "Everyone above 1 life loses 1."],
-  stampede: ["Bò Điên", "Stampede", "Một người ngẫu nhiên mất 1 máu.", "A random player loses 1 life."],
   toll: ["Thuế Quan", "Toll", "Mỗi người bỏ 1 lá ngẫu nhiên.", "Everyone discards a random card."],
-  inspection: ["Thanh Tra", "Inspection", "Người nhiều bài nhất phải bỏ về giới hạn.", "The player with the most cards trims to their limit."],
-  "night-thief": ["Trộm Đêm", "Night Thief", "Một người ngẫu nhiên mất 1 lá.", "A random player loses a card."],
   "strong-wind": ["Gió To", "Strong Wind", "Mọi Dynamite chuyển sang người kế tiếp.", "Every Dynamite passes along."],
   "wet-fuse": ["Dây Cháy Ướt", "Wet Fuse", "Mọi Dynamite trên bàn bị bỏ.", "Every Dynamite in play is discarded."],
   jailbreak: ["Vượt Ngục", "Jailbreak", "Mọi Jail bị bỏ — tù nhân được thả.", "Every Jail is discarded — prisoners walk free."],
 
-  // phúc lợi — nổ một lần
+  // boons
   "healing-spring": ["Giếng Thần", "Healing Spring", "Mọi người hồi 1 máu.", "Everyone regains 1 life."],
   "supply-drop": ["Tiếp Tế", "Supply Drop", "Mọi người rút 1 lá.", "Everyone draws a card."],
-  "divine-favor": ["Ơn Trên", "Divine Favor", "Người ít máu nhất hồi 2 máu.", "The player with the least life regains 2."],
   "flea-market": ["Chợ Trời", "Flea Market", "Mở một lượt General Store miễn phí.", "A free General Store round opens."],
   reshuffle: ["Xáo Lại", "Reshuffle", "Chồng bài bỏ được trộn lại vào bộ.", "The discard pile is shuffled back into the deck."],
 
-  // hỗn loạn — nổ một lần
-  "musical-chairs": ["Đổi Chỗ", "Musical Chairs", "Hai người ngẫu nhiên đổi ghế — khoảng cách đổi theo.", "Two random players swap seats — distances change."],
-  "hand-swap": ["Đổi Tay", "Hand Swap", "Hai người ngẫu nhiên đổi toàn bộ bài trên tay.", "Two random players swap entire hands."],
+  // chaos
   "pass-the-hand": ["Chuyền Tay", "Pass the Hand", "Mọi người chuyền tay bài theo chiều đi.", "Everyone passes their hand along the play direction."],
   "gun-shuffle": ["Đổi Súng", "Gun Shuffle", "Mọi người chuyền súng theo chiều đi.", "Everyone passes their gun along the play direction."],
   reverse: ["Đảo Chiều", "Reverse", "Thứ tự lượt đảo chiều từ giờ.", "The turn order reverses from now on."],
-  "role-leak": ["Tiết Lộ Vai", "Role Leak", "Vai của một người bị công khai.", "One player's role becomes public."],
 
-  // lời nguyền — nhắm một người
-  shackled: ["Bị Xích", "Shackled", "Người bị nhắm không bắn được trong vòng này.", "The cursed player may not shoot this round."],
-  oversleep: ["Ngủ Nướng", "Oversleep", "Người bị nhắm mất lượt của mình vòng này.", "The cursed player loses their turn this round."],
-  "marked-man": ["Bị Đánh Dấu", "Marked Man", "Người bị nhắm nhận thêm 1 sát thương mỗi đòn, 2 vòng.", "The cursed player takes 1 extra damage per hit for 2 rounds."],
-  wanted: ["Truy Nã", "Wanted", "Ai hạ được người bị treo thưởng sẽ rút 3 lá.", "Whoever kills the wanted player draws 3 cards."],
-  "guardian-angel": ["Thiên Thần Hộ Mệnh", "Guardian Angel", "Người yếu nhất miễn sát thương trong vòng này.", "The weakest player takes no damage this round."],
 };
 
 export const eventName = (l: Locale, id: string) => EVENT_TEXT[id]?.[l === "vi" ? 0 : 1] ?? id;
 export const eventDesc = (l: Locale, id: string) => EVENT_TEXT[id]?.[l === "vi" ? 2 : 3] ?? "";
 
-// Frequency picker labels (host, lobby).
+// Events are a plain on/off switch, not a frequency dial — see the note in events.ts.
 const EVENT_LEVEL_LABEL: Record<string, [string, string]> = {
   off: ["Tắt", "Off"],
-  low: ["Ít", "Light"],
-  normal: ["Vừa", "Normal"],
-  high: ["Điên", "Chaos"],
-  mayhem: ["Hỗn Mang", "Mayhem"],
+  on: ["Bật", "On"],
 };
 export const eventLevelLabel = (l: Locale, lv: string) =>
   EVENT_LEVEL_LABEL[lv]?.[l === "vi" ? 0 : 1] ?? lv;
@@ -296,60 +280,74 @@ const ACTIONS: Record<string, [string, string]> = {
 };
 export const actionLabel = (l: Locale, a: string) => (ACTIONS[a] ? ACTIONS[a][l === "vi" ? 0 : 1] : a);
 
-// --- error messages (server sends Vietnamese; map to EN, with a few parametric) ---
-const ERROR_EN: Record<string, string> = {
-  "Phòng không tồn tại": "Room not found",
-  "Ván đang diễn ra, không thể vào": "Game in progress — can't join",
-  "Không tìm thấy người chơi": "Player not found",
-  "Không vào lại được phòng": "Couldn't rejoin the room",
-  "Ván đã bắt đầu": "The game already started",
-  "Số người chơi không hợp lệ": "Invalid player count",
-  "Bạn phải rút bài trước": "You must draw first",
-  "Đang chờ phản ứng": "Waiting for a reaction",
-  "Mục tiêu không hợp lệ": "Invalid target",
-  "Mục tiêu ngoài tầm bắn": "Target out of range",
-  "Chỉ 1 Bang!/lượt (trừ Volcanic/Willy)": "Only 1 Bang! per turn (unless Volcanic/Willy)",
-  "Không thể bỏ tù Cảnh Sát Trưởng": "Can't jail the Sheriff",
-  "Người này đã bị giam": "That player is already jailed",
-  "Máu đã đầy": "Life is already full",
-  "Missed! chỉ dùng để phản ứng Bang!": "Missed! can only be used to react to a Bang!",
-  "Chỉ lấy được của người ở khoảng cách 1": "Only from a player at distance 1",
-  "Mục tiêu không có bài": "Target has no cards",
-  "Không phải lượt phản ứng của bạn": "Not your turn to react",
-  "Không có lá né hợp lệ": "No valid card to dodge with",
-  "Không có Beer đó": "No such Beer",
-  "Chưa tới lượt bạn trong Duel": "Not your turn in the Duel",
-  "Không có Bang! hợp lệ": "No valid Bang!",
-  "Chưa tới lượt chọn của bạn": "Not your turn to pick",
-  "Lá không hợp lệ": "Invalid card",
-  "Không phải lượt của bạn": "Not your turn",
-  "Chỉ Sid Ketchum dùng được": "Only Sid Ketchum can do this",
-  "Chọn đúng 2 lá khác nhau": "Pick exactly 2 different cards",
-  "Không có lá đó": "No such card",
-  "Sự kiện đang cấm hồi máu": "An event forbids healing",
-  "Sự kiện đang cấm loại lá này": "An event forbids this kind of card",
-  "Sự kiện: không được bắn lượt này": "Event: you can't shoot this turn",
-  "Hiệp Ước: không được bắn Cảnh Sát Trưởng": "Truce: the Sheriff can't be shot",
+// Every refusal the engine can return, in both languages. `{n}` / `{s}` are filled
+// from the error's own fields — the engine never carries display copy.
+const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
+  "no-such-room": ["Phòng không tồn tại", "No such room"],
+  "cannot-start": ["Không thể bắt đầu", "Cannot start"],
+  "cannot-add-bot": ["Không thêm được bot", "Could not add a bot"],
+  "player-not-found": ["Không tìm thấy người chơi", "Player not found"],
+  "bad-player-count": ["Số người chơi không hợp lệ", "Invalid player count"],
+  "game-in-progress": ["Ván đang diễn ra", "A game is in progress"],
+  "already-started": ["Ván đã bắt đầu", "The game already started"],
+  "not-your-turn": ["Không phải lượt của bạn", "Not your turn"],
+  "must-draw-first": ["Bạn phải rút bài trước", "You must draw first"],
+  "waiting-for-reaction": ["Đang chờ phản ứng", "Waiting for a reaction"],
+  "jailed-discard-only": [
+    "Đang bị giam — chỉ được bỏ bài rồi kết thúc lượt",
+    "In jail — you may only discard, then end your turn",
+  ],
+  "not-your-reaction": ["Không phải lượt phản ứng của bạn", "Not your reaction"],
+  "not-your-duel-turn": ["Chưa tới lượt bạn trong Duel", "Not your turn in the duel"],
+  "not-your-pick": ["Chưa tới lượt chọn của bạn", "Not your pick"],
+  "invalid-card": ["Lá không hợp lệ", "Invalid card"],
+  "card-not-in-hand": ["Không có lá đó", "You don't have that card"],
+  "card-not-implemented": ["Lá này sẽ hỗ trợ ở bước sau", "This card isn't supported yet"],
+  "missed-is-reaction-only": ["Missed! chỉ dùng để phản ứng Bang!", "Missed! only answers a Bang!"],
+  "invalid-target": ["Mục tiêu không hợp lệ", "Invalid target"],
+  "out-of-range": ["Mục tiêu ngoài tầm bắn", "Target out of range"],
+  "panic-needs-distance-1": [
+    "Chỉ lấy được của người ở khoảng cách 1",
+    "Only from a player at distance 1",
+  ],
+  "target-has-no-cards": ["Mục tiêu không có bài", "The target has no cards"],
+  "cannot-jail-sheriff": ["Không thể bỏ tù Cảnh Sát Trưởng", "The Sheriff cannot be jailed"],
+  "already-jailed": ["Người này đã bị giam", "Already in jail"],
+  "truce-protects-sheriff": [
+    "Hiệp Ước: không được bắn Cảnh Sát Trưởng",
+    "Truce: the Sheriff cannot be shot",
+  ],
+  "hp-full": ["Máu đã đầy", "Already at full life"],
+  "pick-two-distinct": ["Chọn đúng 2 lá khác nhau", "Pick exactly 2 different cards"],
+  "ability-unavailable": [
+    "Nhân vật của bạn không làm được việc này",
+    "Your character cannot do that",
+  ],
+  "event-forbids-heal": ["Sự kiện đang cấm hồi máu", "An event forbids healing"],
+  "event-bans-kind": ["Sự kiện đang cấm loại lá này", "An event bans this kind of card"],
+  "event-bans-bang": ["Sự kiện: không được bắn lượt này", "Event: no shooting this turn"],
+  "bang-limit-reached": [
+    "Chỉ 1 Bang!/lượt (trừ Volcanic/Willy)",
+    "Only 1 Bang! per turn (Volcanic/Willy aside)",
+  ],
+  "room-full": ["Phòng đã đầy (tối đa {n})", "Room full (max {n})"],
+  "need-players": ["Cần tối thiểu {n} người", "Need at least {n} players"],
+  "too-many-players": ["Tối đa {n} người", "At most {n} players"],
+  "hand-over-limit": ["Bỏ bớt {n} lá (giới hạn = máu)", "Discard {n} card(s) (limit = life)"],
+  "already-in-play": ["Đã có {s} trên bàn", "{s} is already in play"],
+  "no-valid-card": ["Không có {s} hợp lệ", "No valid {s}"],
+  "need-more-missed": ["Cần đủ {n} Missed! để né", "Need {n} Missed! to dodge"],
+  "event-bans-card": ["Sự kiện đang cấm {s}", "An event bans {s}"],
+  "event-play-limit": [
+    "Sự kiện: chỉ được đánh {n} lá lượt này",
+    "Event: only {n} card(s) playable this turn",
+  ],
+  "card-already-used-this-turn": ["Đã dùng {s} trong lượt này", "Already played {s} this turn"],
 };
-export function tError(l: Locale, msg: string): string {
-  if (l === "vi") return msg;
-  if (ERROR_EN[msg]) return ERROR_EN[msg];
-  // Parametric fallbacks.
-  let m = msg.match(/^Bỏ bớt (\d+) lá/);
-  if (m) return `Discard ${m[1]} card(s) (limit = life)`;
-  m = msg.match(/^Cần tối thiểu (\d+) người/);
-  if (m) return `Need at least ${m[1]} players`;
-  m = msg.match(/^Tối đa (\d+) người/);
-  if (m) return `At most ${m[1]} players`;
-  m = msg.match(/^Phòng đã đầy \(tối đa (\d+)\)/);
-  if (m) return `Room full (max ${m[1]})`;
-  m = msg.match(/^Đã có .+ trên bàn$/);
-  if (m) return "Already in play";
-  m = msg.match(/^Không có (Bang!|Missed!) hợp lệ$/);
-  if (m) return `No valid ${m[1]}`;
-  m = msg.match(/^Sự kiện đang cấm (.+)$/);
-  if (m) return `An event forbids ${m[1]}`;
-  m = msg.match(/^Sự kiện: chỉ được đánh (\d+) lá lượt này$/);
-  if (m) return `Event: only ${m[1]} card(s) playable this turn`;
-  return msg;
+
+export function tError(l: Locale, e: GameError | string | null | undefined): string {
+  if (!e) return "";
+  if (typeof e === "string") return e; // client-side messages are already localised
+  const tpl = ERROR_TEXT[e.code]?.[l === "vi" ? 0 : 1] ?? e.code;
+  return tpl.replace("{n}", String(e.n ?? "")).replace("{s}", e.s ?? "");
 }

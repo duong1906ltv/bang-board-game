@@ -113,7 +113,7 @@ function startMusic() {
   if (!AC) return;
   ctx = new AC();
   master = ctx.createGain();
-  master.gain.value = volume; // keep it in the background
+  master.gain.value = volume;
   lp = ctx.createBiquadFilter();
   lp.type = "lowpass";
   lp.frequency.value = 2600;

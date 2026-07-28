@@ -3,6 +3,8 @@
 
 // ─── Roles (hidden identity, Bang! base game) ────────────────────────────────
 
+import type { GameError } from "./errors";
+
 export type Role = "sheriff" | "deputy" | "outlaw" | "renegade";
 
 export const ROLE_EMOJI: Record<Role, string> = {
@@ -12,12 +14,11 @@ export const ROLE_EMOJI: Record<Role, string> = {
   renegade: "🐍",
 };
 
-export const ROLE_GOAL: Record<Role, string> = {
-  sheriff: "Tiêu diệt tất cả Outlaw và Renegade.",
-  deputy: "Bảo vệ Cảnh Sát Trưởng. Thắng cùng phe Cảnh Sát.",
-  outlaw: "Hạ gục Cảnh Sát Trưởng.",
-  renegade: "Là người sống sót cuối cùng — hạ mọi người, Cảnh Sát Trưởng cuối cùng.",
-};
+// Bang! plays 4–7 in the base game. This room is capped at 7 as requested. Lives
+// here, not in game.ts: the client needs them for the lobby, and game.ts pulls in
+// node:crypto (escapeReward) so it cannot be imported from the browser.
+export const MIN_PLAYERS = 4;
+export const MAX_PLAYERS = 7;
 
 // The Sheriff's identity is public from the start; everyone else is hidden until
 // death (or the end of the game).
@@ -34,26 +35,61 @@ export interface Character {
   name: string;
   rank: CharRank;
   maxHp: number; // "bullets" / life points (Sheriff gets +1 on top)
-  ability: string;
+  effect: CharacterEffect;
+}
+
+// A character's ability as DATA, the same way events.ts models events: the engine
+// reads these at fixed checkpoints instead of comparing character ids, so adding a
+// character means adding one entry here. The whole object rides along in the view,
+// so the client and the bot read the same fields rather than keeping their own
+// copies of who can do what.
+export interface CharacterEffect {
+  // --- how the draw phase works (default: draw 2 off the deck) ---
+  //  kit       : reveal drawCount+1, keep drawCount, bottom the rest
+  //  jesse     : first card may come from a chosen player's hand
+  //  pedro     : first card may come off the discard pile
+  //  blackjack : reveal the 2nd; on Heart/Diamond draw a bonus card
+  drawMode?: "kit" | "jesse" | "pedro" | "blackjack";
+
+  // --- shooting ---
+  unlimitedBang?: boolean; // Bang!/turn budget lifted (as if holding a Volcanic)
+  missedNeededDelta?: number; // extra Missed! the target must produce
+  // Cards this character may play in place of one another, both ways.
+  useAs?: [string, string];
+
+  // --- being shot at ---
+  extraBarrel?: number; // innate Barrel-style Draw!s, on top of Barrels in play
+  distanceToDelta?: number; // others see this player this much farther away
+  distanceSeenDelta?: number; // this player sees everyone this much closer
+
+  // --- draw! checks ---
+  luckyDraw?: boolean; // flip two, keep the better card
+
+  // --- reactions to damage and death ---
+  drawOnDamage?: boolean; // draw one card per life point lost
+  stealOnDamage?: boolean; // steal one card from the attacker per life point lost
+  burnTwoToHeal?: boolean; // discard any 2 cards to regain 1 life, at any time
+  refillWhenEmpty?: boolean; // draw immediately whenever the hand runs out
+  inheritsDeadCards?: boolean; // takes a dead player's cards instead of the discard
 }
 
 export const CHARACTERS: Character[] = [
-  { id: "kit-carlson", name: "Kit Carlson", rank: "A", maxHp: 4, ability: "Xem 3 lá trên cùng bộ bài, chọn 2 lá để rút và trả lá còn lại xuống dưới." },
-  { id: "suzy-lafayette", name: "Suzy Lafayette", rank: "A", maxHp: 4, ability: "Ngay khi hết bài trên tay, rút 1 lá." },
-  { id: "willy-the-kid", name: "Willy the Kid", rank: null, maxHp: 4, ability: "Có thể chơi bao nhiêu lá Bang! tùy thích mỗi lượt (như súng Volcanic)." },
-  { id: "jesse-jones", name: "Jesse Jones", rank: null, maxHp: 4, ability: "Lá rút đầu tiên có thể lấy từ tay một người chơi khác." },
-  { id: "el-gringo", name: "El Gringo", rank: null, maxHp: 3, ability: "Mỗi khi bị một người chơi gây sát thương, rút 1 lá từ tay người đó." },
-  { id: "paul-regret", name: "Paul Regret", rank: "B", maxHp: 3, ability: "Mọi người thấy anh ta ở khoảng cách +1." },
-  { id: "slab-the-killer", name: "Slab the Killer", rank: "A", maxHp: 4, ability: "Đối thủ cần 2 lá Missed! mới né được Bang! của anh ta." },
-  { id: "jourdonnais", name: "Jourdonnais", rank: "A", maxHp: 4, ability: "Khi là mục tiêu của Bang!, có thể Draw!; ra lá Cơ (Heart) thì coi như Missed!." },
-  { id: "lucky-duke", name: "Lucky Duke", rank: "A", maxHp: 4, ability: "Mỗi khi Draw!, lật 2 lá trên cùng và chọn 1." },
-  { id: "calamity-janet", name: "Calamity Janet", rank: null, maxHp: 4, ability: "Có thể dùng Bang! làm Missed! và ngược lại." },
-  { id: "rose-doolan", name: "Rose Doolan", rank: null, maxHp: 4, ability: "Thấy mọi người ở khoảng cách −1." },
-  { id: "vulture-sam", name: "Vulture Sam", rank: "D", maxHp: 4, ability: "Mỗi khi một người chơi bị loại, lấy toàn bộ bài của người đó vào tay." },
-  { id: "pedro-ramirez", name: "Pedro Ramirez", rank: "B", maxHp: 4, ability: "Lá rút đầu tiên có thể lấy từ chồng bài bỏ (discard)." },
-  { id: "bart-cassidy", name: "Bart Cassidy", rank: "C", maxHp: 4, ability: "Mỗi khi bị mất máu, rút 1 lá." },
-  { id: "black-jack", name: "Black Jack", rank: "B", maxHp: 4, ability: "Lá rút thứ hai được lật ngửa; nếu là Cơ/Rô (Heart/Diamond) thì rút thêm 1 lá." },
-  { id: "sid-ketchum", name: "Sid Ketchum", rank: null, maxHp: 4, ability: "Có thể bỏ 2 lá để hồi 1 máu." },
+  { id: "kit-carlson", name: "Kit Carlson", rank: "A", maxHp: 4, effect: { drawMode: "kit" } },
+  { id: "suzy-lafayette", name: "Suzy Lafayette", rank: "A", maxHp: 4, effect: { refillWhenEmpty: true } },
+  { id: "willy-the-kid", name: "Willy the Kid", rank: null, maxHp: 4, effect: { unlimitedBang: true } },
+  { id: "jesse-jones", name: "Jesse Jones", rank: null, maxHp: 4, effect: { drawMode: "jesse" } },
+  { id: "el-gringo", name: "El Gringo", rank: null, maxHp: 3, effect: { stealOnDamage: true } },
+  { id: "paul-regret", name: "Paul Regret", rank: "B", maxHp: 3, effect: { distanceToDelta: 1 } },
+  { id: "slab-the-killer", name: "Slab the Killer", rank: "A", maxHp: 4, effect: { missedNeededDelta: 1 } },
+  { id: "jourdonnais", name: "Jourdonnais", rank: "A", maxHp: 4, effect: { extraBarrel: 1 } },
+  { id: "lucky-duke", name: "Lucky Duke", rank: "A", maxHp: 4, effect: { luckyDraw: true } },
+  { id: "calamity-janet", name: "Calamity Janet", rank: null, maxHp: 4, effect: { useAs: ["bang", "missed"] } },
+  { id: "rose-doolan", name: "Rose Doolan", rank: null, maxHp: 4, effect: { distanceSeenDelta: 1 } },
+  { id: "vulture-sam", name: "Vulture Sam", rank: "D", maxHp: 4, effect: { inheritsDeadCards: true } },
+  { id: "pedro-ramirez", name: "Pedro Ramirez", rank: "B", maxHp: 4, effect: { drawMode: "pedro" } },
+  { id: "bart-cassidy", name: "Bart Cassidy", rank: "C", maxHp: 4, effect: { drawOnDamage: true } },
+  { id: "black-jack", name: "Black Jack", rank: "B", maxHp: 4, effect: { drawMode: "blackjack" } },
+  { id: "sid-ketchum", name: "Sid Ketchum", rank: null, maxHp: 4, effect: { burnTwoToHeal: true } },
 ];
 
 // Auto-resolve priority for the draft safety net: A > B > C > D > unranked.
@@ -71,10 +107,8 @@ export type { Card };
 
 export type Phase = "lobby" | "drafting" | "playing" | "result";
 
-// Sub-phases within a single player's turn.
 export type TurnPhase = "draw" | "play" | "discard";
 
-// Who won, once the game ends.
 export type Winner = "sheriff" | "outlaws" | "renegade";
 
 // An unresolved action that locks the table until responded to.
@@ -178,9 +212,14 @@ export interface PlayerView {
     canBang: boolean; // may you still play a Bang! this turn (once, or unlimited w/ Volcanic/Willy)
     playedDefsThisTurn: string[]; // house rule: card types already played this turn (each once; Bang!/guns exempt)
     blockedDefIds: string[]; // card types you cannot play right now (house rule + events)
+    // defId -> ids this card may be aimed at, resolved by the engine. The client
+    // must not re-derive targeting rules: it had its own copy and did not know
+    // about Truce, so it painted crosshairs on a Sheriff the server would refuse.
+    legalTargets: Record<string, string[]>;
+    legalDrawTargets: string[]; // players whose hand your draw phase may take from
     handLimit: number; // cards you may keep at end of turn (= hp, ± events)
-    wins: number; // số ván bạn đã thắng trong phòng này (cộng dồn)
-    rewardUrl: string | null; // link phần thưởng escape (chỉ có khi thắng đủ ngưỡng)
+    wins: number; // your cumulative wins in this room
+    rewardUrl: string | null; // escape reward, present only once you hit the threshold
   };
   players: PlayerPublic[];
   turnSeat: number | null;
@@ -224,11 +263,11 @@ export interface ClientToServerEvents {
   ) => void;
   joinRoom: (
     data: { code: string; name: string },
-    cb: (res: { ok: boolean; playerId?: string; error?: string }) => void
+    cb: (res: { ok: boolean; playerId?: string; error?: GameError }) => void
   ) => void;
   rejoin: (
     data: { code: string; playerId: string },
-    cb: (res: { ok: boolean; error?: string }) => void
+    cb: (res: { ok: boolean; error?: GameError }) => void
   ) => void;
   startGame: (data: { code: string }) => void;
   setEventLevel: (data: { code: string; level: EventLevel }) => void; // host: random-event frequency
@@ -272,7 +311,7 @@ export interface RtcPeer {
 
 export interface ServerToClientEvents {
   view: (view: PlayerView) => void;
-  errorMsg: (msg: string) => void;
+  errorMsg: (e: GameError) => void;
 
   // --- WebRTC voice/video (mesh) signaling ---
   // Sent to the joiner right after `rtcJoin`: ICE servers to use and the peers

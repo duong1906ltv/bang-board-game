@@ -1,7 +1,7 @@
 // Original flat-style SVG illustrations for a few iconic cards. These are our
 // own vector art (no copyrighted material) embedded as data URIs. Drop more
 // entries here to illustrate additional cards; PlayingCard uses them via
-// CARD_IMAGE when present, else falls back to the emoji icon.
+// cardArtSources(), which prefers a PNG from CARD_PHOTO and falls back to these.
 
 const svg = (inner: string) =>
   "data:image/svg+xml," +

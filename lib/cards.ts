@@ -40,6 +40,18 @@ export function rankLabel(rank: number): string {
 //  - gun  : a blue card occupying the single weapon slot (sets base range)
 export type CardKind = "brown" | "blue" | "gun";
 
+// Who a card may be aimed at. Data, not code: the engine validates plays against
+// this AND publishes the resolved list of legal target ids in the view, so the UI
+// cannot disagree with the rules it is drawing crosshairs for.
+export interface TargetRule {
+  self?: boolean; // may be aimed at yourself (Cat Balou, to bin your own card)
+  maxDistance?: number | "range"; // "range" = the actor's weapon range
+  needsCards?: boolean; // the target must hold or have something to take
+  notSheriff?: boolean; // Jail
+  notAlreadyHolding?: boolean; // Jail: not on someone already jailed
+  shoots?: boolean; // counts as a shot, so Truce protects the Sheriff from it
+}
+
 export interface CardDef {
   id: string; // stable slug
   it: string; // Italian name (as printed)
@@ -49,12 +61,14 @@ export interface CardDef {
   spec: string; // exact card values, e.g. "AS 2D-AD 2C-9C QH-AH"
   range?: number; // weapon range (guns only)
   effect: string;
+  target?: TargetRule; // present only for cards that are aimed at somebody
   notes?: string[];
 }
 
 export const CARD_DEFS: CardDef[] = [
   { id: "bang", it: "Bang!", name: "Bang!", kind: "brown", count: 25, spec: "AS 2D-AD 2C-9C QH-AH",
-    effect: "Bắn 1 mục tiêu trong tầm bắn của bạn." },
+    effect: "Bắn 1 mục tiêu trong tầm bắn của bạn.",
+    target: { maxDistance: "range", shoots: true } },
   { id: "missed", it: "Mancato!", name: "Missed!", kind: "brown", count: 12, spec: "10C-AC 2S-8S",
     effect: "Hủy hiệu ứng của một lá Bang! nhắm vào bạn.",
     notes: ["Không dùng được trong Duel."] },
@@ -66,18 +80,21 @@ export const CARD_DEFS: CardDef[] = [
     ] },
   { id: "cat-balou", it: "Cat Balou", name: "Cat Balou", kind: "brown", count: 4, spec: "KH 9D-JD",
     effect: "Buộc 1 người chơi bất kỳ (mọi khoảng cách) phải bỏ 1 lá bài.",
+    target: { self: true, needsCards: true },
     notes: [
       "Có thể dùng lên chính mình để bỏ 1 lá cụ thể trên tay hoặc trên bàn.",
       "Bạn quyết định bỏ từ tay hay trên bàn, nhưng không chỉ định lá cụ thể của người khác.",
     ] },
   { id: "panic", it: "Panico!", name: "Panic!", kind: "brown", count: 4, spec: "JH QH AH 8D",
     effect: "Rút 1 lá bài từ một người chơi ở khoảng cách 1.",
+    target: { maxDistance: 1, needsCards: true },
     notes: [
       "Không được cộng tầm từ súng; nhưng các lá tăng tầm (Scope...) thì có áp dụng.",
       "Có thể dùng Panic để nhặt 1 lá trên bàn của chính mình.",
     ] },
   { id: "duel", it: "Duello", name: "Duel", kind: "brown", count: 3, spec: "QD JS 8C",
     effect: "Mục tiêu bỏ 1 Bang!, rồi tới bạn, luân phiên. Ai không bỏ được Bang! trước thì mất 1 máu.",
+    target: {},
     notes: ["Rule 5"] },
   { id: "general-store", it: "Emporio", name: "General Store", kind: "brown", count: 2, spec: "9C QS",
     effect: "Lật số lá bằng số người chơi. Mỗi người lần lượt rút 1 lá." },
@@ -102,6 +119,7 @@ export const CARD_DEFS: CardDef[] = [
     notes: ["Tính là 1 Missed! cho các hiệu ứng liên quan. Không được Draw! hai lần.", "Rule 2"] },
   { id: "jail", it: "Prigione", name: "Jail", kind: "blue", count: 3, spec: "JS 4H 10S",
     effect: "Draw! ra Cơ: bỏ Jail và chơi bình thường. Ngược lại bỏ Jail và bỏ lượt.",
+    target: { notSheriff: true, notAlreadyHolding: true },
     notes: ["Không dùng lên Sheriff.", "Nếu được đi lượt tiếp ngay, có thể đi."] },
   { id: "dynamite", it: "Dinamite", name: "Dynamite", kind: "blue", count: 1, spec: "2H",
     effect: "Draw! ra [2–9] Bích (Spades): mất 3 máu. Ngược lại chuyển Dynamite sang người bên trái.",
@@ -127,7 +145,7 @@ export const CARD_DEF_BY_ID: Record<string, CardDef> = Object.fromEntries(
   CARD_DEFS.map((d) => [d.id, d])
 );
 
-// A representative icon per card (used on the CSS card face).
+// Last-resort glyph, when a card has neither an illustration nor vector art.
 export const CARD_ICON: Record<string, string> = {
   bang: "💥",
   missed: "🛡️",
@@ -155,10 +173,10 @@ export const CARD_ICON: Record<string, string> = {
 
 // Optional per-card artwork (data URI or path). Original SVG art lives in
 // cardArt.ts; add more entries there (or your own images) to illustrate cards.
-export const CARD_IMAGE: Record<string, string> = CARD_ART;
+const CARD_IMAGE: Record<string, string> = CARD_ART;
 
 // Illustrated art under public/cards/. Tried before CARD_IMAGE.
-export const CARD_PHOTO_IMAGE: Record<string, string> = CARD_PHOTO;
+const CARD_PHOTO_IMAGE: Record<string, string> = CARD_PHOTO;
 
 // The art sources for a card, best first. Renderers walk this list and drop to
 // the next entry whenever one fails to load (missing file, decode error), so a
@@ -216,7 +234,6 @@ export interface Card {
   playedBy?: string;
 }
 
-// Build the full deck from the explicit per-card specs.
 export function buildDeck(): Card[] {
   const deck: Card[] = [];
   let n = 0;

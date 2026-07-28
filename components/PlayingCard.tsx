@@ -24,6 +24,14 @@ const KIND_CLASS: Record<string, string> = {
   gun: "pc-gun",
 };
 
+// Name sizing. At md only names past 9 characters overflow; at sm the box is
+// 56px and anything from 8 characters up needs the smaller size.
+function nameSizeClass(name: string): string {
+  if (name.length > 9) return " pc-name-long";
+  if (name.length > 7) return " pc-name-mid";
+  return "";
+}
+
 // Sources that failed to load once, shared by every card face so a missing
 // illustration costs a single request for the whole session instead of one per
 // rendered copy of the card.
@@ -85,9 +93,7 @@ export function PlayingCard({
       onDragStart={(e) => e.preventDefault()}
     >
       <div className="pc-frame">
-        {/* Long names (Winchester, Rev. Carabine) get a smaller size so they
-            stay on one line instead of breaking mid-word. */}
-        <div className={card.name.length > 9 ? "pc-name pc-name-long" : "pc-name"}>{card.name}</div>
+        <div className={`pc-name${nameSizeClass(card.name)}`}>{card.name}</div>
         <div className="pc-center">
           {img ? (
             <img
@@ -104,6 +110,10 @@ export function PlayingCard({
           ) : (
             <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
           )}
+          {/* Range token for guns. The illustrations of the four long guns are
+              near-identical, and at pcard-sm the effect line is hidden, so the
+              number is the only thing telling them apart. */}
+          {def?.range != null && <span className="pc-range">{def.range}</span>}
         </div>
         {def?.effect && <div className="pc-desc">{def.effect}</div>}
         {!hideCorner && <span className="pc-corner">{corner}</span>}

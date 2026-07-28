@@ -1,7 +1,7 @@
 "use client";
 
 // A single Bang! card rendered as a 3D plane. The face is drawn onto a 2D
-// canvas (guaranteed to render — no external asset/font loading), reusing the
+// canvas, so the layout matches the CSS card face exactly, reusing the
 // same per-card emoji icon + kind colors as the 2D <PlayingCard>. Face-down
 // cards show a simple card-back pattern.
 import { useEffect, useMemo } from "react";
@@ -20,13 +20,15 @@ import {
 export const CARD_W = 0.63;
 export const CARD_H = 0.88;
 
+// Must match --pc-accent in globals.css (.pc-brown/.pc-blue/.pc-gun): the same
+// card is drawn in CSS while in hand and on canvas once on the table, and a
+// mismatch reads as two different cards.
 const KIND_BORDER: Record<string, string> = {
-  brown: "#8a5a2b",
-  blue: "#2f6db0",
-  gun: "#b0872f",
+  brown: "#a06a2c",
+  blue: "#3b82f6",
+  gun: "#8a8f98",
 };
 
-// Emoji-capable font stack, shared by the face icon and the card-back logo.
 const EMOJI_FONT = "'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif";
 
 function drawFace(card: Card): THREE.CanvasTexture {
@@ -111,12 +113,32 @@ function drawFace(card: Card): THREE.CanvasTexture {
   ctx.strokeStyle = "rgba(74,48,22,0.45)";
   ctx.strokeRect(boxX, boxY, boxW, boxH);
 
+  // Range token over the art, bottom-right — same marker as the 2D face. Drawn
+  // after the art each time, so it survives the async image draw below.
+  const drawRange = () => {
+    if (def?.range == null) return;
+    const r = 19, cx = boxX + boxW - r - 4, cy = boxY + boxH - r - 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#f6ecd2";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#3a2410";
+    ctx.stroke();
+    ctx.fillStyle = "#2f1c08";
+    ctx.font = "bold 24px Georgia, 'Times New Roman', serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(def.range), cx, cy + 1);
+  };
+
   const drawEmoji = () => {
     ctx.font = `110px ${EMOJI_FONT}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#2a2114";
     ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, boxY + boxH / 2);
+    drawRange();
     tex.needsUpdate = true;
   };
 
@@ -138,6 +160,7 @@ function drawFace(card: Card): THREE.CanvasTexture {
       ctx.clip();
       ctx.drawImage(img, boxX + (boxW - dw) / 2, boxY + (boxH - dh) / 2, dw, dh);
       ctx.restore();
+      drawRange();
       tex.needsUpdate = true;
     };
     img.onerror = () => tryFrom(i + 1);
@@ -150,6 +173,16 @@ function drawFace(card: Card): THREE.CanvasTexture {
 // Wooden-frame inset: where the parchment insert starts on the 256×358 face.
 const PARCH_X = 20;
 const PARCH_Y = 20;
+
+// The back has no inputs, so one texture serves every face-down card: a full table
+// renders ~40 of them (each opponent's hand plus the deck stack) and a texture per
+// copy is that many canvases and GPU uploads for one identical image.
+let sharedBack: THREE.CanvasTexture | null = null;
+
+function cardBack(): THREE.CanvasTexture {
+  if (!sharedBack) sharedBack = drawBack();
+  return sharedBack;
+}
 
 function drawBack(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -199,13 +232,19 @@ export function CardMesh({
   // socket `view` update produces fresh card objects with identical values, so
   // keying on the object would rebuild the CanvasTexture on every broadcast.
   const texture = useMemo(
-    () => (faceDown || !card ? drawBack() : drawFace(card)),
+    () => (faceDown || !card ? cardBack() : drawFace(card)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [card?.defId, card?.suit, card?.rank, faceDown]
   );
   // CanvasTexture holds a GPU allocation that r3f does not free for us: dispose
-  // the previous one whenever it changes or the mesh unmounts.
-  useEffect(() => () => texture.dispose(), [texture]);
+  // the previous one whenever it changes or the mesh unmounts. Never the shared
+  // back texture — every other face-down card is still using it.
+  useEffect(
+    () => () => {
+      if (texture !== sharedBack) texture.dispose();
+    },
+    [texture]
+  );
   return (
     <mesh position={position} rotation={rotation} scale={scale} onClick={onClick}>
       <planeGeometry args={[CARD_W, CARD_H]} />

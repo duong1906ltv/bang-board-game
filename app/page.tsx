@@ -3,29 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSocket, saveIdentity, saveName, loadName } from "@/lib/socketClient";
-import { L, useLocale, initLocale, setLocale, getLocale } from "@/lib/i18n";
-
-// Small language switcher.
-function LangToggle() {
-  const locale = useLocale();
-  return (
-    <button
-      className="ghost"
-      style={{ width: "auto", padding: "6px 12px" }}
-      onClick={() => setLocale(locale === "vi" ? "en" : "vi")}
-      title="Đổi ngôn ngữ / Switch language"
-    >
-      {locale === "vi" ? "🇻🇳 VI" : "🇬🇧 EN"}
-    </button>
-  );
-}
+import { L, useLocale, initLocale, setLocale, getLocale, tError } from "@/lib/i18n";
+import type { GameError } from "@/lib/errors";
+import { LangToggle } from "@/components/LangToggle";
 
 export default function Home() {
   const router = useRouter();
   const locale = useLocale();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<GameError | string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -38,7 +25,7 @@ export default function Home() {
   function create() {
     if (!name.trim()) return setError(L(getLocale(), "Nhập tên trước đã", "Enter your name first"));
     setBusy(true);
-    setError("");
+    setError(null);
     saveName(name.trim());
     // .timeout() so a lost/slow connection surfaces an error instead of leaving
     // the button disabled forever. On success we navigate away (busy stays set).
@@ -53,13 +40,13 @@ export default function Home() {
     if (!name.trim()) return setError(L(getLocale(), "Nhập tên trước đã", "Enter your name first"));
     if (code.trim().length < 4) return setError(L(getLocale(), "Mã phòng gồm 4 ký tự", "Room code is 4 characters"));
     setBusy(true);
-    setError("");
+    setError(null);
     saveName(name.trim());
     const c = code.toUpperCase().trim();
     getSocket().timeout(8000).emit("joinRoom", { code: c, name: name.trim() }, (err, res) => {
       setBusy(false);
       if (err || !res) return noResponse();
-      if (!res.ok || !res.playerId) return setError(res.error || L(getLocale(), "Không vào được phòng", "Couldn't join the room"));
+      if (!res.ok || !res.playerId) return setError(res.error ?? L(getLocale(), "Không vào được phòng", "Couldn't join the room"));
       saveIdentity(c, res.playerId);
       router.push(`/room/${c}`);
     });
@@ -68,7 +55,7 @@ export default function Home() {
   return (
     <main className="center">
       <div style={{ position: "absolute", top: 16, right: 16 }}>
-        <LangToggle />
+        <LangToggle padding="6px 12px" />
       </div>
       <div className="moon">🤠</div>
       <h1>Bang!</h1>
@@ -100,7 +87,7 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="err">{error}</div>
+        <div className="err">{tError(locale, error)}</div>
       </div>
     </main>
   );

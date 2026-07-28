@@ -127,9 +127,6 @@ button.ghost:hover:not(:disabled) {
   background: var(--panel2);
 }
 
-button.danger {
-  background: var(--danger);
-}
 
 .row {
   display: flex;
@@ -203,60 +200,6 @@ button.danger {
   background: var(--muted);
 }
 
-.role-card {
-  text-align: center;
-  padding: 28px;
-  border-radius: 16px;
-  border: 2px solid var(--accent);
-  background: linear-gradient(160deg, var(--panel2), var(--panel));
-}
-
-.role-name {
-  font-size: 2rem;
-  font-weight: 800;
-  margin: 8px 0;
-}
-
-.role-werewolf {
-  color: #ff6b6b;
-}
-.role-minion {
-  color: #fb923c;
-}
-.role-mason {
-  color: #c4b5fd;
-}
-.role-seer {
-  color: #7dd3fc;
-}
-.role-robber {
-  color: #fca5a5;
-}
-.role-troublemaker {
-  color: #f0abfc;
-}
-.role-drunk {
-  color: #fcd34d;
-}
-.role-insomniac {
-  color: #67e8f9;
-}
-.role-hunter {
-  color: #fdba74;
-}
-.role-tanner {
-  color: #a3a3a3;
-}
-.role-villager {
-  color: #86efac;
-}
-
-.timer {
-  font-size: 2.6rem;
-  font-family: monospace;
-  text-align: center;
-  color: var(--moon);
-}
 
 .grid {
   display: grid;
@@ -283,67 +226,14 @@ button.danger {
   background: var(--panel2);
 }
 
-.chat {
-  height: 220px;
-  overflow-y: auto;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.chat .msg {
-  font-size: 0.92rem;
-  line-height: 1.35;
-}
-
-.chat .who {
-  font-weight: 700;
-  color: var(--accent);
-}
 
 .section-title {
   font-size: 1.4rem;
   margin: 0 0 4px;
 }
 
-.banner {
-  text-align: center;
-  padding: 18px;
-  border-radius: 14px;
-  font-size: 1.4rem;
-  font-weight: 800;
-  margin-bottom: 16px;
-}
 
-.banner.village {
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid var(--good);
-  color: #86efac;
-}
-
-.banner.werewolf {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid var(--danger);
-  color: #fca5a5;
-}
-
-.banner.none {
-  background: var(--panel2);
-  border: 1px solid var(--border);
-}
-
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* ---- Role card modal ---- */
+/* ---- Reaction / card popups + the animations they share ---- */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -370,11 +260,9 @@ button.danger {
     opacity: 1;
   }
 }
-.draw-in {
-  animation: drawIn 0.5s cubic-bezier(0.2, 0.85, 0.25, 1) both;
-}
 
-/* Draw!-result ticker: a line of text that scrolls across a few times. */
+
+/* Draw!-result ticker: repeats 3x so a glance back still catches it. */
 .marquee-wrap {
   position: fixed;
   top: 0;
@@ -405,30 +293,6 @@ button.danger {
   }
 }
 
-/* Dynamite reveal label: punchy pop then settle. */
-@keyframes boom {
-  0% {
-    transform: scale(0.2);
-    opacity: 0;
-  }
-  30% {
-    transform: scale(1.35);
-    opacity: 1;
-  }
-  45% {
-    transform: scale(1);
-  }
-  80% {
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1.05);
-    opacity: 0;
-  }
-}
-.boom-label {
-  animation: boom 1.8s cubic-bezier(0.2, 0.85, 0.25, 1) both;
-}
 
 @keyframes fadeIn {
   from {
@@ -471,11 +335,6 @@ button.danger {
   filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.15));
 }
 
-.modal-card .role-name {
-  font-size: 1.8rem;
-  margin: 4px 0 10px;
-}
-
 .modal-ability {
   color: var(--text);
   font-size: 1rem;
@@ -483,238 +342,7 @@ button.danger {
   margin: 14px 0 6px;
 }
 
-.modal-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 1rem;
-}
 
-.modal-close:hover {
-  background: var(--panel2);
-  color: var(--text);
-}
-
-/* wake-order chips */
-.wake-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 6px 0 10px;
-}
-
-.wake-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 11px;
-  border-radius: 999px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  font-size: 0.85rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.wake-chip b {
-  background: var(--panel2);
-  color: var(--muted);
-  border-radius: 50%;
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.72rem;
-}
-
-.wake-chip.active {
-  border-color: var(--accent);
-  background: var(--panel2);
-  box-shadow: 0 0 12px rgba(192, 132, 252, 0.4);
-}
-
-.wake-chip.active b {
-  background: var(--accent2);
-  color: white;
-}
-
-/* team badges */
-.team-werewolf {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: #ef4444;
-  color: #fca5a5;
-}
-.team-village {
-  background: rgba(34, 197, 94, 0.15);
-  border-color: #22c55e;
-  color: #86efac;
-}
-.team-tanner {
-  background: rgba(163, 163, 163, 0.18);
-  border-color: #a3a3a3;
-  color: #d4d4d4;
-}
-
-/* ─── Bang! room / table ─────────────────────────────────────────────────── */
-.seats {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
-  margin: 16px 0;
-}
-
-/* Felt board: opponents arranged around the top arc, piles in the centre. */
-.board {
-  position: relative;
-  /* Full-bleed: escape the 760px .wrap so the felt spans the whole viewport width. */
-  width: 100vw;
-  left: 50%;
-  margin: 18px 0 18px -50vw;
-  min-height: 72vh;
-  border-radius: 999px / 30%;
-  border: 3px solid #6b4a24;
-  background:
-    radial-gradient(120% 90% at 50% 30%, #2f6b3a 0%, #244f2c 55%, #1c3d22 100%);
-  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.55), 0 10px 40px rgba(0, 0, 0, 0.5);
-}
-.board .seat {
-  position: absolute;
-  width: 168px;
-  transform: translate(-50%, -50%);
-  background: rgba(46, 33, 20, 0.94);
-  backdrop-filter: blur(2px);
-}
-.board-center {
-  position: absolute;
-  left: 50%;
-  bottom: 14%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 22px;
-  align-items: flex-end;
-}
-.pile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-.pile-label {
-  font-size: 0.78rem;
-  color: #dfeadd;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-  font-weight: 600;
-}
-.pile-deck,
-.pile-discard {
-  width: 72px;
-  height: 100px;
-  border-radius: 9px;
-  position: relative;
-}
-.pile-deck {
-  background: repeating-linear-gradient(135deg, #7a2f2f 0 8px, #8f3a3a 8px 16px);
-  border: 2px solid #d9c07a;
-  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.35), 6px 6px 0 rgba(0, 0, 0, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.8rem;
-  color: #f0e2c0;
-}
-.pile-discard {
-  border: 2px dashed rgba(240, 226, 192, 0.55);
-  background: rgba(0, 0, 0, 0.18);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #dfeadd;
-  font-weight: 700;
-}
-.pile-count {
-  position: absolute;
-  bottom: -8px;
-  right: -8px;
-  min-width: 26px;
-  height: 26px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--accent2);
-  border: 2px solid #f0e2c0;
-  color: white;
-  font-size: 0.8rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* On narrow screens the arc can't breathe — fall back to a wrapping grid. */
-@media (max-width: 680px) {
-  .board {
-    /* undo the desktop full-bleed to avoid horizontal overflow */
-    width: auto;
-    left: auto;
-    margin: 18px 0;
-    border-radius: 20px;
-    min-height: 0;
-    padding: 14px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 12px;
-  }
-  .board .seat {
-    position: static;
-    width: auto;
-    transform: none;
-  }
-  .board-center {
-    position: static;
-    transform: none;
-    grid-column: 1 / -1;
-    justify-content: center;
-    margin-top: 4px;
-  }
-}
-.seat {
-  background: var(--panel2);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  position: relative;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.seat.turn {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(224, 169, 85, 0.35), 0 0 18px rgba(224, 169, 85, 0.25);
-}
-.seat.dead {
-  opacity: 0.5;
-  filter: grayscale(0.6);
-}
-.seat.me {
-  outline: 1px dashed var(--accent);
-  outline-offset: 2px;
-}
-.seat .seat-name {
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.seat .seat-meta {
-  font-size: 0.82rem;
-  color: var(--muted);
-  margin-top: 4px;
-}
 .hp {
   display: inline-flex;
   gap: 3px;
@@ -745,16 +373,8 @@ button.danger {
   color: var(--muted);
   font-style: italic;
 }
-.you-panel {
-  background: linear-gradient(180deg, var(--panel2), var(--panel));
-  border: 1px solid var(--accent2);
-  border-radius: 14px;
-  padding: 16px;
-  margin-top: 18px;
-}
-.you-panel h3 {
-  margin: 0 0 8px;
-}
+
+
 .hand {
   display: flex;
   gap: 8px;
@@ -762,13 +382,7 @@ button.danger {
   margin-top: 10px;
   min-height: 40px;
 }
-.hand .card-chip {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 0.85rem;
-}
+
 
 /* ─── Playing card face ───────────────────────────────────────────────────── */
 /* Built like the physical card: a dark wooden frame with a screw in each corner
@@ -833,7 +447,6 @@ button.danger {
 .pcard-md .pc-frame { padding: 3px; }
 .pcard-sm .pc-frame { padding: 2px; }
 
-/* Card name — engraved serif banner at the top */
 .pc-name {
   font-family: Georgia, "Times New Roman", serif;
   font-weight: 700;
@@ -856,8 +469,14 @@ button.danger {
 }
 .pcard-md .pc-name { font-size: 0.66rem; }
 .pcard-sm .pc-name { font-size: 0.55rem; }
+/* Past 9 characters the name overflows at both sizes ("General Store" needs
+   81px of the 82px md box at 0.55rem). The sm box has only 54px of content
+   width, where "WINCHESTER" needs 0.4rem to stay on one line. */
 .pcard-md .pc-name-long { font-size: 0.55rem; letter-spacing: 0; }
-.pcard-sm .pc-name-long { font-size: 0.46rem; letter-spacing: 0; }
+.pcard-sm .pc-name-long { font-size: 0.4rem; letter-spacing: 0; }
+/* 8–9 characters still fit the md box at full size, but not the 56px sm box
+   ("REMINGTON" needs 65px there). */
+.pcard-sm .pc-name-mid { font-size: 0.45rem; letter-spacing: 0; }
 
 .pc-center {
   position: relative;
@@ -884,6 +503,27 @@ button.danger {
 }
 /* Pre-padded illustrations fill the panel; only their padding gets cropped. */
 .pc-art-full { object-fit: cover; }
+
+/* Weapon range token, bottom-right of the art panel: the distance marker the
+   printed cards carry, and the only difference visible between the long guns. */
+.pc-range {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fffdf6, #e9d8b0);
+  color: #2f1c08;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  line-height: 1;
+  border: 1.5px solid #3a2410;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.pcard-md .pc-range { width: 17px; height: 17px; font-size: 0.66rem; }
+.pcard-sm .pc-range { width: 14px; height: 14px; font-size: 0.55rem; border-width: 1px; }
 .pc-icon {
   pointer-events: none;
   user-select: none;
@@ -891,7 +531,6 @@ button.danger {
 .pc-icon { font-size: 2.1rem; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2)); }
 .pcard-sm .pc-icon { font-size: 1.5rem; }
 
-/* Description — smaller text below the art */
 .pc-desc {
   text-align: center;
   line-height: 1.14;
@@ -904,7 +543,6 @@ button.danger {
 .pcard-md .pc-desc { font-size: 0.5rem; -webkit-line-clamp: 4; }
 .pcard-sm .pc-desc { display: none; }
 
-/* Suit + rank — only at the bottom-left */
 .pc-corner {
   align-self: flex-start;
   font-family: Georgia, "Times New Roman", serif;
@@ -920,7 +558,7 @@ button.danger {
 .pc-selected { outline: 3px solid var(--accent); outline-offset: 1px; transform: translateY(-6px); }
 .pc-dimmed { opacity: 0.5; }
 
-/* Row of cards that scrolls horizontally on small screens. */
+/* Wraps rather than scrolls: a hidden card is a card players forget they have. */
 .card-row {
   display: flex;
   gap: 8px;

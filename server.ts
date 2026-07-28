@@ -50,8 +50,13 @@ app.prepare().then(() => {
     }, BOT_TICK_MS);
   }
 
-  // Resolve which player a socket belongs to within a room.
-  function playerIdOf(code: string, socketId: string): string | null {
+  // Room codes travel as user input (typed, pasted, from a URL), so every handler
+  // normalises before touching the room map.
+  function normCode(code: string | undefined): string {
+    return (code || "").toUpperCase().trim();
+  }
+
+    function playerIdOf(code: string, socketId: string): string | null {
     const room = game.getRoom(code);
     if (!room) return null;
     return room.players.find((p) => p.socketId === socketId)?.id ?? null;
@@ -88,7 +93,7 @@ app.prepare().then(() => {
     return list;
   }
 
-  // Display name for a media peer (falls back gracefully if the player is gone).
+  // Falls back to "Player": a peer can still be in the call after its seat is gone.
   function nameOf(code: string, socketId: string): string {
     const room = game.getRoom(code);
     return room?.players.find((p) => p.socketId === socketId)?.name || "Player";
@@ -105,7 +110,7 @@ app.prepare().then(() => {
   io.on("connection", (socket) => {
     // Apply a game-mutation result: rebroadcast on success, otherwise relay the
     // error (if any) to just this player.
-    const applyResult = (code: string, res: { ok: boolean; error?: string }) => {
+    const applyResult = (code: string, res: game.Result) => {
       if (res.ok) broadcast(code);
       else if (res.error) socket.emit("errorMsg", res.error);
     };
@@ -118,7 +123,7 @@ app.prepare().then(() => {
     });
 
     socket.on("joinRoom", ({ code, name }, cb) => {
-      code = (code || "").toUpperCase().trim();
+      code = normCode(code);
       const res = game.addPlayer(code, name, socket.id);
       if (!res.ok || !res.player) return cb({ ok: false, error: res.error });
       socket.join(code);
@@ -127,7 +132,7 @@ app.prepare().then(() => {
     });
 
     socket.on("rejoin", ({ code, playerId }, cb) => {
-      code = (code || "").toUpperCase().trim();
+      code = normCode(code);
       const res = game.rejoin(code, playerId, socket.id);
       if (!res.ok) return cb({ ok: false, error: res.error });
       socket.join(code);
@@ -138,7 +143,7 @@ app.prepare().then(() => {
     socket.on("startGame", ({ code }) => {
       if (!isHost(code, socket.id)) return; // host only
       const res = game.startGame(code);
-      if (!res.ok) return socket.emit("errorMsg", res.error || "Không thể bắt đầu");
+      if (!res.ok) return socket.emit("errorMsg", res.error ?? { code: "cannot-start" });
       broadcast(code);
     });
 
@@ -154,7 +159,7 @@ app.prepare().then(() => {
     socket.on("addBot", ({ code }) => {
       if (!isHost(code, socket.id)) return; // host only
       const res = game.addBot(code);
-      if (!res.ok) return socket.emit("errorMsg", res.error || "Không thêm được bot");
+      if (!res.ok) return socket.emit("errorMsg", res.error ?? { code: "cannot-add-bot" });
       broadcast(code);
     });
 
@@ -228,7 +233,7 @@ app.prepare().then(() => {
     // peers already in the call. The newcomer is the offerer to each of them,
     // which avoids offer/answer "glare" without any extra coordination.
     socket.on("rtcJoin", ({ code }) => {
-      code = (code || "").toUpperCase().trim();
+      code = normCode(code);
       const myPlayerId = playerIdOf(code, socket.id);
       if (!myPlayerId) return; // only seated players may join the call
       let set = mediaRooms.get(code);
@@ -246,11 +251,10 @@ app.prepare().then(() => {
 
     // Disable camera/mic without leaving the game.
     socket.on("rtcLeave", ({ code }) => {
-      leaveMedia((code || "").toUpperCase().trim(), socket.id);
+      leaveMedia(normCode(code), socket.id);
     });
 
-    // Relay one SDP/ICE payload to a single target peer, tagged with the sender.
-    socket.on("rtcSignal", ({ to, data }) => {
+        socket.on("rtcSignal", ({ to, data }) => {
       io.to(to).emit("rtcSignal", { from: socket.id, data });
     });
 

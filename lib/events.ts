@@ -100,7 +100,7 @@ export interface GameEventDef {
 // pattern as characters and cards. Only mechanics live here.
 
 export const EVENTS: GameEventDef[] = [
-  // ── Cấm đoán · cả bàn, hết vòng ───────────────────────────────────────────
+  // ── Restrictions · whole table, rest of the round ───────────────────────────────────────────
   { id: "jammed-gun", emoji: "🔧", scope: "lasting", weight: 7, group: "bang-budget",
     effect: { noBang: true } },
   { id: "short-barrel", emoji: "📏", scope: "lasting", weight: 7, group: "range",
@@ -128,7 +128,7 @@ export const EVENTS: GameEventDef[] = [
   { id: "truce", emoji: "🤝", scope: "lasting", weight: 5, minAlive: 5,
     effect: { protectSheriff: true } },
 
-  // ── Tăng cường · cả bàn, hết vòng ─────────────────────────────────────────
+  // ── Buffs · whole table, rest of the round ─────────────────────────────────────────
   { id: "hot-streak", emoji: "🔥", scope: "lasting", weight: 6, group: "bang-budget",
     effect: { bangLimit: 99 } },
   { id: "gun-oil", emoji: "🛢️", scope: "lasting", weight: 6, group: "bang-budget",
@@ -146,7 +146,7 @@ export const EVENTS: GameEventDef[] = [
   { id: "happy-hour", emoji: "🍺", scope: "lasting", weight: 6, group: "heal",
     effect: { beerHeal: 2 } },
 
-  // ── Thời tiết · cả bàn, hết vòng ──────────────────────────────────────────
+  // ── Weather · whole table, rest of the round ──────────────────────────────────────────
   { id: "sandstorm", emoji: "🌪️", scope: "lasting", weight: 6,
     effect: { missedNeededDelta: 1 } },
   { id: "fog", emoji: "🌫️", scope: "lasting", weight: 5, group: "distance", maxAlive: 5,
@@ -162,7 +162,7 @@ export const EVENTS: GameEventDef[] = [
   { id: "drunk-table", emoji: "🥴", scope: "lasting", weight: 5,
     effect: { drunkAim: true } },
 
-  // ── Trừng phạt · nổ một lần ───────────────────────────────────────────────
+  // ── Punishments · fire once ───────────────────────────────────────────────
   { id: "plague", emoji: "🦠", scope: "instant", weight: 6, group: "damage", minAlive: 4,
     onFire: (c) => c.damageAll(1, { onlyAbove: 1 }) },
   { id: "toll", emoji: "💰", scope: "instant", weight: 7,
@@ -174,7 +174,7 @@ export const EVENTS: GameEventDef[] = [
   { id: "jailbreak", emoji: "🗝️", scope: "instant", weight: 5,
     onFire: (c) => c.clearEquip("jail") },
 
-  // ── Phúc lợi · nổ một lần ─────────────────────────────────────────────────
+  // ── Boons · fire once ─────────────────────────────────────────────────
   { id: "healing-spring", emoji: "⛲", scope: "instant", weight: 7, group: "heal",
     onFire: (c) => c.healAll(1) },
   { id: "supply-drop", emoji: "📦", scope: "instant", weight: 8,
@@ -184,7 +184,7 @@ export const EVENTS: GameEventDef[] = [
   { id: "reshuffle", emoji: "♻️", scope: "instant", weight: 4,
     onFire: (c) => c.reshuffleDiscard() },
 
-  // ── Hỗn loạn · nổ một lần ─────────────────────────────────────────────────
+  // ── Chaos · fires once ─────────────────────────────────────────────────
   { id: "pass-the-hand", emoji: "👐", scope: "instant", weight: 5, minAlive: 4,
     onFire: (c) => c.passHandsAround() },
   { id: "gun-shuffle", emoji: "🔫", scope: "instant", weight: 5, minAlive: 4,
@@ -192,7 +192,6 @@ export const EVENTS: GameEventDef[] = [
   { id: "reverse", emoji: "↩️", scope: "instant", weight: 5, minAlive: 4,
     onFire: (c) => c.reverseOrder() },
 
-  // ── Lời nguyền · nhắm một người ───────────────────────────────────────────
 ];
 
 export const EVENT_BY_ID: Record<string, GameEventDef> = Object.fromEntries(
@@ -206,7 +205,6 @@ export const EVENT_BY_ID: Record<string, GameEventDef> = Object.fromEntries(
 export const EVENTS_MIN = 2;
 export const EVENTS_MAX = 4;
 export type EventLevel = "off" | "on";
-export const EVENT_LEVELS: EventLevel[] = ["off", "on"];
 
 // ─── Effect merging ──────────────────────────────────────────────────────────
 

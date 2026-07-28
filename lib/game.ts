@@ -4,7 +4,10 @@
 // Rooms live in a Map for the lifetime of the server process (no DB).
 
 import {
+  MAX_PLAYERS,
+  MIN_PLAYERS,
   Character,
+  CharacterEffect,
   CheckView,
   CHARACTERS,
   DraftView,
@@ -23,6 +26,9 @@ import {
 } from "./types";
 import { buildDeck, Card, CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL } from "./cards";
 import { buildEscapeRewardUrl } from "./escapeReward";
+import { err, GameError, Result } from "./errors";
+
+export type { GameError, Result };
 import {
   EVENT_BY_ID,
   EventCtx,
@@ -34,7 +40,7 @@ import {
   pickWeighted,
 } from "./events";
 
-// Số ván phải THẮNG (cộng dồn trong cùng một phòng) để mở khoá phần thưởng liên game.
+// Wins needed (cumulative within one room) to unlock the cross-game reward.
 const REWARD_WIN_THRESHOLD = 3;
 
 // An unresolved reaction that locks the table until responded to. There is no
@@ -54,7 +60,6 @@ export interface Player {
   isHost: boolean;
   isBot: boolean; // server-controlled AI (fills seats for testing)
   connected: boolean;
-  seat: number; // fixed clockwise seat index, assigned on join
   role: Role | null; // dealt at game start
   character: Character | null; // locked in after the draft
   draftChoices: Character[]; // the two candidates offered during the draft
@@ -64,8 +69,8 @@ export interface Player {
   alive: boolean;
   hand: Card[];
   equipment: Card[]; // blue cards in play (gun, Mustang, Scope, Jail, Dynamite...)
-  wins: number; // số ván đã thắng trong phòng (cộng dồn, KHÔNG reset khi chơi lại)
-  rewardTicket?: string | null; // link thưởng escape — cấp khi thắng đủ ngưỡng (1 lần)
+  wins: number; // cumulative wins in this room — deliberately NOT reset by Play Again
+  rewardTicket?: string | null; // escape-reward link, granted once on reaching the win threshold
 }
 
 // A random event currently in force (or the one that just fired).
@@ -78,7 +83,10 @@ interface ActiveEvent {
 export interface Room {
   code: string;
   phase: Phase;
-  players: Player[]; // kept in seat order
+  // Always in clockwise seat order — seat IS the index, so nothing re-sorts and
+  // there is no separate field to keep in sync. Only removeBot/disconnect ever
+  // splice, which shifts the later seats along, exactly as a player leaving should.
+  players: Player[];
   hostId: string;
   turnIndex: number; // index into players[] whose turn it is (playing phase)
   turnPhase: TurnPhase; // sub-phase of the current player's turn
@@ -95,7 +103,16 @@ export interface Room {
   playedDefsThisTurn: string[]; // house rule: each card type only once per turn (Bang!/guns exempt)
   pending: Pending | null; // unresolved reaction locking the table
   winner: Winner | null; // set when the game ends
-  deathQueue: { id: string; needed: number; sourceId: string | null }[]; // players awaiting a Beer-save
+  // Players who hit 0 HP and still have to be resolved, in the order they were hit.
+  // A multi (Indians!/Gatling) can drop several at once and each may want a Beer,
+  // so death always goes through this queue — see processDeathQueue.
+  deathQueue: {
+    id: string;
+    needed: number; // Beers required to get back to 1 HP
+    sourceId: string | null;
+    creditId: string | null; // indirect credit (Dynamite), see killPlayer
+    saveable: boolean; // event damage is unsaveable, like Dynamite
+  }[];
   checks: CheckView[]; // recent Draw! reveals (upkeep / Barrel), display-only
   botTimer: NodeJS.Timeout | null; // paces bot actions so humans can watch
   deck: Card[]; // draw pile (top = end of array)
@@ -107,7 +124,7 @@ export interface Room {
   eventLevel: EventLevel; // room setting, survives restart()
   roundStarterId: string | null; // whoever opens each round — the round boundary marker
   roundEventDue: boolean; // an event is queued for the next turn start
-  events: ActiveEvent[]; // in force now (turn / lasting / curse)
+  events: ActiveEvent[]; // in force for the rest of this round
   // Rolling feed of the most recently FIRED events, newest last. A single action
   // can fire more than one (a table event at a round boundary plus that player's
   // own turn event), so a "latest event" field would silently drop the first —
@@ -115,13 +132,12 @@ export interface Room {
   eventFeed: ActiveEvent[];
   eventSeq: number;
   usedEventIds: string[]; // every event already seen this game — drawn from like a deck
-  turnCounter: number; // turns begun this game (drives the opening-round immunity)
+  turnCounter: number; // turns begun this game (telemetry / sim reporting only)
   turnDir: 1 | -1; // play direction (the "reverse" event flips it)
 }
 
 const rooms = new Map<string, Room>();
 
-// Append an action-history entry, keeping only the most recent ~40.
 function pushLog(room: Room, e: Omit<LogEntry, "id">) {
   room.log.push({ ...e, id: room.logSeq++ });
   if (room.log.length > 40) room.log.shift();
@@ -138,10 +154,6 @@ function logCheck(room: Room, c: { name: string; card: Card | null; kind: string
     outcome: c.outcome,
   });
 }
-
-// Bang! plays 4–7 in the base game. This room is capped at 7 as requested.
-export const MIN_PLAYERS = 4;
-export const MAX_PLAYERS = 7;
 
 // Each player is offered 2 characters to choose from (no time limit to pick).
 export const DRAFT_PER_PLAYER = 2;
@@ -195,7 +207,7 @@ export function roleSetupFor(n: number): { role: Role; count: number }[] {
 
 // --- room lifecycle ---
 
-function newPlayer(name: string, socketId: string, isHost: boolean, seat: number): Player {
+function newPlayer(name: string, socketId: string, isHost: boolean): Player {
   return {
     id: genId(),
     name: name.trim().slice(0, 20) || "Người chơi",
@@ -203,7 +215,6 @@ function newPlayer(name: string, socketId: string, isHost: boolean, seat: number
     isHost,
     isBot: false,
     connected: true,
-    seat,
     role: null,
     character: null,
     draftChoices: [],
@@ -220,7 +231,7 @@ function newPlayer(name: string, socketId: string, isHost: boolean, seat: number
 
 export function createRoom(name: string, socketId: string): { room: Room; player: Player } {
   const code = genCode();
-  const player = newPlayer(name, socketId, true, 0);
+  const player = newPlayer(name, socketId, true);
   const room: Room = {
     code,
     phase: "lobby",
@@ -257,20 +268,19 @@ export function createRoom(name: string, socketId: string): { room: Room; player
 }
 
 // Host adds an AI-controlled player to the lobby (for testing / filling seats).
-export function addBot(code: string): { ok: boolean; error?: string } {
+export function addBot(code: string): Result {
   const room = rooms.get(code);
-  if (!room) return { ok: false, error: "Phòng không tồn tại" };
-  if (room.phase !== "lobby") return { ok: false, error: "Ván đang diễn ra" };
-  if (room.players.length >= MAX_PLAYERS) return { ok: false, error: `Phòng đã đầy (tối đa ${MAX_PLAYERS})` };
+  if (!room) return err("no-such-room");
+  if (room.phase !== "lobby") return err("game-in-progress");
+  if (room.players.length >= MAX_PLAYERS) return err("room-full", { n: MAX_PLAYERS });
   const botNum = room.players.filter((p) => p.isBot).length + 1;
-  const bot = newPlayer(`🤖 Bot ${botNum}`, "", false, room.players.length);
+  const bot = newPlayer(`🤖 Bot ${botNum}`, "", false);
   bot.socketId = null;
   bot.isBot = true;
   room.players.push(bot);
   return { ok: true };
 }
 
-// Host removes the most recently added bot (lobby only).
 export function removeBot(code: string): boolean {
   const room = rooms.get(code);
   if (!room || room.phase !== "lobby") return false;
@@ -280,7 +290,6 @@ export function removeBot(code: string): boolean {
   }
   if (idx < 0) return false;
   room.players.splice(idx, 1);
-  room.players.forEach((p, i) => (p.seat = i));
   return true;
 }
 
@@ -288,22 +297,21 @@ export function addPlayer(
   code: string,
   name: string,
   socketId: string
-): { ok: boolean; player?: Player; error?: string } {
+): Result & { player?: Player } {
   const room = rooms.get(code);
-  if (!room) return { ok: false, error: "Phòng không tồn tại" };
-  if (room.phase !== "lobby") return { ok: false, error: "Ván đang diễn ra, không thể vào" };
-  if (room.players.length >= MAX_PLAYERS) return { ok: false, error: `Phòng đã đầy (tối đa ${MAX_PLAYERS})` };
-  const seat = room.players.length;
-  const player = newPlayer(name, socketId, false, seat);
+  if (!room) return err("no-such-room");
+  if (room.phase !== "lobby") return err("game-in-progress");
+  if (room.players.length >= MAX_PLAYERS) return err("room-full", { n: MAX_PLAYERS });
+  const player = newPlayer(name, socketId, false);
   room.players.push(player);
   return { ok: true, player };
 }
 
-export function rejoin(code: string, playerId: string, socketId: string): { ok: boolean; error?: string } {
+export function rejoin(code: string, playerId: string, socketId: string): Result {
   const room = rooms.get(code);
-  if (!room) return { ok: false, error: "Phòng không tồn tại" };
+  if (!room) return err("no-such-room");
   const player = room.players.find((p) => p.id === playerId);
-  if (!player) return { ok: false, error: "Không tìm thấy người chơi" };
+  if (!player) return err("player-not-found");
   player.socketId = socketId;
   player.connected = true;
   return { ok: true };
@@ -317,8 +325,7 @@ export function disconnect(socketId: string): Room | null {
     player.socketId = null;
     if (room.phase === "lobby") {
       room.players = room.players.filter((p) => p.id !== player.id);
-      room.players.forEach((p, i) => (p.seat = i));
-      if (room.players.length === 0) {
+          if (room.players.length === 0) {
         clearBotTimer(room);
         rooms.delete(room.code);
         return null;
@@ -349,17 +356,16 @@ function clearBotTimer(room: Room) {
 
 // --- game start / character draft ---
 
-export function startGame(code: string): { ok: boolean; error?: string } {
+export function startGame(code: string): Result {
   const room = rooms.get(code);
-  if (!room) return { ok: false, error: "Phòng không tồn tại" };
-  if (room.phase !== "lobby") return { ok: false, error: "Ván đã bắt đầu" };
+  if (!room) return err("no-such-room");
+  if (room.phase !== "lobby") return err("already-started");
   const n = room.players.length;
-  if (n < MIN_PLAYERS) return { ok: false, error: `Cần tối thiểu ${MIN_PLAYERS} người` };
-  if (n > MAX_PLAYERS) return { ok: false, error: `Tối đa ${MAX_PLAYERS} người` };
+  if (n < MIN_PLAYERS) return err("need-players", { n: MIN_PLAYERS });
+  if (n > MAX_PLAYERS) return err("too-many-players", { n: MAX_PLAYERS });
   const setup = ROLE_SETUP[n];
-  if (!setup) return { ok: false, error: "Số người chơi không hợp lệ" };
+  if (!setup) return err("bad-player-count");
 
-  // Deal roles randomly to the seated players.
   const roles = shuffle(setup);
   // Draw n*2 characters from the pool and hand each player 2 to choose from.
   const pool = shuffle(CHARACTERS).slice(0, n * DRAFT_PER_PLAYER);
@@ -426,10 +432,13 @@ function finalizeDraft(room: Room) {
   room.winner = null;
   room.pending = null;
   room.phase = "playing";
-  // Random events start from a clean slate each game; the Sheriff opens round 1
-  // and therefore marks every later round boundary.
+  // Random events start from a clean slate each game; the Sheriff opens round 1 and
+  // therefore marks every later round boundary. Round 1 is queued explicitly: the
+  // first turn is entered straight from here, not through advanceToNextAlive, so
+  // nothing else would ever set the boundary flag for it.
   resetEventState(room);
   room.roundStarterId = room.players[room.turnIndex].id;
+  room.roundEventDue = true;
   beginTurn(room); // Sheriff begins (runs upkeep if they somehow have blue cards)
 }
 
@@ -482,17 +491,15 @@ function tickEvents(room: Room) {
 }
 
 function aliveBySeat(room: Room): Player[] {
-  return [...room.players].sort((a, b) => a.seat - b.seat).filter((p) => p.alive);
+  return room.players.filter((p) => p.alive);
 }
 
-// Nobody gets an event until every living player has taken one turn: an event on
-// turn 1 lands before anyone has a weapon or a full hand, which is pure bad luck
-// rather than drama.
+// Events are live from the very first turn. There used to be a one-round grace
+// period, from back when events could single out one player: landing on somebody
+// before they had a weapon or a full hand was pure bad luck. Every event now applies
+// to the whole table equally, so there is nothing left to protect anyone from.
 function eventsUnlocked(room: Room): boolean {
-  // `>=`, not `>`: turnCounter is bumped AFTER this roll, so at the top of round 2
-  // it still reads "one full round done". With `>` the first event would slip an
-  // entire extra round — about five minutes of real play.
-  return room.eventLevel !== "off" && room.turnCounter >= aliveBySeat(room).length;
+  return room.eventLevel !== "off";
 }
 
 // Fire one event: log it, run its one-shot effect, and register any modifier.
@@ -544,11 +551,7 @@ function makeCtx(room: Room, opener: Player): EventCtx {
     if (p.hp > before) pushLog(room, { kind: "heal", a: p.name, n: p.hp - before });
   };
   const draw = (p: Player, n: number) => {
-    let got = 0;
-    for (let i = 0; i < n; i++) {
-      const c = drawOne(room);
-      if (c) { p.hand.push(c); got++; }
-    }
+    const got = drawInto(room, p.hand, n);
     if (got) pushLog(room, { kind: "draw", a: p.name, n: got });
   };
   const discardRandom = (p: Player, n: number) => {
@@ -623,7 +626,6 @@ function makeCtx(room: Room, opener: Player): EventCtx {
   };
 }
 
-// Build the client-facing shape of one active event.
 function toEventView(room: Room, ev: ActiveEvent): EventView {
   const def = EVENT_BY_ID[ev.defId];
   return {
@@ -660,7 +662,7 @@ export function handLimitOf(room: Room, p: Player): number {
 export function bangBudget(room: Room, p: Player): number {
   const eff = activeEffect(room);
   if (eff.noBang) return 0;
-  const unlimited = hasEquip(p, "volcanic") || p.character?.id === "willy-the-kid";
+  const unlimited = hasEquip(p, "volcanic") || !!charEffect(p).unlimitedBang;
   const cap = eff.bangLimit ?? (unlimited ? 99 : 1);
   return Math.max(0, cap - room.bangsThisTurn);
 }
@@ -668,32 +670,32 @@ export function bangBudget(room: Room, p: Player): number {
 // Why this card can't be played right now, or null if it can. Covers the
 // once-per-turn house rule and every event restriction; range/target validity is
 // still checked by the individual play handlers.
-export function playBlock(room: Room, p: Player, card: Card, targetId?: string): string | null {
+export function playBlock(room: Room, p: Player, card: Card, targetId?: string): GameError | null {
   const def = CARD_DEF_BY_ID[card.defId];
-  if (!def) return "Lá không hợp lệ";
+  if (!def) return { code: "invalid-card" };
   // Serving a Jail sentence blocks every play. This has to live HERE rather than only
   // in playCard(), because playBlock is the shared predicate: the bot filters its
   // candidate moves through it, and a bot move the engine then rejects returns false
   // from step(), which stops the bot scheduler and freezes the table for good.
   if (room.jailedTurn && room.players[room.turnIndex]?.id === p.id) {
-    return "Đang bị giam — chỉ được bỏ bài";
+    return { code: "jailed-discard-only" };
   }
   const eff = activeEffect(room);
 
-  if (eff.bannedDefIds?.includes(card.defId)) return `Sự kiện đang cấm ${def.name}`;
-  if (eff.bannedKinds?.includes(def.kind)) return `Sự kiện đang cấm loại lá này`;
+  if (eff.bannedDefIds?.includes(card.defId)) return { code: "event-bans-card", s: def.name };
+  if (eff.bannedKinds?.includes(def.kind)) return { code: "event-bans-kind" };
   if (eff.maxPlays != null && room.playsThisTurn >= eff.maxPlays) {
-    return `Sự kiện: chỉ được đánh ${eff.maxPlays} lá lượt này`;
+    return { code: "event-play-limit", n: eff.maxPlays };
   }
   // Healing plays, blocked as a group. Note this covers the PROACTIVE Beer only —
   // a dying player may still drink to survive (respond()), so "no healing" never
   // becomes "no saving throw".
-  if (HEAL_DEF_IDS.includes(card.defId) && eff.noHeal) return "Sự kiện đang cấm hồi máu";
+  if (HEAL_DEF_IDS.includes(card.defId) && eff.noHeal) return { code: "event-forbids-heal" };
   if (isBangLike(p, card, targetId) && bangBudget(room, p) <= 0) {
-    return eff.noBang ? "Sự kiện: không được bắn lượt này" : "Chỉ 1 Bang!/lượt (trừ Volcanic/Willy)";
+    return { code: eff.noBang ? "event-bans-bang" : "bang-limit-reached" };
   }
   if (!isExemptPlay(room, p, card, targetId) && room.playedDefsThisTurn.includes(card.defId)) {
-    return `Đã dùng ${def.name} trong lượt này`;
+    return { code: "card-already-used-this-turn", s: def.name };
   }
   return null;
 }
@@ -710,9 +712,23 @@ function blockedDefIdsFor(room: Room, p: Player): string[] {
   return [...out];
 }
 
+// Legal targets for every aimable card type the player is holding, keyed by the
+// defId the UI aims with. A character that may play one card as another (Calamity
+// Janet) gets the swapped card keyed too, since it aims by the other card's rules.
+function legalTargetsFor(room: Room, p: Player): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const swap = charEffect(p).useAs;
+  for (const c of p.hand) {
+    for (const defId of [c.defId, ...(swap?.includes(c.defId) ? swap.filter((d) => d !== c.defId) : [])]) {
+      if (out[defId] || !CARD_DEF_BY_ID[defId]?.target) continue;
+      out[defId] = legalTargetIds(room, p, defId);
+    }
+  }
+  return out;
+}
+
 // --- deck helpers ---
 
-// Draw one card; reshuffle the discard pile into the deck if the deck is empty.
 function drawOne(room: Room): Card | null {
   if (room.deck.length === 0) {
     if (room.discard.length === 0) return null;
@@ -720,6 +736,30 @@ function drawOne(room: Room): Card | null {
     room.discard = [];
   }
   return room.deck.pop() ?? null;
+}
+
+// Draw n cards into a hand, returning how many were actually dealt: the deck can
+// run dry mid-draw (drawOne returns null once the discard pile is empty too).
+// A player's character ability, as data. Absent character (or a character with no
+// declarative effect) reads as "no modifiers", so every checkpoint below can be
+// written without a null check.
+function charEffect(p: Player | null | undefined): CharacterEffect {
+  return p?.character?.effect ?? {};
+}
+
+function beersInHand(p: Player): number {
+  return p.hand.filter((c) => c.defId === "beer").length;
+}
+
+function drawInto(room: Room, hand: Card[], n: number): number {
+  let got = 0;
+  for (let i = 0; i < n; i++) {
+    const c = drawOne(room);
+    if (!c) break;
+    hand.push(c);
+    got++;
+  }
+  return got;
 }
 
 // --- distance & range ---
@@ -738,15 +778,14 @@ export function rangeOf(p: Player, room?: Room): number {
   return Math.max(1, range + (eff.rangeDelta ?? 0));
 }
 
-// Does a player have a given blue card equipped (e.g. mustang / scope)?
 function hasEquip(p: Player, defId: string): boolean {
   return p.equipment.some((c) => c.defId === defId);
 }
 
 // How many Barrel-style Draw!s a player gets when hit by a Bang!: one per Barrel
-// in play, plus one innate for Jourdonnais.
+// in play, plus any the character brings innately.
 function barrelAttempts(p: Player): number {
-  return (hasEquip(p, "barrel") ? 1 : 0) + (p.character?.id === "jourdonnais" ? 1 : 0);
+  return (hasEquip(p, "barrel") ? 1 : 0) + (charEffect(p).extraBarrel ?? 0);
 }
 
 // Distance the viewer `from` sees to player `to`, counting only living players
@@ -755,20 +794,19 @@ function barrelAttempts(p: Player): number {
 // Both pairs stack (Paul Regret + Mustang = +2). Minimum 1.
 export function distanceBetween(room: Room, from: Player, to: Player): number {
   if (from.id === to.id) return 0;
-  const alive = [...room.players].sort((a, b) => a.seat - b.seat).filter((p) => p.alive);
+  const alive = aliveBySeat(room);
   const i = alive.findIndex((p) => p.id === from.id);
   const j = alive.findIndex((p) => p.id === to.id);
   if (i < 0 || j < 0) return Infinity;
   const raw = Math.abs(i - j);
   let dist = Math.min(raw, alive.length - raw);
 
-  // Target seen farther. Mustang and Paul Regret's ability stack: a Paul Regret
-  // holding a Mustang is seen at +2.
+  // A card and an ability that pull the same way stack: Paul Regret holding a
+  // Mustang is seen at +2, Rose Doolan holding a Scope sees everyone at -2.
   if (hasEquip(to, "mustang")) dist += 1;
-  if (to.character?.id === "paul-regret") dist += 1;
-  // Viewer sees closer. Scope and Rose Doolan's ability stack the same way.
+  dist += charEffect(to).distanceToDelta ?? 0;
   if (hasEquip(from, "scope")) dist -= 1;
-  if (from.character?.id === "rose-doolan") dist -= 1;
+  dist -= charEffect(from).distanceSeenDelta ?? 0;
   // Weather events stretch or flatten the whole table (Fog / Open Plains).
   dist += activeEffect(room).distanceDelta ?? 0;
 
@@ -777,7 +815,8 @@ export function distanceBetween(room: Room, from: Player, to: Player): number {
 
 // --- turn flow ---
 
-// Draw phase: the active player draws their 2 cards, then may play.
+// Draw phase. The count is event-driven (1 under Empty Pockets, 3-4 under Card Rain
+// / Gold Rush), so it is read from the merged effect rather than fixed at 2.
 export function drawCards(
   code: string,
   playerId: string,
@@ -796,49 +835,39 @@ export function drawCards(
   const eff = activeEffect(room);
   const drawTotal = Math.max(0, (eff.drawCount ?? 2) + (eff.extraDraw ?? 0));
 
-  // Kit Carlson: reveal the top 3, pick 2 (the third returns to the deck bottom).
-  if (current.character?.id === "kit-carlson" && drawTotal > 0) {
+  // Kit Carlson: reveal one more than he keeps, then bottom the leftovers — so it
+  // scales with the event-driven draw count instead of being a fixed 3-pick-2.
+  if (charEffect(current).drawMode === "kit" && drawTotal > 0) {
     const cards: Card[] = [];
-    for (let i = 0; i < drawTotal + 1; i++) {
-      const c = drawOne(room);
-      if (c) cards.push(c);
-    }
+    drawInto(room, cards, drawTotal + 1);
     room.pending = { kind: "kit", playerId: current.id, cards, picksLeft: drawTotal };
     return true; // stays in draw phase until picks resolve
   }
 
   // Jesse Jones: draw the first card from a chosen player's hand.
-  if (current.character?.id === "jesse-jones" && source === "player" && targetId && drawTotal > 0) {
+  if (charEffect(current).drawMode === "jesse" && source === "player" && targetId && drawTotal > 0) {
     const t = room.players.find((p) => p.id === targetId);
     if (t && t.id !== current.id && t.hand.length > 0) {
       current.hand.push(t.hand.splice(Math.floor(Math.random() * t.hand.length), 1)[0]);
     } else {
-      const c = drawOne(room);
-      if (c) current.hand.push(c);
+      drawInto(room, current.hand, 1);
     }
-    for (let k = 1; k < drawTotal; k++) {
-      const c = drawOne(room);
-      if (c) current.hand.push(c);
-    }
+    drawInto(room, current.hand, drawTotal - 1);
     room.turnPhase = "play";
     pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
     return true;
   }
 
   // Pedro Ramirez: draw the first card from the discard pile.
-  if (current.character?.id === "pedro-ramirez" && source === "discard" && room.discard.length > 0 && drawTotal > 0) {
+  if (charEffect(current).drawMode === "pedro" && source === "discard" && room.discard.length > 0 && drawTotal > 0) {
     current.hand.push(room.discard.pop()!);
-    for (let k = 1; k < drawTotal; k++) {
-      const c = drawOne(room);
-      if (c) current.hand.push(c);
-    }
+    drawInto(room, current.hand, drawTotal - 1);
     room.turnPhase = "play";
     pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
     return true;
   }
 
-  if (current.character?.id === "black-jack" && drawTotal >= 2) {
-    // Draw 1; reveal the 2nd — on Heart/Diamond, draw a bonus card.
+  if (charEffect(current).drawMode === "blackjack" && drawTotal >= 2) {
     const c1 = drawOne(room);
     if (c1) current.hand.push(c1);
     const c2 = drawOne(room);
@@ -847,20 +876,11 @@ export function drawCards(
       const bonus = c2.suit === "hearts" || c2.suit === "diamonds";
       room.checks = [{ name: current.name, card: c2, kind: "blackjack", outcome: bonus ? "bonus" : "nobonus" }];
       logCheck(room, room.checks[0]);
-      if (bonus) {
-        const c3 = drawOne(room);
-        if (c3) current.hand.push(c3);
-      }
+      if (bonus) drawInto(room, current.hand, 1);
     }
-    for (let k = 2; k < drawTotal; k++) {
-      const c = drawOne(room);
-      if (c) current.hand.push(c);
-    }
+    drawInto(room, current.hand, drawTotal - 2);
   } else {
-    for (let k = 0; k < drawTotal; k++) {
-      const c = drawOne(room);
-      if (c) current.hand.push(c);
-    }
+    drawInto(room, current.hand, drawTotal);
   }
   room.turnPhase = "play";
   pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
@@ -878,7 +898,7 @@ export function drawCards(
 // A Bang! being fired — including Calamity Janet using a Missed! as one. Governed
 // by the Bang!/turn budget rather than the once-per-turn house rule.
 function isBangLike(p: Player, card: Card, targetId?: string): boolean {
-  return card.defId === "bang" || (card.defId === "missed" && p.character?.id === "calamity-janet" && !!targetId);
+  return card.defId === "bang" || (!!targetId && canUseAs(p, card, "bang"));
 }
 
 function isExemptPlay(room: Room, p: Player, card: Card, targetId?: string): boolean {
@@ -894,7 +914,7 @@ export function playCard(
   cardId: string,
   targetId?: string,
   targetCardId?: string
-): { ok: boolean; error?: string } {
+): Result {
   // Capture card/target names before the play mutates state, then log on success.
   const room = rooms.get(code);
   const actor = room?.players[room.turnIndex];
@@ -918,18 +938,18 @@ function playCardImpl(
   cardId: string,
   _targetId?: string,
   targetCardId?: string
-): { ok: boolean; error?: string } {
+): Result {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
-  if (room.pending) return { ok: false, error: "Đang chờ phản ứng" };
+  if (room.pending) return err("waiting-for-reaction");
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return { ok: false };
-  if (room.turnPhase === "draw") return { ok: false, error: "Bạn phải rút bài trước" };
+  if (room.turnPhase === "draw") return err("must-draw-first");
   // Serving a Jail sentence: the only thing allowed is discarding down to the limit.
   // Reactions still work — they go through respond(), not here — so a jailed player
   // can still play Missed! when shot at, which is correct.
   if (room.turnPhase === "discard") {
-    return { ok: false, error: "Đang bị giam — chỉ được bỏ bài rồi kết thúc lượt" };
+    return err("jailed-discard-only");
   }
   const idx = current.hand.findIndex((c) => c.id === cardId);
   if (idx < 0) return { ok: false };
@@ -958,15 +978,15 @@ function playCardImpl(
     // Jail: place on another non-Sheriff player who isn't already jailed.
     if (card.defId === "jail") {
       const target = room.players.find((p) => p.id === _targetId);
-      if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
-      if (target.role === "sheriff") return { ok: false, error: "Không thể bỏ tù Cảnh Sát Trưởng" };
-      if (target.equipment.some((c) => c.defId === "jail")) return { ok: false, error: "Người này đã bị giam" };
+      if (!target) return err("invalid-target");
+      const problem = targetProblem(room, current, card.defId, target);
+      if (problem) return { ok: false, error: problem };
       current.hand.splice(idx, 1);
       target.equipment.push(card);
       return { ok: true };
     }
     // Self-equip (Mustang / Scope / Barrel / Dynamite): at most one of each.
-    if (hasEquip(current, card.defId)) return { ok: false, error: `Đã có ${def.name} trên bàn` };
+    if (hasEquip(current, card.defId)) return err("already-in-play", { s: def.name });
     current.hand.splice(idx, 1);
     // Remember who lit the fuse: the Dynamite will have moved on by the time it
     // goes off, but the bounty for the Outlaw it kills is still theirs.
@@ -989,15 +1009,15 @@ function playCardImpl(
   if (card.defId === "general-store") return playGeneralStore(room, current, idx);
   // Missed! is only playable as a reaction — except Calamity Janet may fire it as a Bang!.
   if (card.defId === "missed") {
-    if (current.character?.id === "calamity-janet" && _targetId) return playBang(room, current, idx, _targetId);
-    return { ok: false, error: "Missed! chỉ dùng để phản ứng Bang!" };
+    if (_targetId && canUseAs(current, card, "bang")) return playBang(room, current, idx, _targetId);
+    return err("missed-is-reaction-only");
   }
-  return { ok: false, error: "Lá này sẽ hỗ trợ ở bước sau" };
+  return err("card-not-implemented");
 }
 
 // Indians! / Gatling: open a simultaneous reaction for every other living player.
 // Gatling also lets a defender's Barrel help (it is a Bang! effect).
-function playMulti(room: Room, current: Player, handIdx: number, effect: "indians" | "gatling"): { ok: boolean; error?: string } {
+function playMulti(room: Room, current: Player, handIdx: number, effect: "indians" | "gatling"): Result {
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   const responders = room.players
     .filter((p) => p.alive && p.id !== current.id)
@@ -1024,11 +1044,11 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
 }
 
 // Duel: the target discards a Bang! first, then alternating; first to fail loses 1.
-function playDuel(room: Room, current: Player, handIdx: number, targetId?: string): { ok: boolean; error?: string } {
+function playDuel(room: Room, current: Player, handIdx: number, targetId?: string): Result {
   const target = room.players.find((p) => p.id === targetId);
-  if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
+  if (!target || !target.alive || target.id === current.id) return err("invalid-target");
   if (activeEffect(room).protectSheriff && target.role === "sheriff") {
-    return { ok: false, error: "Hiệp Ước: không được bắn Cảnh Sát Trưởng" };
+    return err("truce-protects-sheriff");
   }
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   room.pending = { kind: "duel", aId: current.id, bId: target.id, turnId: target.id };
@@ -1054,19 +1074,19 @@ function openGeneralStore(room: Room, current: Player) {
   room.pending = { kind: "store", sourceId: current.id, cards, order: order.slice(0, cards.length) };
 }
 
-function playGeneralStore(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
+function playGeneralStore(room: Room, current: Player, handIdx: number): Result {
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   openGeneralStore(room, current);
   return { ok: true };
 }
 
-// Discard `card` from a player's hand or table.
+// Callers splice the card out themselves; this only records where it went.
 function moveToDiscard(room: Room, c: Card) {
   room.discard.push(c);
 }
 
 // Stagecoach / Wells Fargo: draw N cards.
-function playDraw(room: Room, current: Player, handIdx: number, n: number): { ok: boolean; error?: string } {
+function playDraw(room: Room, current: Player, handIdx: number, n: number): Result {
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   for (let k = 0; k < n; k++) {
     const c = drawOne(room);
@@ -1076,8 +1096,8 @@ function playDraw(room: Room, current: Player, handIdx: number, n: number): { ok
 }
 
 // Saloon: every living player heals 1 (capped at their max).
-function playSaloon(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
-  if (activeEffect(room).noHeal) return { ok: false, error: "Sự kiện đang cấm hồi máu" };
+function playSaloon(room: Room, current: Player, handIdx: number): Result {
+  if (activeEffect(room).noHeal) return err("event-forbids-heal");
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   for (const p of room.players) {
     if (p.alive) p.hp = Math.min(p.maxHp, p.hp + 1);
@@ -1097,6 +1117,39 @@ function pickTargetCard(target: Player, targetCardId?: string): { from: "hand" |
   return null;
 }
 
+// The single answer to "may `actor` aim `defId` at `target`?", read from the card's
+// TargetRule. Both the play handlers and buildView go through this, so the
+// crosshairs the client draws and the plays the server accepts cannot drift apart —
+// the client used to carry its own copy and had never heard of Truce.
+export function targetProblem(room: Room, actor: Player, defId: string, target: Player): GameError | null {
+  const rule = CARD_DEF_BY_ID[defId]?.target;
+  if (!rule) return { code: "invalid-card" };
+  if (!target.alive) return { code: "invalid-target" };
+  if (target.id === actor.id && !rule.self) return { code: "invalid-target" };
+  if (rule.shoots && activeEffect(room).protectSheriff && target.role === "sheriff") {
+    return { code: "truce-protects-sheriff" };
+  }
+  if (rule.notSheriff && target.role === "sheriff") return { code: "cannot-jail-sheriff" };
+  if (rule.notAlreadyHolding && hasEquip(target, defId)) return { code: "already-jailed" };
+  if (rule.maxDistance != null) {
+    const max = rule.maxDistance === "range" ? rangeOf(actor, room) : rule.maxDistance;
+    if (distanceBetween(room, actor, target) > max) {
+      return { code: rule.maxDistance === "range" ? "out-of-range" : "panic-needs-distance-1" };
+    }
+  }
+  if (rule.needsCards && target.hand.length === 0 && target.equipment.length === 0) {
+    return { code: "target-has-no-cards" };
+  }
+  return null;
+}
+
+// Everyone `defId` may legally be aimed at right now. Published per card type in
+// the view so the UI can highlight exactly the legal targets.
+function legalTargetIds(room: Room, actor: Player, defId: string): string[] {
+  if (!CARD_DEF_BY_ID[defId]?.target) return [];
+  return room.players.filter((p) => !targetProblem(room, actor, defId, p)).map((p) => p.id);
+}
+
 // Remove and return the card a `pickTargetCard` result points at.
 function takePickedCard(target: Player, pick: { from: "hand" | "equipment"; index: number }): Card {
   const pile = pick.from === "hand" ? target.hand : target.equipment;
@@ -1104,57 +1157,55 @@ function takePickedCard(target: Player, pick: { from: "hand" | "equipment"; inde
 }
 
 // Panic!: take a card from a player at distance 1 into your hand.
-function playPanic(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): { ok: boolean; error?: string } {
+function playPanic(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): Result {
   const target = room.players.find((p) => p.id === targetId);
-  if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
-  if (distanceBetween(room, current, target) > 1) return { ok: false, error: "Chỉ lấy được của người ở khoảng cách 1" };
+  if (!target) return err("invalid-target");
+  const problem = targetProblem(room, current, "panic", target);
+  if (problem) return { ok: false, error: problem };
   const pick = pickTargetCard(target, targetCardId);
-  if (!pick) return { ok: false, error: "Mục tiêu không có bài" };
+  if (!pick) return err("target-has-no-cards");
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   current.hand.push(takePickedCard(target, pick));
   return { ok: true };
 }
 
 // Cat Balou: force any player to discard a card (any distance).
-function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): { ok: boolean; error?: string } {
+function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): Result {
   const target = room.players.find((p) => p.id === targetId);
-  if (!target || !target.alive) return { ok: false, error: "Mục tiêu không hợp lệ" };
+  if (!target) return err("invalid-target");
+  const problem = targetProblem(room, current, "cat-balou", target);
+  if (problem) return { ok: false, error: problem };
   const pick = pickTargetCard(target, targetCardId);
-  if (!pick) return { ok: false, error: "Mục tiêu không có bài" };
+  if (!pick) return err("target-has-no-cards");
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   moveToDiscard(room, takePickedCard(target, pick));
   return { ok: true };
 }
 
-// Play Bang! at a target: check the 1-per-turn limit and range, discard the
-// card, then open a reaction window for the target.
-function playBang(room: Room, current: Player, handIdx: number, targetId?: string): { ok: boolean; error?: string } {
+// Fire a Bang! at a target. The Bang!/turn budget was already checked upstream in
+// playBlock — here the shot is spent and a reaction window opens for the target.
+function playBang(room: Room, current: Player, handIdx: number, targetId?: string): Result {
   let target = room.players.find((p) => p.id === targetId);
-  if (!target || !target.alive || target.id === current.id) return { ok: false, error: "Mục tiêu không hợp lệ" };
+  if (!target) return err("invalid-target");
+  const problem = targetProblem(room, current, "bang", target);
+  if (problem) return { ok: false, error: problem };
   const eff = activeEffect(room);
-  // Truce: the Sheriff can't be shot while the pact holds.
-  if (eff.protectSheriff && target.role === "sheriff") return { ok: false, error: "Hiệp Ước: không được bắn Cảnh Sát Trưởng" };
-  const range = rangeOf(current, room);
-  if (distanceBetween(room, current, target) > range) {
-    return { ok: false, error: "Mục tiêu ngoài tầm bắn" };
-  }
-  // Drunk: the shot goes wide — it lands on a random valid target instead.
+  // Drunk: the shot goes wide — it lands on a random valid target instead. "Valid"
+  // is the same predicate the aimed shot went through, so a drunk shot can never
+  // land somewhere a sober one could not.
   if (eff.drunkAim) {
-    const candidates = room.players.filter(
-      (p) =>
-        p.alive &&
-        p.id !== current.id &&
-        distanceBetween(room, current, p) <= range &&
-        !(eff.protectSheriff && p.role === "sheriff")
-    );
-    if (candidates.length) target = candidates[Math.floor(Math.random() * candidates.length)];
+    const candidates = legalTargetIds(room, current, "bang");
+    if (candidates.length) {
+      const id = candidates[Math.floor(Math.random() * candidates.length)];
+      target = room.players.find((p) => p.id === id) ?? target;
+    }
   }
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   room.bangsThisTurn += 1;
   const missedNeeded = Math.max(
     1,
-    (current.character?.id === "slab-the-killer" ? 2 : 1) + (eff.missedNeededDelta ?? 0)
+    1 + (charEffect(current).missedNeededDelta ?? 0) + (eff.missedNeededDelta ?? 0)
   );
   const pending = {
     kind: "bang" as const,
@@ -1187,8 +1238,8 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
 }
 
 // Play Beer proactively (only on your own turn) to heal 1, capped at max HP.
-function playBeer(room: Room, current: Player, handIdx: number): { ok: boolean; error?: string } {
-  if (current.hp >= current.maxHp) return { ok: false, error: "Máu đã đầy" };
+function playBeer(room: Room, current: Player, handIdx: number): Result {
+  if (current.hp >= current.maxHp) return err("hp-full");
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   // Happy Hour makes a Beer worth 2 life points.
@@ -1196,7 +1247,6 @@ function playBeer(room: Room, current: Player, handIdx: number): { ok: boolean; 
   return { ok: true };
 }
 
-// Discard a card from the active player's hand to the discard pile.
 export function discardCard(code: string, playerId: string, cardId: string): boolean {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing" || room.pending) return false;
@@ -1212,16 +1262,16 @@ export function discardCard(code: string, playerId: string, cardId: string): boo
 
 // End the turn: only allowed after drawing and once the hand is within the
 // life-point limit. Advances to the next living player, who starts by drawing.
-export function endTurn(code: string, playerId: string): { ok: boolean; error?: string } {
+export function endTurn(code: string, playerId: string): Result {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
-  if (room.pending) return { ok: false, error: "Đang chờ phản ứng" };
+  if (room.pending) return err("waiting-for-reaction");
   const current = room.players[room.turnIndex];
   if (!current || current.id !== playerId) return { ok: false };
-  if (room.turnPhase === "draw") return { ok: false, error: "Bạn phải rút bài trước" };
+  if (room.turnPhase === "draw") return err("must-draw-first");
   const limit = handLimitOf(room, current);
   if (current.hand.length > limit) {
-    return { ok: false, error: `Bỏ bớt ${current.hand.length - limit} lá (giới hạn = máu)` };
+    return err("hand-over-limit", { n: current.hand.length - limit });
   }
   if (!advanceToNextAlive(room)) return { ok: false };
   beginTurn(room);
@@ -1253,7 +1303,7 @@ function detachFromPending(room: Room, id: string) {
 // A player concedes: remove them from the game (cards to discard, role revealed),
 // resolve any pending they were part of, re-check the win, and pass the turn on if
 // it was theirs.
-export function surrender(code: string, playerId: string): { ok: boolean; error?: string } {
+export function surrender(code: string, playerId: string): Result {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
   const p = room.players.find((x) => x.id === playerId);
@@ -1320,7 +1370,7 @@ function drawCheck(room: Room, drawer?: Player, isGood?: (c: Card) => boolean): 
   const first = drawOne(room);
   if (!first) return null;
   const eff = activeEffect(room);
-  const isLuckyDuke = drawer?.character?.id === "lucky-duke";
+  const isLuckyDuke = !!charEffect(drawer).luckyDraw;
   // Lucky Duke (or a Lucky Table event) flips two and keeps the better card; Bad
   // Weather flips two and keeps the worse one. Lucky Duke's own skill beats the
   // weather rather than cancelling out with it.
@@ -1352,8 +1402,9 @@ const goodBarrel = (c: Card) => c.suit === "hearts"; // counts as Missed!
 
 // Start-of-turn upkeep: resolve Dynamite then Jail for the active player (and any
 // players skipped by Jail), then leave them in the draw phase — unless Jail makes
-// them skip, in which case play passes on. Fully synchronous (no reaction window,
-// since Dynamite damage cannot be saved by Beer in this variant).
+// them skip, in which case play passes on. NOT synchronous: a fatal Dynamite IS
+// saveable, so upkeep can stop mid-way waiting for a Beer — the rest is parked in
+// room.upkeepFor and picked up by resumeUpkeep().
 // `resuming` picks a turn's upkeep back up after it was interrupted mid-way by a
 // Beer prompt (see upkeepFor). It must NOT re-run the once-per-turn bookkeeping:
 // ticking the event timers a second time would burn two turns off a 3-turn
@@ -1501,13 +1552,10 @@ const hasHandCard = (p: Player, defId: string, cardId?: string) =>
   p.hand.findIndex((c) => c.defId === defId && (cardId ? c.id === cardId : true));
 
 // Whether `card` may be used as `asDefId`. Calamity Janet may swap Bang!/Missed!.
-function canUseAs(player: Player, card: Card, asDefId: string): boolean {
+export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
   if (card.defId === asDefId) return true;
-  if (player.character?.id === "calamity-janet") {
-    if (asDefId === "missed" && card.defId === "bang") return true;
-    if (asDefId === "bang" && card.defId === "missed") return true;
-  }
-  return false;
+  const swap = charEffect(player).useAs;
+  return !!swap && swap.includes(card.defId) && swap.includes(asDefId);
 }
 
 // A player replies to the active pending. `type` meaning depends on the pending.
@@ -1516,23 +1564,23 @@ export function respond(
   playerId: string,
   type: "missed" | "beer" | "bang" | "pass",
   cardId?: string
-): { ok: boolean; error?: string } {
+): Result {
   const room = rooms.get(code);
   if (!room || !room.pending) return { ok: false };
   const pending = room.pending;
 
   // --- Bang!: target dodges with Missed!(s) or takes the hit ---
   if (pending.kind === "bang") {
-    if (playerId !== pending.targetId) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
+    if (playerId !== pending.targetId) return err("not-your-reaction");
     const target = room.players.find((p) => p.id === pending.targetId)!;
     if (type === "missed") {
       const idx = target.hand.findIndex((c) => c.id === cardId && canUseAs(target, c, "missed"));
-      if (idx < 0) return { ok: false, error: "Không có lá né hợp lệ" };
+      if (idx < 0) return err("no-valid-card", { s: "Missed!" });
       // Slab the Killer needs 2 Missed!: don't let a target burn a Missed! it can't
       // complete the dodge with (it would lose the card AND still take the hit).
       const remaining = pending.missedNeeded - pending.missedPlayed;
       const available = target.hand.filter((c) => canUseAs(target, c, "missed")).length;
-      if (available < remaining) return { ok: false, error: `Cần đủ ${pending.missedNeeded} Missed! để né` };
+      if (available < remaining) return err("need-more-missed", { n: pending.missedNeeded });
       room.discard.push(target.hand.splice(idx, 1)[0]);
       pushLog(room, { kind: "react", a: target.name, card: "Missed!" });
       pending.missedPlayed += 1;
@@ -1550,11 +1598,11 @@ export function respond(
 
   // --- Dying: play Beer(s) to survive, or pass to accept death ---
   if (pending.kind === "dying") {
-    if (playerId !== pending.targetId) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
+    if (playerId !== pending.targetId) return err("not-your-reaction");
     const target = room.players.find((p) => p.id === pending.targetId)!;
     if (type === "beer") {
       const idx = hasHandCard(target, "beer", cardId);
-      if (idx < 0) return { ok: false, error: "Không có Beer đó" };
+      if (idx < 0) return err("card-not-in-hand");
       room.discard.push(target.hand.splice(idx, 1)[0]);
       target.hp += 1;
       pushLog(room, { kind: "heal", a: target.name, n: 1 });
@@ -1580,12 +1628,12 @@ export function respond(
   // --- Multi (Indians!/Gatling): each responder defends or takes 1 ---
   if (pending.kind === "multi") {
     const r = pending.responders.find((x) => x.id === playerId);
-    if (!r || r.done) return { ok: false, error: "Không phải lượt phản ứng của bạn" };
+    if (!r || r.done) return err("not-your-reaction");
     const me = room.players.find((p) => p.id === playerId)!;
     const need = pending.effect === "indians" ? "bang" : "missed";
     if (type === need) {
       const idx = me.hand.findIndex((c) => c.id === cardId && canUseAs(me, c, need));
-      if (idx < 0) return { ok: false, error: `Không có ${need === "bang" ? "Bang!" : "Missed!"} hợp lệ` };
+      if (idx < 0) return err("no-valid-card", { s: need === "bang" ? "Bang!" : "Missed!" });
       room.discard.push(me.hand.splice(idx, 1)[0]);
       pushLog(room, { kind: "react", a: me.name, card: need === "bang" ? "Bang!" : "Missed!" });
       r.done = true;
@@ -1602,11 +1650,11 @@ export function respond(
 
   // --- Duel: alternate discarding Bang!; first to pass loses 1 ---
   if (pending.kind === "duel") {
-    if (playerId !== pending.turnId) return { ok: false, error: "Chưa tới lượt bạn trong Duel" };
+    if (playerId !== pending.turnId) return err("not-your-duel-turn");
     const me = room.players.find((p) => p.id === playerId)!;
     if (type === "bang") {
       const idx = me.hand.findIndex((c) => c.id === cardId && canUseAs(me, c, "bang"));
-      if (idx < 0) return { ok: false, error: "Không có Bang! hợp lệ" };
+      if (idx < 0) return err("no-valid-card", { s: "Bang!" });
       room.discard.push(me.hand.splice(idx, 1)[0]);
       pushLog(room, { kind: "react", a: me.name, card: "Bang!" });
       pending.turnId = pending.turnId === pending.aId ? pending.bId : pending.aId; // pass back
@@ -1627,15 +1675,15 @@ export function respond(
 }
 
 // Pick a card: General Store (turn order) or Kit Carlson (top-3 selection).
-export function choose(code: string, playerId: string, cardId: string): { ok: boolean; error?: string } {
+export function choose(code: string, playerId: string, cardId: string): Result {
   const room = rooms.get(code);
   if (!room || !room.pending) return { ok: false };
 
   if (room.pending.kind === "store") {
     const pending = room.pending;
-    if (pending.order[0] !== playerId) return { ok: false, error: "Chưa tới lượt chọn của bạn" };
+    if (pending.order[0] !== playerId) return err("not-your-pick");
     const ci = pending.cards.findIndex((c) => c.id === cardId);
-    if (ci < 0) return { ok: false, error: "Lá không hợp lệ" };
+    if (ci < 0) return err("invalid-card");
     const picker = room.players.find((p) => p.id === playerId)!;
     picker.hand.push(pending.cards.splice(ci, 1)[0]);
     pending.order.shift();
@@ -1648,9 +1696,9 @@ export function choose(code: string, playerId: string, cardId: string): { ok: bo
 
   if (room.pending.kind === "kit") {
     const pending = room.pending;
-    if (pending.playerId !== playerId) return { ok: false, error: "Không phải lượt của bạn" };
+    if (pending.playerId !== playerId) return err("not-your-turn");
     const ci = pending.cards.findIndex((c) => c.id === cardId);
-    if (ci < 0) return { ok: false, error: "Lá không hợp lệ" };
+    if (ci < 0) return err("invalid-card");
     const kit = room.players.find((p) => p.id === playerId)!;
     kit.hand.push(pending.cards.splice(ci, 1)[0]);
     pending.picksLeft -= 1;
@@ -1665,20 +1713,19 @@ export function choose(code: string, playerId: string, cardId: string): { ok: bo
   return { ok: false };
 }
 
-// Sid Ketchum: discard exactly two cards to regain 1 life.
-export function sidHeal(code: string, playerId: string, cardIds: string[]): { ok: boolean; error?: string } {
+export function sidHeal(code: string, playerId: string, cardIds: string[]): Result {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
   // Sid Ketchum may discard 2 cards to regain 1 life AT ANY TIME — on or off his
   // turn, and even while dying (to save himself). So no turn/phase/pending gate.
   const sid = room.players.find((p) => p.id === playerId);
   if (!sid || !sid.alive) return { ok: false };
-  if (sid.character?.id !== "sid-ketchum") return { ok: false, error: "Chỉ Sid Ketchum dùng được" };
-  if (activeEffect(room).noHeal) return { ok: false, error: "Sự kiện đang cấm hồi máu" };
-  if (sid.hp >= sid.maxHp) return { ok: false, error: "Máu đã đầy" };
-  if (cardIds.length !== 2 || cardIds[0] === cardIds[1]) return { ok: false, error: "Chọn đúng 2 lá khác nhau" };
+  if (!charEffect(sid).burnTwoToHeal) return err("ability-unavailable");
+  if (activeEffect(room).noHeal) return err("event-forbids-heal");
+  if (sid.hp >= sid.maxHp) return err("hp-full");
+  if (cardIds.length !== 2 || cardIds[0] === cardIds[1]) return err("pick-two-distinct");
   const idxs = cardIds.map((id) => sid.hand.findIndex((c) => c.id === id));
-  if (idxs.some((i) => i < 0)) return { ok: false, error: "Không có lá đó" };
+  if (idxs.some((i) => i < 0)) return err("card-not-in-hand");
   for (const id of cardIds) {
     const i = sid.hand.findIndex((c) => c.id === id);
     room.discard.push(sid.hand.splice(i, 1)[0]);
@@ -1707,9 +1754,7 @@ function resolveMulti(room: Room) {
     if (!t || !t.alive) continue;
     dealDamage(room, t, 1, srcId);
     if (t.hp <= 0) {
-      const beers = t.hand.filter((c) => c.defId === "beer").length;
-      if (beers >= 1 - t.hp) room.deathQueue.push({ id: t.id, needed: 1 - t.hp, sourceId: srcId });
-      else killPlayer(room, t, srcId);
+      room.deathQueue.push({ id: t.id, needed: 1 - t.hp, sourceId: srcId, creditId: null, saveable: true });
     }
   }
   checkWin(room);
@@ -1724,13 +1769,24 @@ function processDeathQueue(room: Room) {
     const entry = room.deathQueue[0];
     const t = room.players.find((x) => x.id === entry.id);
     if (!t || !t.alive || t.hp > 0) { room.deathQueue.shift(); continue; }
-    const beers = t.hand.filter((c) => c.defId === "beer").length;
-    if (beers >= entry.needed) {
-      room.pending = { kind: "dying", targetId: t.id, sourceId: entry.sourceId, beersNeeded: entry.needed };
+    // Sid Ketchum can also turn two cards into the life point that saves him, so
+    // "can be saved" is not just a Beer count.
+    const canSave =
+      entry.saveable &&
+      (beersInHand(t) >= entry.needed ||
+        (!!charEffect(t).burnTwoToHeal && t.hand.length >= 2 * entry.needed));
+    if (canSave) {
+      room.pending = {
+        kind: "dying",
+        targetId: t.id,
+        sourceId: entry.sourceId,
+        creditId: entry.creditId,
+        beersNeeded: entry.needed,
+      };
       room.deathQueue.shift();
       return; // wait for this player's response
     }
-    killPlayer(room, t, entry.sourceId);
+    killPlayer(room, t, entry.sourceId, entry.creditId);
     checkWin(room);
     room.deathQueue.shift();
   }
@@ -1753,15 +1809,8 @@ function dealDamage(room: Room, target: Player, amount: number, sourceId: string
   if (amount === 0) return;
   target.hp -= amount;
   pushLog(room, { kind: "hit", a: target.name, n: amount, hp: Math.max(0, target.hp) });
-  // Bart Cassidy: draw a card for each life point lost.
-  if (target.character?.id === "bart-cassidy") {
-    for (let i = 0; i < amount; i++) {
-      const c = drawOne(room);
-      if (c) target.hand.push(c);
-    }
-  }
-  // El Gringo: steal a card from the attacker for each life point lost.
-  if (target.character?.id === "el-gringo" && sourceId) {
+  if (charEffect(target).drawOnDamage) drawInto(room, target.hand, amount);
+  if (charEffect(target).stealOnDamage && sourceId) {
     const src = room.players.find((p) => p.id === sourceId);
     if (src) {
       for (let i = 0; i < amount && src.hand.length > 0; i++) {
@@ -1784,22 +1833,14 @@ function applyDamage(
 ) {
   dealDamage(room, target, amount, sourceId);
   if (target.hp > 0) return;
-  const needed = 1 - target.hp; // Beers required to reach 1 HP
-  const beers = target.hand.filter((c) => c.defId === "beer").length;
-  if (saveable && beers >= needed) {
-    // Death is deferred until they answer, so the credit has to ride along on the
-    // pending — otherwise passing on the Beer would pay nobody.
-    room.pending = { kind: "dying", targetId: target.id, sourceId, creditId, beersNeeded: needed };
-  } else {
-    killPlayer(room, target, sourceId, creditId);
-    checkWin(room);
-  }
+  room.deathQueue.push({ id: target.id, needed: 1 - target.hp, sourceId, creditId, saveable });
+  processDeathQueue(room);
 }
 
 // `creditId` is an INDIRECT kill: the player who set up the death without dealing
 // the blow — today only whoever played the Dynamite that went off. It pays the
-// bounty on an Outlaw, but deliberately does NOT carry the Sheriff-shoots-Deputy
-// penalty: lighting a fuse three turns ago is not the same act as shooting your own
+// bounty on an Outlaw and, per killPlayer, the Sheriff-kills-Deputy penalty too: the
+// Sheriff is answerable for the Dynamite he put in play, whoever it goes off on
 // Deputy, and it would be a nasty surprise to lose your whole hand to a card that
 // drifted away from you long before it exploded.
 function killPlayer(
@@ -1815,8 +1856,10 @@ function killPlayer(
   target.hand = [];
   target.equipment = [];
   // Vulture Sam: a living Sam takes all the dead player's cards instead of discard.
-  const sam = room.players.find((p) => p.alive && p.id !== target.id && p.character?.id === "vulture-sam");
-  if (sam) sam.hand.push(...cards);
+  const heir = room.players.find(
+    (p) => p.alive && p.id !== target.id && charEffect(p).inheritsDeadCards
+  );
+  if (heir) heir.hand.push(...cards);
   else room.discard.push(...cards);
 
   // Death rewards / penalty for whoever landed the killing blow.
@@ -1851,14 +1894,10 @@ export function refillEmptyHands(room: Room) {
   // reaction (so she isn't left defenceless in a duel).
   if (room.phase !== "playing") return;
   for (const p of room.players) {
-    if (p.alive && p.character?.id === "suzy-lafayette" && p.hand.length === 0) {
-      const c = drawOne(room);
-      if (c) p.hand.push(c);
-    }
+    if (p.alive && charEffect(p).refillWhenEmpty && p.hand.length === 0) drawInto(room, p.hand, 1);
   }
 }
 
-// Evaluate win conditions; if met, set the winner and end the game.
 function checkWin(room: Room) {
   const players = room.players;
   const sheriffAlive = players.some((p) => p.role === "sheriff" && p.alive);
@@ -1882,8 +1921,9 @@ function checkWin(room: Room) {
   }
 }
 
-// Cộng 1 thắng cho mỗi NGƯỜI (không tính bot) thuộc phe thắng; đủ ngưỡng thì cấp
-// vé thưởng escape MỘT LẦN (giữ nguyên link qua các ván sau).
+// One win per HUMAN on the winning side (bots don't count). The reward ticket is
+// granted once, the first time somebody reaches the threshold, and the link then
+// survives later games in the same room.
 function awardWins(room: Room, winner: Winner) {
   const winningRoles: Role[] =
     winner === "sheriff" ? ["sheriff", "deputy"] : winner === "outlaws" ? ["outlaw"] : ["renegade"];
@@ -1932,8 +1972,8 @@ export function restart(code: string): boolean {
 // Play again: reset to the lobby and immediately start a fresh game with the same
 // players (re-deal roles + character draft). Falls back to the lobby on error
 // (e.g. someone left and the headcount is now invalid).
-export function playAgain(code: string): { ok: boolean; error?: string } {
-  if (!restart(code)) return { ok: false, error: "Phòng không tồn tại" };
+export function playAgain(code: string): Result {
+  if (!restart(code)) return err("no-such-room");
   return startGame(code);
 }
 
@@ -1947,7 +1987,7 @@ function visibleRole(p: Player, room: Room): Role | null {
   return null;
 }
 
-function toPublic(p: Player, room: Room, viewer: Player | undefined, turnId: string | null): PlayerPublic {
+function toPublic(p: Player, seat: number, room: Room, viewer: Player | undefined, turnId: string | null): PlayerPublic {
   // Characters are public once the game is underway; during the draft, nobody
   // sees anyone else's options or pick.
   const inGame = room.phase === "playing" || room.phase === "result";
@@ -1959,7 +1999,7 @@ function toPublic(p: Player, room: Room, viewer: Player | undefined, turnId: str
   return {
     id: p.id,
     name: p.name,
-    seat: p.seat,
+    seat,
     isHost: p.isHost,
     isBot: p.isBot,
     connected: p.connected,
@@ -2063,7 +2103,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
   const turnPlayer = room.phase === "playing" ? room.players[room.turnIndex] : null;
   const turnId = turnPlayer ? turnPlayer.id : null;
   const isMyTurn = !!(me && turnPlayer && turnPlayer.id === me.id);
-  const bySeat = [...room.players].sort((a, b) => a.seat - b.seat);
+  const bySeat = room.players;
 
   return {
     code: room.code,
@@ -2072,7 +2112,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
     you: {
       id: me?.id ?? "",
       name: me?.name ?? "",
-      seat: me?.seat ?? 0,
+      seat: me ? room.players.indexOf(me) : 0,
       isHost: me?.isHost ?? false,
       role: me?.role ?? null,
       character: me?.character ?? null,
@@ -2094,12 +2134,18 @@ export function buildView(room: Room, playerId: string): PlayerView {
       // Everything you may NOT play right now, resolved server-side so the client
       // never has to re-implement the house rule or any event restriction.
       blockedDefIds: isMyTurn && me ? blockedDefIdsFor(room, me) : [],
+      legalTargets: isMyTurn && me ? legalTargetsFor(room, me) : {},
+      // Whose hand the draw phase may reach (Jesse Jones' drawMode).
+      legalDrawTargets:
+        me && charEffect(me).drawMode === "jesse"
+          ? room.players.filter((p) => p.alive && p.id !== me.id && p.hand.length > 0).map((p) => p.id)
+          : [],
       handLimit: me ? handLimitOf(room, me) : 0,
       wins: me?.wins ?? 0,
-      rewardUrl: me?.rewardTicket ?? null, // chỉ view của CHÍNH người thắng đủ ngưỡng mới có link
+      rewardUrl: me?.rewardTicket ?? null, // only the winner's own view carries the link
     },
-    players: bySeat.map((p) => toPublic(p, room, me, turnId)),
-    turnSeat: turnPlayer ? turnPlayer.seat : null,
+    players: bySeat.map((p, seat) => toPublic(p, seat, room, me, turnId)),
+    turnSeat: turnPlayer ? room.players.indexOf(turnPlayer) : null,
     roleSetup: roleSetupFor(room.players.length),
     draft: room.phase === "drafting" ? buildDraft(room, me) : null,
     pending: buildPending(room, me),

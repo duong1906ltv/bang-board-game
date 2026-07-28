@@ -7,49 +7,33 @@ const FX_KEY = "bang:fx";
 const INTRO_KEY = "bang:intro-seen";
 const ALERT_KEY = "bang:alert";
 
-// Hiệu ứng đồ hoạ nâng cao (bloom + viền tối). Mặc định BẬT; người
-// chơi máy yếu có thể tắt trong menu Cài đặt để lấy lại FPS.
-export function getFx(): boolean {
+// localStorage có thể ném (chế độ riêng tư, cookie bị chặn) nên mọi truy cập đều
+// bọc try/catch và rơi về mặc định.
+function getBool(key: string, dflt: boolean): boolean {
   try {
-    return localStorage.getItem(FX_KEY) !== "0";
+    const v = localStorage.getItem(key);
+    return v === null ? dflt : v === "1";
   } catch {
-    return true;
+    return dflt;
   }
 }
 
-export function setFx(on: boolean) {
+function setBool(key: string, on: boolean) {
   try {
-    localStorage.setItem(FX_KEY, on ? "1" : "0");
+    localStorage.setItem(key, on ? "1" : "0");
   } catch {}
 }
+
+// Hiệu ứng đồ hoạ nâng cao (bloom + viền tối). Mặc định BẬT; người
+// chơi máy yếu có thể tắt trong menu Cài đặt để lấy lại FPS.
+export const getFx = () => getBool(FX_KEY, true);
+export const setFx = (on: boolean) => setBool(FX_KEY, on);
 
 // Gọi người chơi về khi tới lượt / phải phản ứng, lúc tab đang ẩn. Mặc định BẬT:
 // ván không có đồng hồ đếm nên một người đi mất là cả bàn đứng chờ vô hạn.
-export function getAlert(): boolean {
-  try {
-    return localStorage.getItem(ALERT_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-export function setAlert(on: boolean) {
-  try {
-    localStorage.setItem(ALERT_KEY, on ? "1" : "0");
-  } catch {}
-}
+export const getAlert = () => getBool(ALERT_KEY, true);
+export const setAlert = (on: boolean) => setBool(ALERT_KEY, on);
 
 // Đã xem màn briefing chưa — để lần sau vào ván không bắt đọc lại từ đầu.
-export function getIntroSeen(): boolean {
-  try {
-    return localStorage.getItem(INTRO_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function setIntroSeen() {
-  try {
-    localStorage.setItem(INTRO_KEY, "1");
-  } catch {}
-}
+export const getIntroSeen = () => getBool(INTRO_KEY, false);
+export const setIntroSeen = () => setBool(INTRO_KEY, true);
