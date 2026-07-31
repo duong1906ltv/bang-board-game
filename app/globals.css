@@ -601,10 +601,35 @@ button.ghost:hover:not(:disabled) {
 }
 
 /* ---- Character draft ("pick your character") — the showdown screen ---- */
-.card.draft-card { max-width: 760px; margin-inline: auto; }
+.card.draft-card {
+  /* Break out of the 760px .wrap so the showdown can use the full width,
+     capped at 1280px and centred on the viewport. */
+  width: min(96vw, 1280px); max-width: none;
+  margin-left: calc(50% - min(48vw, 640px));
+  margin-right: calc(50% - min(48vw, 640px));
+  min-height: calc(100dvh - 120px);
+  display: flex; flex-direction: column; justify-content: center; gap: 8px;
+  position: relative; overflow: hidden;
+}
+.draft-head, .draft-stage, .draft-foot { position: relative; z-index: 1; }
+
+/* floating gold dust drifting up the backdrop */
+.draft-dust { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.draft-dust span {
+  position: absolute; bottom: -12px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 220, 150, .9), rgba(224, 169, 85, 0) 70%);
+  animation-name: draftFloat; animation-timing-function: linear; animation-iteration-count: infinite;
+}
+@keyframes draftFloat {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateY(-86vh) translateX(16px); opacity: 0; }
+}
+
 .draft-head { text-align: center; }
 .draft-title {
-  font-size: 1.8rem;
+  font-size: 2.3rem;
   letter-spacing: .5px;
   background: linear-gradient(100deg, #ffe6ad 0%, var(--accent) 28%, #fff5db 50%, var(--accent) 72%, #ffe6ad 100%);
   background-size: 220% 100%;
@@ -632,9 +657,12 @@ button.ghost:hover:not(:disabled) {
 
 .draft-stage {
   position: relative;
-  display: flex; align-items: center; justify-content: center;
-  gap: 6px; flex-wrap: wrap; margin: 24px 0 8px;
+  display: flex; align-items: center; justify-content: space-evenly;
+  gap: 28px; flex-wrap: wrap; margin: 30px 0 10px;
 }
+/* enlarge the character card ~1.5× while reserving its layout box */
+.draft-face { width: 252px; height: 340px; display: flex; justify-content: center; align-items: flex-start; }
+.draft-face .pcard { transform: scale(1.5); transform-origin: top center; }
 /* soft breathing spotlight behind the two cards */
 .draft-stage::before {
   content: "";
@@ -650,9 +678,13 @@ button.ghost:hover:not(:disabled) {
   50%      { opacity: .9;  transform: translate(-50%, -50%) scale(1.06); }
 }
 .draft-vs {
-  font-weight: 800; font-size: .82rem; text-transform: uppercase; letter-spacing: 2px;
-  color: var(--accent); opacity: .7; padding: 0 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  font-weight: 800; font-size: .9rem; text-transform: uppercase; letter-spacing: 2px;
+  color: var(--accent); opacity: .8; padding: 0 6px;
 }
+.draft-vs::before, .draft-vs::after { content: ""; width: 1px; height: 40px; }
+.draft-vs::before { background: linear-gradient(var(--accent), transparent); }
+.draft-vs::after { background: linear-gradient(transparent, var(--accent)); }
 .draft-pick {
   position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 12px;
@@ -721,8 +753,8 @@ button.ghost:hover:not(:disabled) {
 /* a ring that bursts outward the moment a card is chosen */
 .draft-chosen::after {
   content: "";
-  position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%);
-  width: 176px; height: 236px; border-radius: 18px;
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 262px; height: 350px; border-radius: 22px;
   border: 2px solid var(--moon); pointer-events: none;
   animation: draftBurst .7s ease-out forwards;
 }

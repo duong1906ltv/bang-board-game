@@ -713,6 +713,17 @@ function Lobby({
   );
 }
 
+// Fixed set of floating gold "dust motes" for the draft backdrop — fixed (not
+// random) so they don't re-scatter on every render.
+const DRAFT_DUST = [
+  { x: 6, s: 5, dur: 11, delay: 0, o: 0.5 }, { x: 15, s: 3, dur: 14, delay: 3, o: 0.35 },
+  { x: 24, s: 6, dur: 9, delay: 1.5, o: 0.6 }, { x: 33, s: 4, dur: 13, delay: 5, o: 0.4 },
+  { x: 45, s: 3, dur: 16, delay: 2, o: 0.3 }, { x: 54, s: 5, dur: 10, delay: 4, o: 0.5 },
+  { x: 63, s: 4, dur: 12, delay: 0.5, o: 0.45 }, { x: 72, s: 6, dur: 8, delay: 6, o: 0.55 },
+  { x: 81, s: 3, dur: 15, delay: 2.5, o: 0.35 }, { x: 90, s: 5, dur: 11, delay: 4.5, o: 0.5 },
+  { x: 39, s: 3, dur: 17, delay: 7, o: 0.3 }, { x: 96, s: 4, dur: 13, delay: 1, o: 0.4 },
+];
+
 function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => void }) {
   const locale = useLocale();
   const draft = view.draft!;
@@ -721,6 +732,14 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
 
   return (
     <div className="card draft-card" style={{ marginTop: 16 }}>
+      <div className="draft-dust" aria-hidden>
+        {DRAFT_DUST.map((d, i) => (
+          <span
+            key={i}
+            style={{ left: `${d.x}%`, width: d.s, height: d.s, opacity: d.o, animationDuration: `${d.dur}s`, animationDelay: `${d.delay}s` }}
+          />
+        ))}
+      </div>
       <div className="draft-head">
         <h2 className="section-title draft-title">{L(locale, "Chọn nhân vật", "Pick your character")}</h2>
         <p className="muted draft-sub">
@@ -746,7 +765,9 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
           return [
             i > 0 ? <div key={`vs-${i}`} className="draft-vs">{L(locale, "hoặc", "or")}</div> : null,
             <div key={c.id} className={cls} style={{ animationDelay: `${i * 0.1}s` }} onClick={() => !locked && onPick(c.id)}>
-              <CharacterFace c={c} />
+              <div className="draft-face">
+                <CharacterFace c={c} />
+              </div>
               {picked ? (
                 <div className="badge draft-badge">{L(locale, "Đã chọn ✓", "Picked ✓")}</div>
               ) : (
