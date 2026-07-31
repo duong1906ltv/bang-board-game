@@ -1068,6 +1068,16 @@ function Table({
       }),
     [view.log, locale, you.name]
   );
+  // Your personal feed, newest first like the log above it. Formatted with your own
+  // name so every line reads "… lên bạn" rather than repeating your name back at you.
+  // `?? []` is load-bearing, not defensive noise: this view arrives over a socket from
+  // whatever version the server happens to be running. A tab left open across a
+  // server restart — or a rolling deploy — gets a payload built before this field
+  // existed, and spreading undefined takes the whole table down with it.
+  const inboxRows = useMemo(
+    () => [...(you.inbox ?? [])].reverse().map((e) => ({ e, text: logText(locale, e, you.name) })),
+    [you.inbox, locale, you.name]
+  );
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
   const [notice, setNotice] = useState("");
   const [infoCard, setInfoCard] = useState<Card | null>(null);
@@ -1608,6 +1618,23 @@ function Table({
                 <span>📜 {L(locale, "Lịch sử", "History")}</span>
                 <span>{logOpen ? "▾" : "▸"}</span>
               </div>
+
+              {/* Pinned above the shared history and never collapsed: what other
+                  players did to YOU since your last turn ended. The shared log answers
+                  "what happened"; this answers "who is coming after me", which is the
+                  thing you actually need before deciding your turn — and it was
+                  previously buried among six other players' plays. */}
+              {inboxRows.length > 0 && (
+                <div style={{ flex: "0 0 auto", padding: "6px 10px", borderBottom: "1px solid rgba(240,226,192,0.2)", background: "rgba(255,120,60,0.14)", display: "flex", flexDirection: "column", gap: 3, fontSize: 12, lineHeight: 1.3, maxHeight: 130, overflowY: "auto" }}>
+                  <div style={{ fontWeight: 700, fontSize: 11, opacity: 0.85, letterSpacing: 0.3 }}>
+                    🎯 {L(locale, "Nhắm vào bạn từ lượt trước", "Aimed at you since your last turn")}
+                  </div>
+                  {inboxRows.map(({ e, text }) => (
+                    <div key={e.id} style={{ color: "#ffb782" }}>{text}</div>
+                  ))}
+                </div>
+              )}
+
               <div style={{ flex: "1 1 auto", minHeight: 0, maxHeight: logOpen ? undefined : 118, overflowY: "auto", padding: "6px 10px", display: "flex", flexDirection: "column", gap: 3, fontSize: 12, lineHeight: 1.3 }}>
                 {logRows.map(({ e, text, def, idx }) => {
                   return (

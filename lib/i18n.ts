@@ -92,10 +92,11 @@ export function logText(l: Locale, e: LogEntry, youName?: string): string {
       // rest came off the deck. Spelled out so nobody reads the total as the amount
       // taken from them.
       if (e.b) {
-        const fromDeck = Math.max(0, (e.n ?? 1) - 1);
+        const took = e.took ?? 1;
+        const fromDeck = Math.max(0, (e.n ?? took) - took);
         return vi
-          ? `${subj(e.a)} lấy 1 lá từ tay ${obj(e.b)}${fromDeck ? ` + rút ${fromDeck} lá từ nọc` : ""}`
-          : `${subj(e.a)} took 1 card from ${obj(e.b)}${fromDeck ? ` + drew ${fromDeck}` : ""}`;
+          ? `${subj(e.a)} lấy ${took} lá từ tay ${obj(e.b)}${fromDeck ? ` + rút ${fromDeck} lá từ nọc` : ""}`
+          : `${subj(e.a)} took ${took} from ${obj(e.b)}${fromDeck ? ` + drew ${fromDeck}` : ""}`;
       }
       return vi ? `${subj(e.a)} rút ${e.n} lá` : `${subj(e.a)} drew ${e.n}`;
     case "play":

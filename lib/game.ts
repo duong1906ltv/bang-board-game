@@ -78,6 +78,12 @@ export interface Player {
   equipment: Card[]; // blue cards in play (gun, Mustang, Scope, Jail, Dynamite...)
   wins: number; // cumulative wins in this room — deliberately NOT reset by Play Again
   rewardTicket?: string | null; // escape-reward link, granted once on reaching the win threshold
+  // What OTHER players did to this one since their own turn last ended: who shot
+  // them, who took which card, who jailed them. Kept per player instead of being
+  // filtered out of the shared log, because that log is trimmed to the last 40
+  // entries and one round at 7 players can easily push a Bang! off the end before
+  // the person it hit gets the table back. Cleared as their turn hands off.
+  inbox: LogEntry[];
 }
 
 // A random event currently in force (or the one that just fired).
@@ -245,7 +251,17 @@ function newPlayer(name: string, socketId: string, isHost: boolean): Player {
     equipment: [],
     wins: 0,
     rewardTicket: null,
+    inbox: [],
   };
+}
+
+// Record something another player did TO `target`, for their personal feed. Ignores
+// self-inflicted entries: the point is "who is coming after me", and a Dynamite you
+// lit yourself or a card you binned with your own Cat Balou is not news to you.
+function notify(room: Room, target: Player | null | undefined, e: Omit<LogEntry, "id">) {
+  if (!target || !target.alive) return;
+  target.inbox.push({ ...e, id: room.logSeq++ });
+  if (target.inbox.length > 20) target.inbox.shift();
 }
 
 export function createRoom(
@@ -519,6 +535,7 @@ function finalizeDraft(room: Room) {
     p.alive = true;
     p.hand = [];
     p.equipment = [];
+    p.inbox = [];
   });
   // Build and shuffle the draw pile, then deal each player a starting hand equal
   // to their life points (Bang! starting-hand rule).
@@ -982,12 +999,15 @@ export function drawCards(
     // draw — so whoever just watched a card vanish from their hand read the 2 as two
     // cards taken from them, and reported Jesse for stealing double. Every other card
     // that reaches across the table names its target; this one has to as well.
-    pushLog(room, {
-      kind: "draw",
+    const drawn = {
+      kind: "draw" as const,
       a: current.name,
       n: current.hand.length - beforeDraw,
       b: robbed?.name, // absent when the steal didn't happen — reads as a plain draw
-    });
+      took: robbed ? 1 : undefined,
+    };
+    pushLog(room, drawn);
+    notify(room, robbed, drawn);
     return true;
   }
 
@@ -1060,7 +1080,13 @@ export function playCard(
     room.playsThisTurn += 1; // events may cap how many cards a turn allows
     // Mark this card type as used this turn (exempt plays don't consume a slot).
     if (!exempt && playedCard) room.playedDefsThisTurn.push(playedCard.defId);
-    if (actor && cardName) pushLog(room, { kind: "play", a: actor.name, card: cardName, b: targetName });
+    if (actor && cardName) {
+      pushLog(room, { kind: "play", a: actor.name, card: cardName, b: targetName });
+      // Same line into the target's own feed, so "who came after me while I waited"
+      // survives the shared log being trimmed.
+      const aimedAt = targetId && targetId !== actor.id ? room.players.find((p) => p.id === targetId) : null;
+      if (aimedAt) notify(room, aimedAt, { kind: "play", a: actor.name, card: cardName, b: aimedAt.name });
+    }
   }
   return res;
 }
@@ -1151,10 +1177,21 @@ function playCardImpl(
 // Indians! / Gatling: open a simultaneous reaction for every other living player.
 // Gatling also lets a defender's Barrel help (it is a Bang! effect).
 function playMulti(room: Room, current: Player, handIdx: number, effect: "indians" | "gatling"): Result {
-  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  const [played] = current.hand.splice(handIdx, 1);
+  moveToDiscard(room, played);
   const responders = room.players
     .filter((p) => p.alive && p.id !== current.id)
     .map((p) => ({ id: p.id, done: false, safe: false }));
+  // A multi has no single target, so playCard's notify can't cover it — everyone at
+  // the table was aimed at and each of them should see it in their own feed.
+  for (const r of responders) {
+    notify(room, room.players.find((p) => p.id === r.id), {
+      kind: "play",
+      a: current.name,
+      card: played.name,
+      b: room.players.find((p) => p.id === r.id)?.name,
+    });
+  }
   room.checks = [];
   // Gatling: auto-Barrel each defender up front (Jourdonnais included).
   if (effect === "gatling") {
@@ -1465,10 +1502,16 @@ export function surrender(code: string, playerId: string): Result {
 // flips it) and marking the round boundary that schedules events.
 function advanceToNextAlive(room: Room): boolean {
   const n = room.players.length;
+  const leaving = room.players[room.turnIndex];
   for (let step = 1; step <= n; step++) {
     const idx = (room.turnIndex + step * room.turnDir + n * n) % n;
     if (room.players[idx].alive) {
       room.turnIndex = idx;
+      // Their turn is over, so their personal feed starts fresh: it exists to answer
+      // "what happened to me while I was waiting", and the wait restarts here. Every
+      // turn hand-off goes through this function — including a turn lost to Jail —
+      // so this is the one place that catches all of them.
+      if (leaving) leaving.inbox = [];
       markRoundBoundary(room);
       return true;
     }
@@ -1988,14 +2031,22 @@ function dealDamage(room: Room, target: Player, amount: number, sourceId: string
   if (amount === 0) return;
   target.hp -= amount;
   pushLog(room, { kind: "hit", a: target.name, n: amount, hp: Math.max(0, target.hp) });
+  const src = sourceId ? room.players.find((p) => p.id === sourceId) : null;
+  // Their own Dynamite or an event has no attacker to report, and self-inflicted
+  // damage is not something anyone needs telling about.
+  if (src && src.id !== target.id) {
+    notify(room, target, { kind: "hit", a: target.name, n: amount, hp: Math.max(0, target.hp) });
+  }
   if (charEffect(target).drawOnDamage) drawInto(room, target.hand, amount);
-  if (charEffect(target).stealOnDamage && sourceId) {
-    const src = room.players.find((p) => p.id === sourceId);
-    if (src) {
-      for (let i = 0; i < amount && src.hand.length > 0; i++) {
-        target.hand.push(src.hand.splice(Math.floor(Math.random() * src.hand.length), 1)[0]);
-      }
+  if (charEffect(target).stealOnDamage && src) {
+    let took = 0;
+    for (let i = 0; i < amount && src.hand.length > 0; i++) {
+      target.hand.push(src.hand.splice(Math.floor(Math.random() * src.hand.length), 1)[0]);
+      took++;
     }
+    // The robbed player is the ATTACKER here, and nothing in the shared log says
+    // their hand just shrank — from their seat cards would vanish unexplained.
+    if (took) notify(room, src, { kind: "draw", a: target.name, b: src.name, n: took, took });
   }
 }
 
@@ -2144,6 +2195,7 @@ export function restart(code: string): boolean {
     p.alive = true;
     p.hand = [];
     p.equipment = [];
+    p.inbox = [];
   });
   return true;
 }
@@ -2333,6 +2385,9 @@ export function buildView(room: Room, playerId: string): PlayerView {
           ? room.players.filter((p) => p.alive && p.id !== me.id && p.hand.length > 0).map((p) => p.id)
           : [],
       handLimit: me ? handLimitOf(room, me) : 0,
+      // What other players did to you since your last turn ended. Yours alone — it is
+      // built from your seat's own record, so nobody can read anyone else's.
+      inbox: me?.inbox ?? [],
       wins: me?.wins ?? 0,
       rewardUrl: me?.rewardTicket ?? null, // only the winner's own view carries the link
     },

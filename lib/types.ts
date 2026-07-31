@@ -224,6 +224,7 @@ export interface PlayerView {
     legalTargets: Record<string, string[]>;
     legalDrawTargets: string[]; // players whose hand your draw phase may take from
     handLimit: number; // cards you may keep at end of turn (= hp, ± events)
+    inbox: LogEntry[]; // what others did to you since your turn last ended
     wins: number; // your cumulative wins in this room
     rewardUrl: string | null; // escape reward, present only once you hit the threshold
   };
@@ -253,6 +254,7 @@ export interface LogEntry {
   b?: string; // target name
   card?: string; // card name (or the drawn card label for a check, e.g. "5♠")
   n?: number; // count (cards drawn, life points, cards discarded)
+  took?: number; // of `n`, how many came out of `b`'s hand rather than the deck
   hp?: number; // resulting HP
   role?: Role; // revealed role (death)
   checkKind?: string; // Draw! check type (dynamite/jail/barrel/blackjack)
