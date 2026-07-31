@@ -160,6 +160,13 @@ function pendingAction(room: Room): (() => boolean) | null {
     if (!me?.isBot) return null;
     return respondOrPass(me, "bang", findUsableAs(me, "bang"));
   }
+  if (p.kind === "check") {
+    // Nothing to decide — but it still has to be dismissed, or the table waits on a
+    // bot forever (there is no timeout anywhere in this game).
+    const me = player(room, p.playerId);
+    if (!me?.isBot) return null;
+    return () => ok(game.respond(code, me.id, "pass"));
+  }
   if (p.kind === "store") {
     const me = player(room, p.order[0]);
     if (!me?.isBot) return null;

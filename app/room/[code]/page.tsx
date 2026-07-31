@@ -470,7 +470,7 @@ function PendingNote({ view }: { view: PlayerView }) {
   );
 }
 
-const PENDING_EMOJI: Record<string, string> = { bang: "🔫", dying: "💀", multi: "🎯", duel: "⚔️", store: "🏪", kit: "🎴" };
+const PENDING_EMOJI: Record<string, string> = { bang: "🔫", dying: "💀", multi: "🎯", duel: "⚔️", store: "🏪", kit: "🎴", check: "🎲" };
 const CHECK_ICON: Record<string, string> = { dynamite: "🧨", jail: "⛓️", barrel: "🛢️", blackjack: "🎴" };
 // Card name → definition, so a card mentioned in the log can be clicked to view it.
 const CARD_DEF_BY_NAME: Record<string, { id: string; name: string; effect: string }> = Object.fromEntries(
@@ -491,6 +491,10 @@ function ReactionPanel({
   const you = view.you;
 
   const [open, setOpen] = useState(true);
+  // A store/kit card the player tapped to read before committing. Picking used to
+  // fire on the first tap off a thumbnail with no effect text anywhere, so choosing
+  // from a General Store meant either knowing all 21 cards by their art or guessing.
+  const [preview, setPreview] = useState<Card | null>(null);
 
   const doAction = (a: "missed" | "beer" | "bang" | "pass") => {
     if (a === "pass") return onRespond("pass");
@@ -560,18 +564,59 @@ function ReactionPanel({
           <p className="muted">{L(locale, "Đang chờ", "Waiting for")}: {p.waiting.join(", ")}</p>
         )}
 
-        {(p.kind === "store" || p.kind === "kit") && (
-          <div className="card-row" style={{ justifyContent: "center" }}>
-            {(p.storeCards ?? []).map((c) => (
-              <PlayingCard
-                key={c.id}
-                card={c}
-                size="sm"
-                onClick={p.youMustRespond ? () => onChoose(c.id) : undefined}
-                dimmed={!p.youMustRespond}
-              />
-            ))}
+        {/* Dynamite / Jail reveal: the actual card, big enough to read, with what it
+            means underneath. Held here until dismissed — this is the only moment the
+            player learns whether their turn survived. */}
+        {p.kind === "check" && (
+          <div style={{ display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap", margin: "4px 0 12px" }}>
+            {(p.checks ?? []).map((c, i) => {
+              const t = checkText(locale, c.kind, c.outcome);
+              return (
+                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                  {c.card && <PlayingCard card={c.card} size="sm" />}
+                  <span style={{ fontWeight: 700 }}>{CHECK_ICON[c.kind] ?? "🎴"} {t.kind}</span>
+                  <span className="muted">{t.outcome}</span>
+                </div>
+              );
+            })}
           </div>
+        )}
+
+        {(p.kind === "store" || p.kind === "kit") && (
+          <>
+            <div className="card-row" style={{ justifyContent: "center" }}>
+              {(p.storeCards ?? []).map((c) => (
+                <PlayingCard
+                  key={c.id}
+                  card={c}
+                  size="sm"
+                  // Tapping opens the card full-size with its effect text; the pick
+                  // itself is confirmed from there. Onlookers may read the cards too —
+                  // they are face-up on the table — they just get no pick button.
+                  onClick={() => setPreview(c)}
+                  dimmed={!p.youMustRespond}
+                />
+              ))}
+            </div>
+            {/* Re-read from the live list: a card you were still reading about can be
+                taken by whoever picks before you, and offering "take this" for a card
+                that has already left the table is a rejection waiting to happen. */}
+            {preview && (p.storeCards ?? []).some((c) => c.id === preview.id) && (
+              <CardModal
+                card={preview}
+                showEffect
+                onClose={() => setPreview(null)}
+                actions={
+                  p.youMustRespond
+                    ? [
+                        { label: L(locale, "Chọn lá này", "Take this card"), onClick: () => { setPreview(null); onChoose(preview.id); } },
+                        { label: L(locale, "Đóng", "Close"), onClick: () => setPreview(null), ghost: true },
+                      ]
+                    : undefined
+                }
+              />
+            )}
+          </>
         )}
 
         {p.actions.map((a, i) => (
@@ -1335,9 +1380,14 @@ function Table({
         <CardModal
           card={confirmPlay}
           onClose={() => setConfirmPlay(null)}
-          /* Actions: "Bỏ bài" (left, only when over the hand limit — discarding is
-             illegal otherwise) · "Đánh bài" · "Hủy". */
+          /* Actions left→right: "Hủy" · "Đánh bài" · "Bỏ bài" (only when over the hand
+             limit — discarding is illegal otherwise). Backing out sits on the left,
+             furthest from the thumb, and the irreversible option sits at the far end. */
           actions={[
+            { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmPlay(null), ghost: true },
+            ...(you.jailed
+              ? []
+              : [{ label: L(locale, "Đánh bài", "Play"), onClick: doConfirmedPlay }]),
             ...(overLimit > 0
               ? [{
                   label: L(locale, "Bỏ bài", "Discard"),
@@ -1348,10 +1398,6 @@ function Table({
                   },
                 }]
               : []),
-            ...(you.jailed
-              ? []
-              : [{ label: L(locale, "Đánh bài", "Play"), onClick: doConfirmedPlay }]),
-            { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmPlay(null), ghost: true },
           ]}
         />
       )}
@@ -1359,9 +1405,10 @@ function Table({
         <CardModal
           card={confirmDiscard}
           onClose={() => setConfirmDiscard(null)}
+          /* Same ordering as the play dialog: back out on the left, discard on the right. */
           actions={[
-            { label: L(locale, "Bỏ bài", "Discard"), onClick: doConfirmedDiscard },
             { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmDiscard(null), ghost: true },
+            { label: L(locale, "Bỏ bài", "Discard"), onClick: doConfirmedDiscard },
           ]}
         />
       )}
@@ -1570,9 +1617,12 @@ function Table({
                         opacity: e.kind === "turn" ? 0.7 : 1,
                         // Events get their own colour and weight: they change the rules
                         // rather than report a play, so they need to be findable when
-                        // you scroll back asking "why couldn't I shoot?".
-                        fontWeight: e.kind === "death" || e.kind === "event" ? 700 : 400,
-                        color: e.kind === "event" ? "#7ec8ff" : undefined,
+                        // you scroll back asking "why couldn't I shoot?". Draw! results
+                        // (Jail, Dynamite) get the same treatment for the same reason —
+                        // they decide whose turn just vanished, and "did he get out of
+                        // jail?" is the question people scroll back for most.
+                        fontWeight: e.kind === "death" || e.kind === "event" || e.kind === "check" ? 700 : 400,
+                        color: e.kind === "event" ? "#7ec8ff" : e.kind === "check" ? "#ffc46b" : undefined,
                       }}
                     >
                       {idx >= 0 && def && e.card ? (

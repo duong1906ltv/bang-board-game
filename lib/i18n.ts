@@ -88,6 +88,15 @@ export function logText(l: Locale, e: LogEntry, youName?: string): string {
     case "turn":
       return vi ? `▶ Đến lượt ${obj(e.a)}` : `▶ ${subj(e.a)}'s turn`;
     case "draw":
+      // `b` present = Jesse Jones took his first card from that player's hand; the
+      // rest came off the deck. Spelled out so nobody reads the total as the amount
+      // taken from them.
+      if (e.b) {
+        const fromDeck = Math.max(0, (e.n ?? 1) - 1);
+        return vi
+          ? `${subj(e.a)} lấy 1 lá từ tay ${obj(e.b)}${fromDeck ? ` + rút ${fromDeck} lá từ nọc` : ""}`
+          : `${subj(e.a)} took 1 card from ${obj(e.b)}${fromDeck ? ` + drew ${fromDeck}` : ""}`;
+      }
       return vi ? `${subj(e.a)} rút ${e.n} lá` : `${subj(e.a)} drew ${e.n}`;
     case "play":
       if (!e.b) return vi ? `${subj(e.a)} đánh ${e.card}` : `${subj(e.a)} played ${e.card}`;
@@ -175,6 +184,8 @@ export function formatPending(l: Locale, p: PlayerView["pending"], youName?: str
       return L(l, `${a} (Kit Carlson) chọn 2 trong 3 lá`, `${a} (Kit Carlson) picks 2 of 3 cards`);
     case "store":
       return L(l, `General Store — ${a} đang chọn bài`, `General Store — ${a} is picking`);
+    case "check":
+      return L(l, `${a} lật bài kiểm tra`, `${a} makes a Draw!`);
   }
 }
 
@@ -231,7 +242,7 @@ const EVENT_TEXT: Record<string, [string, string, string, string]> = {
   // chaos
   "pass-the-hand": ["Chuyền Tay", "Pass the Hand", "Mọi người chuyền tay bài theo chiều đi.", "Everyone passes their hand along the play direction."],
   "gun-shuffle": ["Đổi Súng", "Gun Shuffle", "Mọi người chuyền súng theo chiều đi.", "Everyone passes their gun along the play direction."],
-  reverse: ["Đảo Chiều", "Reverse", "Thứ tự lượt đảo chiều từ giờ.", "The turn order reverses from now on."],
+  reverse: ["Đảo Chiều", "Reverse", "Lượt này đảo chiều: người kế tiếp là người phía bên kia.", "This turn reverses: play passes the other way, then back to normal."],
 
 };
 

@@ -51,7 +51,14 @@ type Pending =
   | { kind: "multi"; effect: "indians" | "gatling"; sourceId: string; responders: { id: string; done: boolean; safe: boolean }[] }
   | { kind: "duel"; aId: string; bId: string; turnId: string }
   | { kind: "store"; sourceId: string; cards: Card[]; order: string[] }
-  | { kind: "kit"; playerId: string; cards: Card[]; picksLeft: number };
+  | { kind: "kit"; playerId: string; cards: Card[]; picksLeft: number }
+  // A Dynamite/Jail reveal waiting to be acknowledged by the player it happened to.
+  // Upkeep used to flip these and act on them in the same breath, so the one person
+  // with a stake in the result saw it as a banner sliding past — and a Jail sentence
+  // skipped their turn before they had read why. `resume` says what the turn does
+  // once they dismiss it: "stay" if the turn state is already set and only needs
+  // unblocking, "skip" if the turn still has to pass to the next player.
+  | { kind: "check"; playerId: string; resume: "stay" | "skip" };
 
 export interface Player {
   id: string;
@@ -140,6 +147,12 @@ export interface Room {
   usedEventIds: string[]; // every event already seen this game — drawn from like a deck
   turnCounter: number; // turns begun this game (telemetry / sim reporting only)
   turnDir: 1 | -1; // play direction (the "reverse" event flips it)
+  // The direction to put back once the current turn is over, or null when nothing
+  // is pending. Reverse lasts ONE turn: it fires as that turn opens, so it governs
+  // the hand-off at the end of it (who plays next) and is then undone. Kept as the
+  // direction to restore rather than a boolean so a second Reverse landing before
+  // the first is undone still returns the table to where it actually started.
+  turnDirRestore: (1 | -1) | null;
 }
 
 const rooms = new Map<string, Room>();
@@ -274,6 +287,7 @@ export function createRoom(
     usedEventIds: [],
     turnCounter: 0,
     turnDir: 1,
+    turnDirRestore: null,
   };
   rooms.set(code, room);
   return { room, player };
@@ -553,6 +567,7 @@ function resetEventState(room: Room) {
   room.usedEventIds = [];
   room.turnCounter = 0;
   room.turnDir = 1;
+  room.turnDirRestore = null;
   room.roundStarterId = null;
   room.roundEventDue = false;
 }
@@ -708,7 +723,13 @@ function makeCtx(room: Room, opener: Player): EventCtx {
       room.deck = shuffle([...room.deck, ...room.discard]);
       room.discard = [];
     },
-    reverseOrder: () => { room.turnDir = room.turnDir === 1 ? -1 : 1; },
+    // One turn only: the flip decides who picks up after the player it fired on,
+    // then beginTurn puts the table back. Remember the direction we came from the
+    // first time, so this stays the same one-turn detour if it somehow fires twice.
+    reverseOrder: () => {
+      room.turnDirRestore ??= room.turnDir;
+      room.turnDir = room.turnDir === 1 ? -1 : 1;
+    },
     generalStore: () => {
       if (room.pending) return; // never overwrite a live reaction
       openGeneralStore(room, opener);
@@ -809,9 +830,20 @@ function legalTargetsFor(room: Room, p: Player): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   const swap = charEffect(p).useAs;
   for (const c of p.hand) {
-    for (const defId of [c.defId, ...(swap?.includes(c.defId) ? swap.filter((d) => d !== c.defId) : [])]) {
-      if (out[defId] || !CARD_DEF_BY_ID[defId]?.target) continue;
-      out[defId] = legalTargetIds(room, p, defId);
+    // What this card may be played AS: itself, plus whatever the character swaps it
+    // for (Calamity Janet's Missed! ⇄ Bang!).
+    const playAs = [c.defId, ...(swap?.includes(c.defId) ? swap.filter((d) => d !== c.defId) : [])];
+    for (const as of playAs) {
+      if (!CARD_DEF_BY_ID[as]?.target) continue;
+      const ids = legalTargetIds(room, p, as);
+      // Keyed under BOTH names, because the two sides ask different questions: the
+      // engine validates by the rules of the card being played AS, but the client
+      // aims with the defId of the card in hand — the one it drew and the player
+      // clicked. Janet's Missed! used to land only under "bang", so the client's
+      // lookup for "missed" came back undefined, no crosshair ever lit up, and her
+      // whole ability was unreachable even though the server would have allowed it.
+      out[as] ??= ids;
+      out[c.defId] ??= ids;
     }
   }
   return out;
@@ -937,14 +969,25 @@ export function drawCards(
   // Jesse Jones: draw the first card from a chosen player's hand.
   if (charEffect(current).drawMode === "jesse" && source === "player" && targetId && drawTotal > 0) {
     const t = room.players.find((p) => p.id === targetId);
-    if (t && t.id !== current.id && t.hand.length > 0) {
-      current.hand.push(t.hand.splice(Math.floor(Math.random() * t.hand.length), 1)[0]);
+    const robbed = t && t.id !== current.id && t.hand.length > 0 ? t : null;
+    if (robbed) {
+      current.hand.push(robbed.hand.splice(Math.floor(Math.random() * robbed.hand.length), 1)[0]);
     } else {
       drawInto(room, current.hand, 1);
     }
     drawInto(room, current.hand, drawTotal - 1);
     room.turnPhase = "play";
-    pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
+    // Name the victim. Exactly ONE card comes out of their hand and the rest off the
+    // deck, but logged as a bare "drew 2" this was indistinguishable from an ordinary
+    // draw — so whoever just watched a card vanish from their hand read the 2 as two
+    // cards taken from them, and reported Jesse for stealing double. Every other card
+    // that reaches across the table names its target; this one has to as well.
+    pushLog(room, {
+      kind: "draw",
+      a: current.name,
+      n: current.hand.length - beforeDraw,
+      b: robbed?.name, // absent when the steal didn't happen — reads as a plain draw
+    });
     return true;
   }
 
@@ -1379,6 +1422,9 @@ function detachFromPending(room: Room, id: string) {
     case "dying": if (p.targetId === id) clearPending(room); break;
     case "duel": if (p.aId === id || p.bId === id) clearPending(room); break;
     case "kit": if (p.playerId === id) { clearPending(room); room.turnPhase = "play"; } break;
+    // Nobody else can dismiss someone's reveal, so a quitter would strand it. The
+    // turn hand-off is surrender()'s job (it was their turn either way).
+    case "check": if (p.playerId === id) clearPending(room); break;
     case "store":
       p.order = p.order.filter((o) => o !== id);
       if (p.order.length === 0) { room.discard.push(...p.cards); clearPending(room); }
@@ -1503,6 +1549,13 @@ const goodBarrel = (c: Card) => c.suit === "hearts"; // counts as Missed!
 function beginTurn(room: Room, resuming = false) {
   if (!resuming) {
     room.checks = [];
+    // A Reverse bought exactly one turn: it steered the hand-off that led here, and
+    // that debt is now settled. Undone BEFORE this turn's events roll, so a fresh
+    // Reverse landing now flips the real direction rather than cancelling the old one.
+    if (room.turnDirRestore != null) {
+      room.turnDir = room.turnDirRestore;
+      room.turnDirRestore = null;
+    }
     // Turn-scope events end here; lasting/curse timers tick exactly once per call,
     // so a turn skipped by Jail doesn't burn two turns off a 3-turn sandstorm.
     tickEvents(room);
@@ -1541,9 +1594,21 @@ function beginTurn(room: Room, resuming = false) {
       }
     }
 
+    // Did upkeep flip anything in front of this player? Only then is there something
+    // to hold the turn for — a clean turn must not make anyone dismiss an empty box.
+    let revealed = false;
+    // Park the turn on the reveal. Returns true when the caller must return: the
+    // player now owes an acknowledgement before anything else happens.
+    const gate = (resume: "stay" | "skip") => {
+      if (!revealed || room.pending || room.phase !== "playing") return false;
+      room.pending = { kind: "check", playerId: cur.id, resume };
+      return true;
+    };
+
     // --- Dynamite ---
     const dyn = cur.equipment.find((c) => c.defId === "dynamite");
     if (dyn) {
+      revealed = true;
       const card = drawCheck(room, cur, goodDynamite);
       const exploded = !!card && card.suit === "spades" && card.rank >= 2 && card.rank <= 9;
       const chk = { name: cur.name, card, kind: "dynamite", outcome: exploded ? "blast" : "safe" };
@@ -1566,6 +1631,9 @@ function beginTurn(room: Room, resuming = false) {
         }
         if (!cur.alive) {
           if (room.phase !== "playing") return; // game ended
+          // Blown up. They still get to see the card that did it before the table
+          // moves on without them; the turn passes when they dismiss it.
+          if (gate("skip")) return;
           if (!advanceToNextAlive(room)) return;
           continue; // run the next player's upkeep
         }
@@ -1580,6 +1648,7 @@ function beginTurn(room: Room, resuming = false) {
     // --- Jail ---
     const jail = cur.equipment.find((c) => c.defId === "jail");
     if (jail) {
+      revealed = true;
       const card = drawCheck(room, cur, goodJail);
       const released = !!card && card.suit === "hearts";
       const chk = { name: cur.name, card, kind: "jail", outcome: released ? "free" : "skip" };
@@ -1597,9 +1666,14 @@ function beginTurn(room: Room, resuming = false) {
           room.jailedTurn = true;
           room.turnPhase = "discard";
           pushLog(room, { kind: "turn", a: cur.name });
+          // The turn state is already what it needs to be; the gate only withholds
+          // input until they have seen why they are discarding instead of playing.
+          gate("stay");
           return;
         }
-        // Nothing to discard — hand it on without making them click anything.
+        // Sentence served with nothing to discard: the only thing left is showing
+        // them the card that cost them the turn, then handing it on.
+        if (gate("skip")) return;
         if (!advanceToNextAlive(room)) return;
         continue;
       }
@@ -1609,6 +1683,9 @@ function beginTurn(room: Room, resuming = false) {
 
     room.turnPhase = "draw";
     pushLog(room, { kind: "turn", a: cur.name });
+    // Survived the Dynamite, or walked out of Jail: the turn is theirs and already
+    // set up, so this only holds the draw until they have seen the card.
+    gate("stay");
     return;
   }
 }
@@ -1658,6 +1735,18 @@ export function respond(
   const room = rooms.get(code);
   if (!room || !room.pending) return { ok: false };
   const pending = room.pending;
+
+  // --- Check reveal: only the player it happened to may dismiss it ---
+  if (pending.kind === "check") {
+    if (playerId !== pending.playerId) return err("not-your-reaction");
+    if (type !== "pass") return { ok: false };
+    const { resume } = pending;
+    clearPending(room);
+    // "stay" left the turn fully set up and merely blocked; "skip" still owes the
+    // hand-off that the reveal was holding back.
+    if (resume === "skip" && advanceToNextAlive(room)) beginTurn(room);
+    return { ok: true };
+  }
 
   // --- Bang!: target dodges with Missed!(s) or takes the hit ---
   if (pending.kind === "bang") {
@@ -2137,6 +2226,18 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
     return out;
   };
 
+  if (p.kind === "check") {
+    const mine = meId === p.playerId;
+    return {
+      kind: "check",
+      youMustRespond: mine,
+      actions: mine ? ["pass"] : [],
+      actorName: name(p.playerId),
+      // The reveals themselves, so the dialog can show the actual card rather than
+      // a sentence about it. Everyone sees them — the flip is public.
+      checks: room.checks,
+    };
+  }
   if (p.kind === "bang") {
     const mine = meId === p.targetId;
     // Only offer "Missed!" if the target holds enough to complete the dodge

@@ -76,7 +76,7 @@ export interface EventCtx {
   passDynamiteAround(): void;
   clearEquip(defId: string): number; // remove every copy in play, return how many
   reshuffleDiscard(): void;
-  reverseOrder(): void;
+  reverseOrder(): void; // flip play direction for THIS turn only, then it reverts
   generalStore(): void; // open a free General Store pick round
 }
 

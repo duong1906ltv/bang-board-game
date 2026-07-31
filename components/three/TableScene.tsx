@@ -1264,8 +1264,10 @@ function Opponents({
 }
 
 // Draw pile + discard pile in the middle of the table. The top discarded card
-// is shown face-up so the centre reads as an active play area.
-function CenterPiles({ deckCount, discardCount, topDiscard }: { deckCount: number; discardCount: number; topDiscard: Card | null }) {
+// is shown face-up so the centre reads as an active play area — and is clickable,
+// because lying flat at table scale it is legible as a shape but not as a card, and
+// Pedro Ramirez has to know exactly what he would be taking before he takes it.
+function CenterPiles({ deckCount, discardCount, topDiscard, onInspect }: { deckCount: number; discardCount: number; topDiscard: Card | null; onInspect?: (c: Card) => void }) {
   const stack = Math.min(Math.max(deckCount, 1), 6);
   const label = (text: string) => (
     <Html center position={[0, 0.25, 0.55]} distanceFactor={6} style={{ pointerEvents: "none" }}>
@@ -1282,7 +1284,7 @@ function CenterPiles({ deckCount, discardCount, topDiscard }: { deckCount: numbe
       </group>
       <group position={[0.45, 0, 0]}>
         {topDiscard ? (
-          <CardMesh card={topDiscard} scale={0.72} position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0.2]} />
+          <CardMesh card={topDiscard} scale={0.72} position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0.2]} onClick={onInspect ? () => onInspect(topDiscard) : undefined} />
         ) : (
           discardCount > 0 && <CardMesh faceDown scale={0.72} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0.25]} />
         )}
@@ -1568,7 +1570,7 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       />
       <Saloon felt={felt} />
       <Table felt={felt} />
-      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} />
+      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} onInspect={onInspect} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
       <WantedPosters players={view.players} youSeat={view.you.seat} youId={view.you.id} youName={view.you.name} feeds={feeds} felt={felt} />
       {/* your own in-play cards, on the near edge of the felt */}

@@ -117,7 +117,7 @@ export type Winner = "sheriff" | "outlaws" | "renegade";
 //  - multi: Indians!/Gatling — each other player defends or takes 1
 //  - duel:  two players alternate discarding Bang!; first to fail loses 1
 //  - store: General Store — players pick a revealed card in turn order
-export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit";
+export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit" | "check";
 export type PendingAction = "missed" | "beer" | "bang" | "pass";
 
 export interface PendingView {
@@ -125,6 +125,7 @@ export interface PendingView {
   youMustRespond: boolean; // is it your turn to act right now
   actions: PendingAction[]; // response buttons to show you
   storeCards?: Card[]; // store: revealed cards to pick from
+  checks?: CheckView[]; // check: the Dynamite/Jail reveal(s) being acknowledged
   missedNeeded?: number; // bang: Missed! required (2 vs Slab)
   missedPlayed?: number; // bang: Missed! played so far
   // Names/params for the client to build a localized description:
