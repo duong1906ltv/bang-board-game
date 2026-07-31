@@ -30,6 +30,7 @@ import {
   logText,
 } from "@/lib/i18n";
 import { LangToggle } from "@/components/LangToggle";
+import { CHARACTER_PHOTO } from "@/lib/characterArt";
 import type { GameError } from "@/lib/errors";
 
 
@@ -725,19 +726,27 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
         </p>
       )}
 
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginTop: 12 }}>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12 }}>
         {draft.choices.map((c) => {
           const picked = draft.yourPick?.id === c.id;
           const locked = draft.youPicked;
           return (
             <div
               key={c.id}
-              className={`selectable ${picked ? "picked" : ""}`}
-              style={{ textAlign: "left", cursor: locked ? "default" : "pointer", opacity: locked && !picked ? 0.45 : 1 }}
               onClick={() => !locked && onPick(c.id)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 8,
+                cursor: locked ? "default" : "pointer",
+                opacity: locked && !picked ? 0.45 : 1,
+              }}
             >
-              <CharacterCard c={c} />
-              {picked && <div className="badge" style={{ marginTop: 8 }}>{L(locale, "Đã chọn ✓", "Picked ✓")}</div>}
+              <div className={picked ? "pc-selected" : undefined} style={{ display: "flex" }}>
+                <CharacterFace c={c} />
+              </div>
+              {picked && <div className="badge">{L(locale, "Đã chọn ✓", "Picked ✓")}</div>}
             </div>
           );
         })}
@@ -1825,41 +1834,40 @@ function DrawControls({
   );
 }
 
-function CharacterCard({ c }: { c: Character }) {
-  const locale = useLocale();
-  return (
-    <div>
-      <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-        🎭 {c.name}
-        {c.rank && <span className="badge" style={{ fontSize: "0.7rem" }}>{L(locale, "Hạng", "Tier")} {c.rank}</span>}
-        <span className="badge" style={{ fontSize: "0.7rem" }}>❤️ {c.maxHp}</span>
-      </div>
-      <p className="muted" style={{ marginTop: 6, fontSize: "0.85rem", lineHeight: 1.4 }}>
-        {charAbility(locale, c.id)}
-      </p>
-    </div>
-  );
-}
-
-// The character rendered as a playing-card face: title banner, portrait, then
-// the full ability text below. Bullets (max HP); no tier rank.
+// The character as a playing card, matching the printed ones: name banner, portrait
+// with a column of hearts for life points, ability text below. Used both in the draft
+// (where you compare two side by side) and in the review popups.
+//
+// The height is FIXED rather than fitting the text: the draft shows two of these next
+// to each other, and 226px is the tallest any of the 16 abilities needs in either
+// language (measured against this exact CSS — the longest, Kit Carlson, overflows
+// below 216). Short abilities leave empty space instead of shrinking the card.
 function CharacterFace({ c }: { c: Character }) {
   const locale = useLocale();
+  const portrait = CHARACTER_PHOTO[c.id];
   return (
     // `pc-frame` and `pcard-md` are both load-bearing, not decoration:
     //  - `.pcard` is `display: flex` with the default ROW direction; the column
-    //    stacking lives on `.pc-frame`. Without that wrapper the name, art, ability
-    //    and hp laid out side by side, `.pc-center` (flex: 1) swallowed the width,
-    //    and every text child got squeezed to nothing by its own `overflow: hidden`
-    //    — which is why the card showed the 🤠 and not one word of text.
-    //  - font-size for `.pc-name` / `.pc-desc` / `.pc-corner` is only ever declared
-    //    under a size class, so without `pcard-md` the hp line had no size at all.
+    //    stacking lives on `.pc-frame`. Without that wrapper the name, art and
+    //    ability laid out side by side, `.pc-center` (flex: 1) swallowed the width,
+    //    and every text child got squeezed to nothing by its own `overflow: hidden`.
+    //  - font-size for `.pc-name` / `.pc-desc` is only ever declared under a size
+    //    class, so without `pcard-md` the ability text had no size at all.
     // The inline width/height still override the size class's fixed box.
-    <div className="pcard pcard-md pc-character" style={{ width: 158, height: "auto" }}>
+    <div className="pcard pcard-md pc-character" style={{ width: 168, height: 226 }}>
       <div className="pc-frame">
-        <div className="pc-name" style={{ fontSize: "0.74rem" }}>{c.name}</div>
-        <div className="pc-center" style={{ minHeight: 64, flex: "0 0 auto" }}>
-          <span className="pc-icon" style={{ fontSize: "2.6rem" }}>🤠</span>
+        <div className="pc-name" style={{ fontSize: "0.72rem" }}>{c.name}</div>
+        <div className="pc-center" style={{ height: 132, flex: "0 0 auto" }}>
+          {portrait ? (
+            <img className="pc-art pc-art-full" src={portrait} alt="" draggable={false} />
+          ) : (
+            <span className="pc-icon" style={{ fontSize: "2.6rem" }}>🤠</span>
+          )}
+          <span className="pc-lives" title={`${c.maxHp} ${L(locale, "máu", "life")}`}>
+            {Array.from({ length: c.maxHp }, (_, i) => (
+              <span key={i} className="pc-life">❤</span>
+            ))}
+          </span>
         </div>
         <div
           className="pc-desc"
@@ -1868,12 +1876,12 @@ function CharacterFace({ c }: { c: Character }) {
             WebkitLineClamp: "unset" as unknown as number,
             fontSize: "0.58rem",
             lineHeight: 1.32,
-            padding: "4px 3px 5px",
+            padding: "5px 4px 4px",
+            flex: "1 1 auto", // short abilities leave space below, they don't re-centre
           }}
         >
           {charAbility(locale, c.id)}
         </div>
-        <span className="pc-corner">🔴 {c.maxHp}</span>
       </div>
     </div>
   );

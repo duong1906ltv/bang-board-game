@@ -504,6 +504,26 @@ button.ghost:hover:not(:disabled) {
 /* Pre-padded illustrations fill the panel; only their padding gets cropped. */
 .pc-art-full { object-fit: cover; }
 
+/* Life points as a column of hearts down the right edge of the portrait, where the
+   printed character cards put their bullets. */
+.pc-lives {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  pointer-events: none;
+}
+.pc-life {
+  font-size: 11px;
+  line-height: 1.05;
+  color: #e0342f;
+  /* The portrait behind is mid-brown and varies per character, so the heart needs
+     both a light rim and a dark shadow to stay legible over any of them. */
+  text-shadow: 0 0 2px #fff, 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
 /* Weapon range token, bottom-right of the art panel: the distance marker the
    printed cards carry, and the only difference visible between the long guns. */
 .pc-range {
