@@ -83,6 +83,11 @@ interface ActiveEvent {
 export interface Room {
   code: string;
   phase: Phase;
+  // Hidden from quick-join matchmaking: this room was opened deliberately for a
+  // specific group, who share its code. Without this, "create a private room"
+  // would be false advertising — the next stranger to tap Play would be seated
+  // in it, because to the matchmaker a fresh lobby is a fresh lobby.
+  unlisted: boolean;
   // Always in clockwise seat order — seat IS the index, so nothing re-sorts and
   // there is no separate field to keep in sync. Only removeBot/disconnect ever
   // splice, which shifts the later seats along, exactly as a player leaving should.
@@ -124,7 +129,8 @@ export interface Room {
   eventLevel: EventLevel; // room setting, survives restart()
   roundStarterId: string | null; // whoever opens each round — the round boundary marker
   roundEventDue: boolean; // an event is queued for the next turn start
-  events: ActiveEvent[]; // in force for the rest of this round
+  events: ActiveEvent[]; // in force for the rest of this round (lasting only — drives the rules)
+  roundEvents: ActiveEvent[]; // every event drawn THIS round (instant + lasting) — for display
   // Rolling feed of the most recently FIRED events, newest last. A single action
   // can fire more than one (a table event at a round boundary plus that player's
   // own turn event), so a "latest event" field would silently drop the first —
@@ -229,12 +235,17 @@ function newPlayer(name: string, socketId: string, isHost: boolean): Player {
   };
 }
 
-export function createRoom(name: string, socketId: string): { room: Room; player: Player } {
+export function createRoom(
+  name: string,
+  socketId: string,
+  unlisted = false
+): { room: Room; player: Player } {
   const code = genCode();
   const player = newPlayer(name, socketId, true);
   const room: Room = {
     code,
     phase: "lobby",
+    unlisted,
     players: [player],
     hostId: player.id,
     turnIndex: 0,
@@ -257,6 +268,7 @@ export function createRoom(name: string, socketId: string): { room: Room; player
     roundStarterId: null,
     roundEventDue: false,
     events: [],
+    roundEvents: [],
     eventFeed: [],
     eventSeq: 0,
     usedEventIds: [],
@@ -305,6 +317,81 @@ export function addPlayer(
   const player = newPlayer(name, socketId, false);
   room.players.push(player);
   return { ok: true, player };
+}
+
+// ── matchmaking (no room codes) ─────────────────────────────────────────────
+// One button, no code to type: put the player wherever they belong.
+//
+// The order below is the whole design, and the priority matters more than the
+// matching does:
+//
+//  1. A seat they already own, even mid-game. This is the case the naive version
+//     gets wrong: refresh the page during a game and "join a room" would hand you
+//     a brand-new lobby while your character sits at the table, disconnected,
+//     holding cards nobody can play. Only DISCONNECTED seats are claimable, so a
+//     second tab can't yank the seat out from under the tab actually playing.
+//  2. The FULLEST open lobby. Emptiest would scatter arrivals one-per-room and
+//     nobody ever reaches the 4-player minimum.
+//  3. A fresh lobby.
+//
+// A game already in progress is deliberately NOT joinable, and neither is an
+// `unlisted` room — see the two comments below.
+type QuickSeat = { code: string; playerId: string };
+
+// Why a running game can't take a newcomer: roles are dealt from a fixed
+// distribution for the exact headcount (ROLE_SETUP), so a 6th player at a
+// 5-player table has no role to be given — inventing one retroactively rewrites
+// who wins. Seat order is also the distance metric every range check reads, so
+// splicing a seat in silently moves everyone's targets mid-round. Late arrivals
+// get a new lobby instead; they can also take over a disconnected seat via (1).
+export function quickJoin(
+  name: string,
+  socketId: string,
+  seats: QuickSeat[] = []
+): { code: string; playerId: string; kind: "rejoin" | "joined" | "created" } {
+  for (const s of seats) {
+    const room = rooms.get((s.code || "").toUpperCase().trim());
+    const seat = room?.players.find((p) => p.id === s.playerId);
+    if (!room || !seat || seat.connected || seat.isBot) continue;
+    seat.socketId = socketId;
+    seat.connected = true;
+    return { code: room.code, playerId: seat.id, kind: "rejoin" };
+  }
+
+  const lobbies = [...rooms.values()]
+    .filter((r) => r.phase === "lobby" && !r.unlisted)
+    .sort((a, b) => b.players.length - a.players.length);
+
+  const open = lobbies.find((r) => r.players.length < MAX_PLAYERS);
+  if (open) {
+    const player = newPlayer(name, socketId, false);
+    open.players.push(player);
+    return { code: open.code, playerId: player.id, kind: "joined" };
+  }
+
+  // A lobby that is "full" of bots is not full to a human: bots exist only to
+  // fill empty seats for testing, so a real arrival takes one back rather than
+  // being exiled to an empty room they have no way to invite anyone into.
+  const botted = lobbies.find((r) => r.players.some((p) => p.isBot));
+  if (botted) {
+    const idx = botted.players.findIndex((p) => p.isBot);
+    const player = newPlayer(name, socketId, false);
+    botted.players.splice(idx, 1, player);
+    return { code: botted.code, playerId: player.id, kind: "joined" };
+  }
+
+  const { room, player } = createRoom(name, socketId);
+  return { code: room.code, playerId: player.id, kind: "created" };
+}
+
+// Who may kick off a game. Host-only in an `unlisted` room: someone opened it for
+// their own group and picks the moment. In a matchmade room, anyone seated — being
+// "host" there is an accident of arrival order, so tying the start button to it
+// hands one AFK tab the power to strand everyone else. Only the START of a game is
+// shared this way; restart (which discards a live game) and bot management stay
+// with the host, where a stray tap can't undo other people's play.
+export function mayStart(room: Room, player: Player): boolean {
+  return player.isHost || (!room.unlisted && !player.isBot);
 }
 
 export function rejoin(code: string, playerId: string, socketId: string): Result {
@@ -460,6 +547,7 @@ export function setEventLevel(code: string, level: EventLevel): boolean {
 // so the host doesn't have to re-pick the frequency after every game.
 function resetEventState(room: Room) {
   room.events = [];
+  room.roundEvents = [];
   room.eventFeed = [];
   room.eventSeq = 0;
   room.usedEventIds = [];
@@ -512,6 +600,7 @@ function fireEvent(room: Room, def: GameEventDef, opener: Player) {
   };
   room.eventFeed.push(ev);
   if (room.eventFeed.length > 8) room.eventFeed.shift();
+  room.roundEvents.push(ev); // shown to everyone for the round (instant events included)
   pushLog(room, { kind: "event", event: def.id, a: opener.name });
   // Instant events keep no modifier — they just happen.
   if (def.scope === "lasting") room.events.push(ev);
@@ -526,6 +615,7 @@ function rollRoundEvents(room: Room, opener: Player) {
   // turn or two long; clearing here is what guarantees the board shows exactly the
   // events that were announced for THIS round.
   room.events = [];
+  room.roundEvents = [];
   for (const def of pickBatch(aliveBySeat(room).length, room.usedEventIds, Math.random)) {
     if (room.phase !== "playing") return; // an instant ended the game mid-batch
     fireEvent(room, def, opener);
@@ -2114,6 +2204,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
       name: me?.name ?? "",
       seat: me ? room.players.indexOf(me) : 0,
       isHost: me?.isHost ?? false,
+      canStart: !!me && mayStart(room, me),
       role: me?.role ?? null,
       character: me?.character ?? null,
       hp: me?.hp ?? 0,
@@ -2156,7 +2247,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
     topDiscard: room.discard.length > 0 ? room.discard[room.discard.length - 1] : null,
     log: room.log,
     eventLevel: room.eventLevel,
-    events: room.events.map((ev) => toEventView(room, ev)),
+    events: room.roundEvents.map((ev) => toEventView(room, ev)),
     eventFeed: room.eventFeed.map((ev) => toEventView(room, ev)),
   };
 }

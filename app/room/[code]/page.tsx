@@ -328,6 +328,8 @@ export default function RoomPage() {
   // Webcam feeds keyed by playerId, published by VideoChat and painted onto the
   // matching seat in the 3D table.
   const [feeds, setFeeds] = useState<Map<string, MediaStream>>(new Map());
+  // Tạm ẩn voice/video (chưa có người dùng). Bật lại: đổi thành true.
+  const VOICE_CHAT_ENABLED = false;
 
   useEffect(() => {
     initLocale();
@@ -405,7 +407,7 @@ export default function RoomPage() {
       <Header code={code} copied={copied} onCopy={copyCode} />
       {error && <p className="err">{tError(locale, error)}</p>}
 
-      <VideoChat code={code} selfPlayerId={view.you.id} onFeeds={setFeeds} />
+      {VOICE_CHAT_ENABLED && <VideoChat code={code} selfPlayerId={view.you.id} onFeeds={setFeeds} />}
       {/* calls you back when it is your turn or you must react while the tab is hidden */}
       <TurnAlert view={view} />
 
@@ -438,7 +440,10 @@ function PendingNote({ view }: { view: PlayerView }) {
         top: 72,
         left: "50%",
         transform: "translateX(-50%)",
-        zIndex: 1000,
+        // Above the event banner (1120): a pending is the one thing the whole table
+        // is waiting on, so it must outrank an informational announcement. Below it,
+        // the banner's click-catcher swallowed the reaction buttons.
+        zIndex: 1180,
         background: "rgba(20,18,16,0.92)",
         color: "#f0e2c0",
         padding: "8px 16px",
@@ -513,7 +518,8 @@ function ReactionPanel({
           top: "50%",
           left: 12,
           transform: "translateY(-50%)",
-          zIndex: 1000,
+          // See PendingNote: urgency ordering, above the event banner.
+        zIndex: 1180,
           width: 150,
           padding: "10px 14px",
           display: "flex",
@@ -618,7 +624,7 @@ function Lobby({
   const locale = useLocale();
   const n = view.players.length;
   const botCount = view.players.filter((p) => p.isBot).length;
-  const canStart = view.you.isHost && n >= MIN_PLAYERS && n <= MAX_PLAYERS;
+  const canStart = view.you.canStart && n >= MIN_PLAYERS && n <= MAX_PLAYERS;
 
   return (
     <div className="card wide" style={{ marginTop: 16 }}>
@@ -696,7 +702,7 @@ function Lobby({
       )}
 
       <div style={{ height: 16 }} />
-      {view.you.isHost ? (
+      {view.you.canStart ? (
         <button onClick={onStart} disabled={!canStart}>
           {n < MIN_PLAYERS ? L(locale, `Cần thêm ${MIN_PLAYERS - n} người`, `Need ${MIN_PLAYERS - n} more`) : L(locale, "Bắt đầu ván", "Start game")}
         </button>
@@ -711,55 +717,60 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
   const locale = useLocale();
   const draft = view.draft!;
 
+  const locked = draft.youPicked;
+
   return (
-    <div className="card wide" style={{ marginTop: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <h2 className="section-title">{L(locale, "Chọn nhân vật", "Pick a character")}</h2>
-      </div>
-      <p className="muted">
-        {L(locale, "Chọn 1 trong 2 nhân vật. Cứ thong thả — không giới hạn thời gian.", "Pick 1 of 2. Take your time — no time limit.")}
-      </p>
-
-      {view.you.role && (
-        <p className="muted" style={{ marginTop: 4 }}>
-          {L(locale, "Vai của bạn:", "Your role:")} <strong>{ROLE_EMOJI[view.you.role]} {roleLabel(locale, view.you.role)}</strong>
+    <div className="card draft-card" style={{ marginTop: 16 }}>
+      <div className="draft-head">
+        <h2 className="section-title draft-title">{L(locale, "Chọn nhân vật", "Pick your character")}</h2>
+        <p className="muted draft-sub">
+          {L(locale, "Chọn 1 trong 2 — người này theo bạn suốt ván. Cứ thong thả, không giới hạn thời gian.", "Choose 1 of 2 — this hero is yours for the whole game. Take your time, no limit.")}
         </p>
-      )}
+        {view.you.role && (
+          <div className="draft-role">
+            <span className="draft-role-emoji">{ROLE_EMOJI[view.you.role]}</span>
+            <span className="draft-role-text">
+              <span className="draft-role-label">{L(locale, "Vai của bạn", "Your role")}</span>
+              <strong>{roleLabel(locale, view.you.role)}</strong>
+            </span>
+          </div>
+        )}
+      </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12 }}>
-        {draft.choices.map((c) => {
+      <div className="draft-stage">
+        {draft.choices.map((c, i) => {
           const picked = draft.yourPick?.id === c.id;
-          const locked = draft.youPicked;
-          return (
-            <div
-              key={c.id}
-              onClick={() => !locked && onPick(c.id)}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 8,
-                cursor: locked ? "default" : "pointer",
-                opacity: locked && !picked ? 0.45 : 1,
-              }}
-            >
-              <div className={picked ? "pc-selected" : undefined} style={{ display: "flex" }}>
-                <CharacterFace c={c} />
-              </div>
-              {picked && <div className="badge">{L(locale, "Đã chọn ✓", "Picked ✓")}</div>}
-            </div>
-          );
+          const cls = ["draft-pick", locked && "draft-locked", locked && !picked && "draft-dimmed", picked && "draft-chosen"]
+            .filter(Boolean)
+            .join(" ");
+          return [
+            i > 0 ? <div key={`vs-${i}`} className="draft-vs">{L(locale, "hoặc", "or")}</div> : null,
+            <div key={c.id} className={cls} style={{ animationDelay: `${i * 0.1}s` }} onClick={() => !locked && onPick(c.id)}>
+              <CharacterFace c={c} />
+              {picked ? (
+                <div className="badge draft-badge">{L(locale, "Đã chọn ✓", "Picked ✓")}</div>
+              ) : (
+                !locked && <div className="draft-cta">{L(locale, "Chọn", "Choose")}</div>
+              )}
+            </div>,
+          ];
         })}
       </div>
 
-      <div style={{ height: 14 }} />
-      <p className="muted">
-        {draft.youPicked
-          ? L(locale, `Đã khóa. Đang chờ: ${draft.waitingFor.join(", ") || "—"}`, `Locked. Waiting for: ${draft.waitingFor.join(", ") || "—"}`)
-          : L(locale, "Hãy chọn nhanh!", "Choose quickly!")}
-        {" · "}
-        {draft.pickedCount}/{draft.totalCount}
-      </p>
+      <div className="draft-foot">
+        <div className="draft-progress" title={`${draft.pickedCount}/${draft.totalCount}`}>
+          {Array.from({ length: draft.totalCount }, (_, i) => (
+            <span key={i} className={`draft-dot ${i < draft.pickedCount ? "on" : ""}`} />
+          ))}
+        </div>
+        <p className="muted" style={{ margin: 0 }}>
+          {locked
+            ? L(locale, `Đã khóa · đang chờ ${draft.waitingFor.length} người`, `Locked · waiting for ${draft.waitingFor.length}`)
+            : L(locale, "Đến lượt bạn quyết định", "Your call")}
+          {" · "}
+          {draft.pickedCount}/{draft.totalCount}
+        </p>
+      </div>
     </div>
   );
 }
@@ -767,27 +778,46 @@ function Draft({ view, onPick }: { view: PlayerView; onPick: (id: string) => voi
 // Announcement for the batch of events a new round just drew. One panel listing all
 // of them, not a queue shown one at a time: they take effect simultaneously, so
 // reading them as a group is what tells you what this round actually plays like.
+// Dismissed only by the player — X, click outside, or Escape. It used to fade out on
+// a timer, which loses the announcement outright for anyone who happened to be
+// looking at their hand: these change the rules of the round and are not optional
+// reading. The dim backdrop is deliberately light so the table stays legible behind.
 function EventBanner({ evs, onDone }: { evs: EventView[]; onDone: () => void }) {
   const locale = useLocale();
-  // Scaled to the reading load — four rules take longer to take in than one.
-  useEffect(() => {
-    const t = window.setTimeout(onDone, 2400 + evs.length * 700);
-    return () => window.clearTimeout(t);
-  }, [onDone, evs.length]);
   return (
+    <>
+      <div
+        onClick={onDone}
+        style={{ position: "fixed", inset: 0, zIndex: 1119, background: "rgba(0,0,0,0.28)" }}
+      />
     <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => e.stopPropagation()}
       style={{
         position: "fixed", left: "50%", top: "18%", transform: "translateX(-50%)",
-        zIndex: 1120, pointerEvents: "none", width: "min(440px, 92vw)",
+        zIndex: 1120, width: "min(440px, 92vw)",
         padding: "14px 18px", borderRadius: 16, textAlign: "center",
         fontFamily: "system-ui, sans-serif",
-        background: "rgba(16,32,52,0.95)",
+        background: "rgba(16,32,52,0.97)",
         border: "1px solid #5b9bd5",
         boxShadow: "0 10px 40px rgba(0,0,0,0.6), 0 0 24px rgba(91,155,213,0.35)",
         animation: "eventPop .45s cubic-bezier(0.2,0.9,0.25,1) both",
       }}
     >
-      <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", opacity: 0.65, color: "#f0e2c0" }}>
+      <button
+        onClick={onDone}
+        aria-label={L(locale, "Đóng", "Close")}
+        title={L(locale, "Đóng", "Close")}
+        style={{
+          position: "absolute", top: 6, right: 8, width: 28, height: 28, padding: 0,
+          lineHeight: 1, fontSize: 16, fontWeight: 700, borderRadius: 8,
+          background: "transparent", border: "1px solid rgba(240,226,192,0.35)", color: "#f0e2c0",
+        }}
+      >
+        ✕
+      </button>
+      <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", opacity: 0.65, color: "#f0e2c0", paddingInline: 26 }}>
         {L(locale, `Sự kiện của vòng này · ${evs.length}`, `This round's events · ${evs.length}`)}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
@@ -805,62 +835,72 @@ function EventBanner({ evs, onDone }: { evs: EventView[]; onDone: () => void }) 
           </div>
         ))}
       </div>
+      <button
+        style={{ width: "auto", padding: "8px 22px", marginTop: 12, fontSize: 13 }}
+        onClick={onDone}
+      >
+        {L(locale, "Đã hiểu", "Got it")}
+      </button>
     </div>
+    </>
   );
 }
 
-// Compact list of the events still in force. Rendered in the flow of the top-left
-// HUD column (NOT fixed-positioned), so it can never end up underneath the status
-// slab when that slab wraps to a second row. Tap a chip to read what it does.
+// The events currently in force, as ONE control. A round puts 2..4 of them on the
+// board and a chip each turned the HUD corner into a wall of text; they are also a
+// single fact — "this is what the round plays like" — so they belong in one place.
+// Collapsed it shows just the emoji (enough to recognise at a glance) and the turn
+// countdown; tapping opens the full list with what each one does.
 function EventChips({ events }: { events: EventView[] }) {
   const locale = useLocale();
-  const [open, setOpen] = useState<EventView | null>(null);
+  const [open, setOpen] = useState(false);
   if (events.length === 0) return null;
   return (
     <>
-      <div
+      <button
+        onClick={() => setOpen(true)}
         style={{
-          display: "flex", gap: 6, flexWrap: "wrap",
-          maxWidth: "100%", fontFamily: "system-ui, sans-serif",
+          width: "auto", padding: "3px 9px", fontSize: "0.82rem", fontWeight: 700,
+          borderRadius: 8, color: "#f0e2c0", fontFamily: "system-ui, sans-serif",
+          background: "rgba(16,32,52,0.92)",
+          border: "1px solid rgba(91,155,213,0.7)",
+          display: "flex", alignItems: "center", gap: 5,
         }}
+        title={L(locale, "Xem sự kiện đang có hiệu lực", "See the events in force")}
       >
-        {events.map((ev) => (
-          <button
-            key={`${ev.id}-${ev.seq}`}
-            onClick={() => setOpen(ev)}
-            style={{
-              width: "auto", padding: "3px 8px", fontSize: "0.78rem", fontWeight: 700,
-              borderRadius: 8, color: "#f0e2c0",
-              background: "rgba(16,32,52,0.92)",
-              border: "1px solid rgba(91,155,213,0.7)",
-            }}
-            title={eventDesc(locale, ev.id)}
-          >
-            {ev.emoji} {eventName(locale, ev.id)}
-            {ev.turnsLeft ? ` ·${ev.turnsLeft}` : ""}
-          </button>
-        ))}
-      </div>
+        <span style={{ fontSize: "0.95rem", letterSpacing: 1 }}>{events.map((e) => e.emoji).join("")}</span>
+        <span style={{ opacity: 0.75, fontWeight: 600 }}>
+          {events.length}
+        </span>
+      </button>
       {open && (
         <div
-          onClick={() => setOpen(null)}
+          onClick={() => setOpen(false)}
           style={{ position: "fixed", inset: 0, zIndex: 1160, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 360, padding: "22px 24px", borderRadius: 16, textAlign: "center", background: "var(--panel)", border: "1px solid var(--border)", fontFamily: "system-ui, sans-serif" }}
+            style={{ width: "min(400px, 92vw)", maxHeight: "80vh", overflowY: "auto", padding: "20px 22px", borderRadius: 16, background: "var(--panel)", border: "1px solid var(--border)", fontFamily: "system-ui, sans-serif" }}
           >
-            <div style={{ fontSize: 40 }}>{open.emoji}</div>
-            <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--accent)", marginTop: 4 }}>
-              {eventName(locale, open.id)}
+            <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, opacity: 0.6, textAlign: "center" }}>
+              {L(locale, "Sự kiện của vòng này", "This round's events")}
             </div>
-            <p className="muted" style={{ lineHeight: 1.6, marginTop: 8 }}>{eventDesc(locale, open.id)}</p>
-            {open.turnsLeft != null && (
-              <p className="muted" style={{ fontSize: "0.85rem", marginTop: 6 }}>
-                ⏳ {L(locale, `Còn ${open.turnsLeft} lượt`, `${open.turnsLeft} turn(s) left`)}
-              </p>
-            )}
-            <button style={{ width: "auto", padding: "10px 24px", marginTop: 14 }} onClick={() => setOpen(null)}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 14 }}>
+              {events.map((ev) => (
+                <div key={`${ev.id}-${ev.seq}`} style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
+                  <span style={{ fontSize: 26, lineHeight: 1.1, flex: "0 0 auto" }}>{ev.emoji}</span>
+                  <span>
+                    <span style={{ display: "block", fontWeight: 800, color: "var(--accent)" }}>
+                      {eventName(locale, ev.id)}
+                    </span>
+                    <span className="muted" style={{ display: "block", fontSize: 13, lineHeight: 1.45 }}>
+                      {eventDesc(locale, ev.id)}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <button style={{ width: "auto", padding: "10px 24px", marginTop: 18, display: "block", marginInline: "auto" }} onClick={() => setOpen(false)}>
               {L(locale, "Đóng", "Close")}
             </button>
           </div>
@@ -1036,7 +1076,7 @@ function Table({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setInfoCard(null); setCharView(null); setPlayerInfo(null); closeBriefing();
+      setInfoCard(null); setCharView(null); setPlayerInfo(null); closeBriefing(); setEventBatch([]);
       setConfirmPlay(null); setConfirmDiscard(null); setConfirmSurrender(false);
       setAiming(null); setSidPicking(false);
     };
@@ -1163,9 +1203,10 @@ function Table({
   const requestPlay = (card: Card) => {
     if (sidPicking) return cardAction(card);
     if (!inPlayPhase) return;
-    // While jailed the dialog is the ONLY way to discard, so skip the playability
-    // checks — they would flash "this card is blocked" and never open it.
-    if (!you.jailed && blockOneCard(card.defId)) return;
+    // A tap just opens the confirm dialog (inspect the card first). Playability —
+    // the Bang!/turn budget, the once-per-turn house rule, event bans — is checked
+    // only when the player commits via "Đánh bài" (doConfirmedPlay -> playGesture ->
+    // blockOneCard), so we never flash "no Bang! left" before they choose to play.
     setConfirmPlay(card);
   };
   const doConfirmedPlay = () => {
@@ -1273,26 +1314,22 @@ function Table({
         <CardModal
           card={confirmPlay}
           onClose={() => setConfirmPlay(null)}
-          /* Tapping a card offers both moves, so discarding no longer requires
-             knowing about the drag-to-bin gesture. "Bỏ bài" only appears when there
-             is actually something to discard (hand > limit) — offering it otherwise
-             would just be a button that always errors. */
+          /* Actions: "Bỏ bài" (left, only when over the hand limit — discarding is
+             illegal otherwise) · "Đánh bài" · "Hủy". */
           actions={[
+            ...(overLimit > 0
+              ? [{
+                  label: L(locale, "Bỏ bài", "Discard"),
+                  onClick: () => {
+                    const c = confirmPlay;
+                    setConfirmPlay(null);
+                    if (c) onDiscard(c.id);
+                  },
+                }]
+              : []),
             ...(you.jailed
               ? []
               : [{ label: L(locale, "Đánh bài", "Play"), onClick: doConfirmedPlay }]),
-            ...(overLimit > 0
-              ? [
-                  {
-                    label: L(locale, "Bỏ bài 🗑️", "Discard 🗑️"),
-                    onClick: () => {
-                      const c = confirmPlay;
-                      setConfirmPlay(null);
-                      if (c) onDiscard(c.id);
-                    },
-                  },
-                ]
-              : []),
             { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmPlay(null), ghost: true },
           ]}
         />
@@ -1425,10 +1462,15 @@ function Table({
           </div>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-            {view.you.isHost ? (
+            {/* The rematch is open to whoever may start (everyone, in a matchmade
+                room); going back to the lobby stays with the host, so one tap can't
+                dissolve the table out from under people who wanted another hand. */}
+            {view.you.canStart ? (
               <>
                 <button style={{ width: "auto", padding: "12px 24px" }} onClick={onPlayAgain}>{L(locale, "🔁 Chơi lại", "🔁 Play again")}</button>
-                <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={onRestart}>{L(locale, "🏠 Về phòng chờ", "🏠 Back to lobby")}</button>
+                {view.you.isHost && (
+                  <button className="ghost" style={{ width: "auto", padding: "12px 24px" }} onClick={onRestart}>{L(locale, "🏠 Về phòng chờ", "🏠 Back to lobby")}</button>
+                )}
               </>
             ) : (
               <p className="muted">{L(locale, "Chờ chủ phòng bắt đầu ván mới…", "Waiting for the host…")}</p>
@@ -1641,39 +1683,6 @@ function Table({
             </div>
           )}
 
-          {/* trash bin beside the hand — drag a card onto it to discard (only
-              relevant when over the hand limit) */}
-          {overLimit > 0 && (
-            (() => {
-              const over = dragZone(dragDelta, true) === "discard";
-              return (
-                <div
-                  style={{
-                    position: "fixed",
-                    right: 24,
-                    bottom: 40,
-                    zIndex: 56,
-                    pointerEvents: "none",
-                    width: over ? 84 : 66,
-                    height: over ? 84 : 66,
-                    borderRadius: "50%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: over ? 40 : 30,
-                    background: over ? "rgba(231,76,60,0.9)" : "rgba(20,18,16,0.8)",
-                    border: `2px dashed ${over ? "#fff" : "#e74c3c"}`,
-                    boxShadow: over ? "0 0 20px #e74c3c" : "none",
-                    transition: "all .12s",
-                  }}
-                  title={L(locale, "Kéo lá vào đây để bỏ", "Drag a card here to discard")}
-                >
-                  🗑️
-                </div>
-              );
-            })()
-          )}
-
             {you.alive && (
             <div style={{ position: "fixed", left: 0, right: 0, bottom: 10, zIndex: 55, display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 4, pointerEvents: "none" }}>
               {you.hand.map((c) => (
@@ -1699,7 +1708,7 @@ function Table({
                 : you.jailed
                   ? L(locale, "Chạm một lá để bỏ · không đánh được khi bị giam", "Tap a card to discard · nothing can be played in jail")
                   : overLimit > 0
-                    ? L(locale, "Chạm một lá để chọn Đánh hoặc Bỏ · hoặc kéo vào 🗑️", "Tap a card to Play or Discard · or drag into 🗑️")
+                    ? L(locale, "Chạm một lá để chọn Đánh hoặc Bỏ", "Tap a card to Play or Discard")
                     : L(locale, "Chạm hoặc kéo LÊN để đánh", "Tap or drag UP to play")}
             </div>
           )}

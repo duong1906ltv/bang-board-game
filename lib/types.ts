@@ -199,6 +199,11 @@ export interface PlayerView {
     name: string;
     seat: number;
     isHost: boolean;
+    // May press Start / Play again. The host always may; in a matchmade (public)
+    // room so may anyone seated, because the "host" there is just whoever the
+    // matchmaker happened to seat first — if they wander off, host-only would
+    // leave six people staring at a button none of them can press.
+    canStart: boolean;
     role: Role | null;
     character: Character | null;
     hp: number;
@@ -264,6 +269,13 @@ export interface ClientToServerEvents {
   joinRoom: (
     data: { code: string; name: string },
     cb: (res: { ok: boolean; playerId?: string; error?: GameError }) => void
+  ) => void;
+  // One-tap matchmaking: no code to type. `seats` are the (code, playerId) pairs
+  // this browser remembers, so a returning player is put back in their own seat
+  // instead of a stranger's lobby. Never fails — worst case it opens a new lobby.
+  quickJoin: (
+    data: { name: string; seats: { code: string; playerId: string }[] },
+    cb: (res: { code: string; playerId: string; kind: "rejoin" | "joined" | "created" }) => void
   ) => void;
   rejoin: (
     data: { code: string; playerId: string },

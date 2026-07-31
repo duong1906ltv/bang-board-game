@@ -70,6 +70,14 @@ app.prepare().then(() => {
     return !!room && playerIdOf(code, socketId) === room.hostId;
   }
 
+  // Host, or any seated human in a matchmade room (see game.mayStart).
+  function canStart(code: string, socketId: string): boolean {
+    const room = game.getRoom(code);
+    const pid = playerIdOf(code, socketId);
+    const player = room?.players.find((p) => p.id === pid);
+    return !!room && !!player && game.mayStart(room, player);
+  }
+
   // --- WebRTC voice/video signaling ---------------------------------------
   // Media is peer-to-peer (mesh); the server only relays offer/answer/ICE and
   // tracks who currently has their camera/mic on, per room. `code -> set of
@@ -115,8 +123,11 @@ app.prepare().then(() => {
       else if (res.error) socket.emit("errorMsg", res.error);
     };
 
+    // Explicitly creating a room means "I have people to invite by code", so it is
+    // unlisted: quick-join must not drop a stranger into it. Public rooms come
+    // from quickJoin's own fallback instead.
     socket.on("createRoom", ({ name }, cb) => {
-      const { room, player } = game.createRoom(name, socket.id);
+      const { room, player } = game.createRoom(name, socket.id, true);
       socket.join(room.code);
       cb({ code: room.code, playerId: player.id });
       broadcast(room.code);
@@ -131,6 +142,13 @@ app.prepare().then(() => {
       broadcast(code);
     });
 
+    socket.on("quickJoin", ({ name, seats }, cb) => {
+      const res = game.quickJoin(name, socket.id, (seats || []).slice(0, 8));
+      socket.join(res.code);
+      cb(res);
+      broadcast(res.code);
+    });
+
     socket.on("rejoin", ({ code, playerId }, cb) => {
       code = normCode(code);
       const res = game.rejoin(code, playerId, socket.id);
@@ -141,7 +159,7 @@ app.prepare().then(() => {
     });
 
     socket.on("startGame", ({ code }) => {
-      if (!isHost(code, socket.id)) return; // host only
+      if (!canStart(code, socket.id)) return;
       const res = game.startGame(code);
       if (!res.ok) return socket.emit("errorMsg", res.error ?? { code: "cannot-start" });
       broadcast(code);
@@ -224,8 +242,9 @@ app.prepare().then(() => {
       if (game.restart(code)) broadcast(code);
     });
 
+    // Same rule as startGame: at game over an AFK host must not block the rematch.
     socket.on("playAgain", ({ code }) => {
-      if (!isHost(code, socket.id)) return; // host only
+      if (!canStart(code, socket.id)) return;
       applyResult(code, game.playAgain(code));
     });
 

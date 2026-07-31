@@ -1129,7 +1129,9 @@ function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard 
               </Html>
             )}
             {/* icon badge above the card; tap to see the full card + effect */}
-            <Html center position={[0, 0.14, -0.28]} distanceFactor={9} style={{ pointerEvents: "auto" }}>
+            {/* Bounded z-index so table badges stay UNDER center overlays like the
+                CheckFx reveal (which sits at 70–80) instead of poking through it. */}
+            <Html center position={[0, 0.14, -0.28]} distanceFactor={9} style={{ pointerEvents: "auto" }} zIndexRange={[45, 30]}>
               <div
                 title={pickable ? "Chọn lá này" : def?.effect}
                 draggable={false}
@@ -1465,9 +1467,32 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
   return (
     <group>
       {active.card && (
-        <Html center position={[0, cy, 0]} distanceFactor={9} style={{ pointerEvents: "none" }} zIndexRange={[68, 60]}>
-          <div ref={divRef} style={{ transform: "scale(0.6)", willChange: "transform, opacity" }}>
-            <PlayingCard card={active.card} />
+        <Html center position={[0, cy, 0]} distanceFactor={9} style={{ pointerEvents: "none" }} zIndexRange={[80, 70]}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <div ref={divRef} style={{ transform: "scale(0.6)", willChange: "transform, opacity" }}>
+              <PlayingCard card={active.card} />
+            </div>
+            {/* Skip button so players don't have to wait the full 5s. Laid out in
+                normal flow BELOW the card so it can never overlap it (no 3D
+                positioning to drift out of alignment). */}
+            <button
+              onClick={dismiss}
+              style={{
+                pointerEvents: "auto",
+                cursor: "pointer",
+                border: "1px solid rgba(240,226,192,0.6)",
+                background: "rgba(20,18,16,0.9)",
+                color: "#f0e2c0",
+                fontFamily: "system-ui, sans-serif",
+                fontWeight: 700,
+                fontSize: 13,
+                padding: "6px 14px",
+                borderRadius: 10,
+                whiteSpace: "nowrap",
+              }}
+            >
+              Bỏ qua ✕
+            </button>
           </div>
         </Html>
       )}
@@ -1480,26 +1505,6 @@ function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
           <pointLight ref={lightRef} position={[0, cy, 0]} color="#ff8a2a" intensity={0} distance={felt * 9} decay={2} />
         </>
       )}
-      {/* Skip button so players don't have to wait the full 5s. */}
-      <Html center position={[0, Math.max(0.5, cy - 1.0), 0]} distanceFactor={7} style={{ pointerEvents: "auto" }} zIndexRange={[70, 60]}>
-        <button
-          onClick={dismiss}
-          style={{
-            cursor: "pointer",
-            border: "1px solid rgba(240,226,192,0.6)",
-            background: "rgba(20,18,16,0.9)",
-            color: "#f0e2c0",
-            fontFamily: "system-ui, sans-serif",
-            fontWeight: 700,
-            fontSize: 13,
-            padding: "6px 14px",
-            borderRadius: 10,
-            whiteSpace: "nowrap",
-          }}
-        >
-          Bỏ qua ✕
-        </button>
-      </Html>
     </group>
   );
 }

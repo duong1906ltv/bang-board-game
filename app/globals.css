@@ -599,3 +599,134 @@ button.ghost:hover:not(:disabled) {
     transform: translateX(-50%) translateY(0) scale(1);
   }
 }
+
+/* ---- Character draft ("pick your character") — the showdown screen ---- */
+.card.draft-card { max-width: 760px; margin-inline: auto; }
+.draft-head { text-align: center; }
+.draft-title {
+  font-size: 1.8rem;
+  letter-spacing: .5px;
+  background: linear-gradient(100deg, #ffe6ad 0%, var(--accent) 28%, #fff5db 50%, var(--accent) 72%, #ffe6ad 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .45));
+  animation: draftShimmer 4.5s linear infinite;
+}
+@keyframes draftShimmer {
+  from { background-position: 220% 0; }
+  to   { background-position: -20% 0; }
+}
+.draft-sub { max-width: 46ch; margin: 6px auto 0; }
+.draft-role {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin-top: 14px; padding: 6px 16px 6px 12px;
+  border-radius: 999px;
+  background: rgba(224, 169, 85, .12);
+  border: 1px solid rgba(224, 169, 85, .4);
+}
+.draft-role-emoji { font-size: 1.5rem; line-height: 1; }
+.draft-role-text { display: flex; flex-direction: column; text-align: left; line-height: 1.15; }
+.draft-role-label { font-size: .6rem; text-transform: uppercase; letter-spacing: 1.5px; opacity: .65; }
+.draft-role strong { color: var(--moon); font-size: 1rem; }
+
+.draft-stage {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  gap: 6px; flex-wrap: wrap; margin: 24px 0 8px;
+}
+/* soft breathing spotlight behind the two cards */
+.draft-stage::before {
+  content: "";
+  position: absolute; left: 50%; top: 48%; transform: translate(-50%, -50%);
+  width: min(560px, 94%); height: 300px; border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(224, 169, 85, .22), rgba(224, 169, 85, .06) 45%, transparent 70%);
+  filter: blur(14px); pointer-events: none; z-index: 0;
+  animation: draftAura 5s ease-in-out infinite;
+}
+.draft-pick, .draft-vs { position: relative; z-index: 1; }
+@keyframes draftAura {
+  0%, 100% { opacity: .5;  transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: .9;  transform: translate(-50%, -50%) scale(1.06); }
+}
+.draft-vs {
+  font-weight: 800; font-size: .82rem; text-transform: uppercase; letter-spacing: 2px;
+  color: var(--accent); opacity: .7; padding: 0 10px;
+}
+.draft-pick {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 18px 20px 16px; border-radius: 18px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  background: radial-gradient(120% 80% at 50% 0%, rgba(224, 169, 85, .07), transparent 70%);
+  transition: transform .2s cubic-bezier(.2, .85, .25, 1), background .2s ease;
+  animation: draftRise .5s cubic-bezier(.2, .85, .25, 1) backwards;
+}
+.draft-pick .pcard { transition: box-shadow .2s ease; will-change: box-shadow; }
+.draft-pick:not(.draft-locked):hover {
+  transform: translateY(-10px);
+  background: radial-gradient(120% 80% at 50% 0%, rgba(224, 169, 85, .2), transparent 72%);
+}
+.draft-pick:not(.draft-locked):hover .pcard { box-shadow: 0 16px 44px rgba(0, 0, 0, .55), 0 0 30px rgba(224, 169, 85, .5); }
+.draft-pick:not(.draft-locked):active { transform: translateY(-4px) scale(.99); }
+
+.draft-cta {
+  padding: 7px 22px; border-radius: 999px;
+  font-weight: 700; font-size: .85rem; letter-spacing: .5px;
+  color: #2a1c0c;
+  background: linear-gradient(180deg, var(--moon), var(--accent));
+  box-shadow: 0 4px 14px rgba(224, 169, 85, .35);
+  opacity: .88; transition: opacity .2s ease, transform .2s ease;
+}
+.draft-pick:not(.draft-locked):hover .draft-cta { opacity: 1; transform: translateY(-1px); }
+
+.draft-chosen { transform: translateY(-10px); }
+.draft-chosen .pcard { animation: draftGlow 1.8s ease-in-out infinite; }
+.draft-badge {
+  background: linear-gradient(180deg, var(--moon), var(--accent));
+  color: #2a1c0c; font-weight: 800; border: none;
+  box-shadow: 0 4px 14px rgba(224, 169, 85, .4);
+}
+.draft-dimmed { opacity: .35; filter: grayscale(.7); }
+
+.draft-foot { display: flex; flex-direction: column; align-items: center; gap: 9px; margin-top: 10px; }
+.draft-progress { display: flex; gap: 7px; }
+.draft-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: rgba(224, 169, 85, .16); border: 1px solid rgba(224, 169, 85, .35);
+  transition: background .3s ease, box-shadow .3s ease;
+}
+.draft-dot.on { background: var(--accent); box-shadow: 0 0 8px rgba(224, 169, 85, .6); }
+
+@keyframes draftRise {
+  from { opacity: 0; transform: translateY(22px) scale(.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes draftGlow {
+  0%, 100% { box-shadow: 0 0 0 3px var(--accent), 0 16px 48px rgba(0, 0, 0, .6), 0 0 28px rgba(224, 169, 85, .45); }
+  50%      { box-shadow: 0 0 0 3px var(--moon),   0 16px 48px rgba(0, 0, 0, .6), 0 0 46px rgba(224, 169, 85, .78); }
+}
+
+/* light streak sweeping across the card on hover (clipped by .pcard's overflow) */
+.draft-pick .pcard::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 32%, rgba(255, 245, 220, .55) 47%, rgba(255, 255, 255, .18) 53%, transparent 68%);
+  transform: translateX(-120%);
+  pointer-events: none;
+  transition: transform .7s cubic-bezier(.2, .7, .3, 1);
+}
+.draft-pick:not(.draft-locked):hover .pcard::after { transform: translateX(120%); }
+
+/* a ring that bursts outward the moment a card is chosen */
+.draft-chosen::after {
+  content: "";
+  position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%);
+  width: 176px; height: 236px; border-radius: 18px;
+  border: 2px solid var(--moon); pointer-events: none;
+  animation: draftBurst .7s ease-out forwards;
+}
+@keyframes draftBurst {
+  from { opacity: .85; transform: translate(-50%, -50%) scale(.82); }
+  to   { opacity: 0;   transform: translate(-50%, -50%) scale(1.5); }
+}
