@@ -88,12 +88,12 @@ export function logText(l: Locale, e: LogEntry, youName?: string): string {
     case "turn":
       return vi ? `▶ Đến lượt ${obj(e.a)}` : `▶ ${subj(e.a)}'s turn`;
     case "draw":
-      // `b` present = Jesse Jones took his first card from that player's hand; the
-      // rest came off the deck. Spelled out so nobody reads the total as the amount
-      // taken from them.
+      // `b` present = `took` cards came out of that player's hand, any remainder off
+      // the deck (Jesse Jones takes 1 + deck; El Gringo steals N). Spelled out so
+      // nobody reads the total as the amount taken from them.
       if (e.b) {
         const took = e.took ?? 1;
-        const fromDeck = Math.max(0, (e.n ?? took) - took);
+        const fromDeck = Math.max(0, (e.n ?? 0) - took);
         return vi
           ? `${subj(e.a)} lấy ${took} lá từ tay ${obj(e.b)}${fromDeck ? ` + rút ${fromDeck} lá từ nọc` : ""}`
           : `${subj(e.a)} took ${took} from ${obj(e.b)}${fromDeck ? ` + drew ${fromDeck}` : ""}`;
