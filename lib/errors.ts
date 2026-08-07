@@ -36,6 +36,7 @@ export type ErrorCode =
   | "pick-two-distinct"
   | "ability-unavailable"
   | "event-forbids-heal"
+  | "ghost-cannot-heal"
   | "event-bans-kind"
   | "event-bans-bang"
   | "bang-limit-reached"

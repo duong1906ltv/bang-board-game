@@ -48,8 +48,12 @@ export function Table({
   onChoose: (cardId: string) => void;
 }) {
   const locale = useLocale();
-  const isMyTurn = view.turnSeat != null && view.turnSeat === view.you.seat && view.you.alive;
   const you = view.you;
+  // Everything that asks "may I act" asks this, not `alive`: a ghost is dead and still
+  // holds a turn. The two are never both true, so this is exactly "has a body to play
+  // with right now".
+  const acting = you.alive || you.ghost;
+  const isMyTurn = view.turnSeat != null && view.turnSeat === you.seat && acting;
   // The end-of-turn hand limit is normally your life total, but events shift it
   // (Drought / Hangover), so the server sends the resolved number.
   const overLimit = Math.max(0, you.hand.length - you.handLimit);
@@ -317,7 +321,7 @@ export function Table({
         >
           <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, fontFamily: "system-ui, sans-serif" }}>
             <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--text)" }}>
-              {playerInfo.name} {!playerInfo.alive && "☠️"}
+              {playerInfo.name} {playerInfo.ghost ? "👻" : !playerInfo.alive && "☠️"}
             </div>
             <div className="role-badge">
               {playerInfo.role
@@ -419,7 +423,7 @@ export function Table({
           over a canvas at zIndex 40, which puts it in front of EVERYTHING drawn inside
           the scene however high that thing sets its own z-index. Centred and opaque, it
           sat exactly on the picker's confirm button and swallowed the clicks. */}
-      {you.alive && isMyTurn && !aiming && !tableChoice && (
+      {acting && isMyTurn && !aiming && !tableChoice && (
         <div
           style={{
             position: "fixed",
@@ -538,7 +542,24 @@ export function Table({
         </div>
       )}
 
-      {you.alive && (
+      {/* A ghost turn is the one turn nobody has seen before, so it says outright what
+          the rules are while you have it. Shares the aiming bar's slot rather than
+          stacking above it: while you are aiming, the crosshair instruction is the more
+          urgent of the two and this one has already been read. */}
+      {you.ghost && !aiming && (
+        <div style={{ position: "fixed", left: "50%", top: 72, transform: "translateX(-50%)", zIndex: 56, display: "flex", alignItems: "center", gap: 10, background: "rgba(28,20,44,0.92)", border: "1px solid rgba(168,140,220,0.55)", padding: "8px 14px", borderRadius: 12, color: "#e7dcff", fontFamily: "system-ui, sans-serif", maxWidth: "90vw", lineHeight: 1.35, boxShadow: "0 4px 16px rgba(0,0,0,.5)" }}>
+          <span style={{ fontSize: "1.1rem" }}>👻</span>
+          <span>
+            {L(
+              locale,
+              "Lượt ma — không ai bắn được bạn, và bạn cũng không hồi máu. Hết lượt là nằm xuống lại.",
+              "Ghost turn — nothing can shoot you and nothing can heal you. You lie back down when it ends."
+            )}
+          </span>
+        </div>
+      )}
+
+      {acting && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 10, zIndex: 55, display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 4, pointerEvents: "none" }}>
           {you.hand.map((c) => (
             <div key={c.id} style={{ pointerEvents: "auto" }}>

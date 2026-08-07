@@ -61,10 +61,11 @@ export default function TurnAlert({ view }: { view: PlayerView }) {
   const flashTimer = useRef<ReturnType<typeof setInterval>>();
 
   // Cần bạn hành động: hoặc bạn phải phản ứng một pending, hoặc đang là lượt bạn.
-  // Người đã chết / ván đã xong thì không.
+  // Người đã chết / ván đã xong thì không — trừ lượt ma, vốn là lúc CẦN gọi nhất:
+  // người đã chết thường đã chuyển tab đi rồi, và bàn thì đứng chờ họ.
   const needsYou =
     view.phase === "playing" &&
-    view.you.alive &&
+    (view.you.alive || view.you.ghost) &&
     (view.pending ? view.pending.youMustRespond : view.you.turnPhase !== null);
 
   // Việc gì đang chờ — đưa vào nội dung thông báo để biết mà không cần mở tab.

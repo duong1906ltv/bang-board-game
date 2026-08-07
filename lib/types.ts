@@ -117,7 +117,7 @@ export type Winner = "sheriff" | "outlaws" | "renegade";
 //  - multi: Indians!/Gatling — each other player defends or takes 1
 //  - duel:  two players alternate discarding Bang!; first to fail loses 1
 //  - store: General Store — players pick a revealed card in turn order
-export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit" | "check";
+export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit" | "check" | "taken";
 export type PendingAction = "missed" | "beer" | "bang" | "pass";
 
 export interface PendingView {
@@ -134,6 +134,9 @@ export interface PendingView {
   turnName?: string; // duel: whose turn to discard now
   effect?: "indians" | "gatling"; // multi effect
   waiting?: string[]; // multi: names of players who haven't reacted yet
+  takenMode?: "take" | "toss"; // taken: into their hand, or straight to the discard
+  takenCard?: string; // taken: named only when it was face-up in play
+  takenFromHand?: boolean; // taken: drawn blind out of the hand rather than off the table
 }
 
 // ─── Random events ───────────────────────────────────────────────────────────
@@ -171,6 +174,9 @@ export interface PlayerPublic {
   isBot: boolean; // server-controlled AI player (for testing / filling seats)
   connected: boolean;
   alive: boolean;
+  // Up for a ghost turn: dead, but on their feet and playing for this one turn (see
+  // the house rule in game.ts). Always false while `alive` — the two never overlap.
+  ghost: boolean;
   hp: number;
   maxHp: number;
   handCount: number;
@@ -221,6 +227,7 @@ export interface PlayerView {
     hand: Card[];
     equipment: Card[];
     alive: boolean;
+    ghost: boolean; // dead, but up for a ghost turn right now — you may act, nothing can touch you
     turnPhase: TurnPhase | null; // your current turn sub-phase (null if not your turn)
     jailed: boolean; // failed a Jail check: may only discard to the limit, then pass
     range: number; // how far you can Bang! (weapon range, default 1)
@@ -258,7 +265,7 @@ export interface LogEntry {
   id: number;
   kind:
     | "play" | "hit" | "heal" | "death" | "draw" | "turn" | "react"
-    | "check" | "discard" | "surrender" | "event";
+    | "check" | "discard" | "surrender" | "event" | "ghost";
   a?: string; // primary actor name
   b?: string; // target name
   card?: string; // card name (or the drawn card label for a check, e.g. "5♠")

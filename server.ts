@@ -10,6 +10,10 @@ import * as bot from "./lib/bot";
 
 // How long between successive bot actions, so a human can follow along.
 const BOT_TICK_MS = 850;
+// How long a "somebody is taking your card" dialog waits before waving itself through.
+// Long enough to read a one-line sentence twice; short enough that an absent player is
+// an eight-second pause rather than a dead table.
+const ACK_MS = 8000;
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOST || "0.0.0.0";
@@ -46,8 +50,9 @@ app.prepare().then(() => {
     if (!room) return;
     game.refillEmptyHands(room); // Suzy Lafayette
     const chosen = looks.get(code);
-    // No draft/reaction countdowns: players take as long as they need. Only bots
-    // are auto-paced (below); human picks/reactions never time out.
+    // No draft/reaction countdowns: players take as long as they need. Only bots are
+    // auto-paced (below), and the one acknowledgement that carries no decision (see
+    // scheduleAck); every real human choice waits indefinitely.
     for (const p of room.players) {
       if (p.socketId && p.connected) {
         const view = game.buildView(room, p.id);
@@ -57,6 +62,35 @@ app.prepare().then(() => {
       }
     }
     scheduleBots(room, code);
+    scheduleAck(room, code);
+  }
+
+  // "Somebody is taking your card" waves itself through if nobody answers.
+  //
+  // The ONLY pending with a timer, and only because it is the only one with nothing to
+  // decide: the victim cannot refuse, so the dialog exists to be read, and a read has a
+  // natural length. Every other pending is a real choice and blocks forever by design.
+  // Without this, the most common interruption in the game — a Panic! — would hand any
+  // player who walked away the power to freeze the table.
+  //
+  // Cleared and restarted on every broadcast rather than tracked: while this pending is
+  // open nothing else can act, so there is at most one spare broadcast to restart it.
+  function scheduleAck(room: game.Room, code: string) {
+    if (room.ackTimer) {
+      clearTimeout(room.ackTimer);
+      room.ackTimer = null;
+    }
+    const p = room.pending;
+    if (p?.kind !== "taken") return;
+    const victimId = p.victimId;
+    room.ackTimer = setTimeout(() => {
+      room.ackTimer = null;
+      // Re-check: they may have acknowledged it in the meantime, and a different
+      // pending may have opened since.
+      const now = game.getRoom(code)?.pending;
+      if (now?.kind !== "taken" || now.victimId !== victimId) return;
+      if (game.respond(code, victimId, "pass").ok) broadcast(code);
+    }, ACK_MS);
   }
 
   // If a bot is due to act, run one action after a short delay, then broadcast

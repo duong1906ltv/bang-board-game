@@ -71,12 +71,34 @@ remove/rewrite:
 - Doc comments that just repeat the signature (types/param names) and add no
   rationale.
 - Commented-out code left behind.
+- Comments that describe something other than the declaration directly beneath
+  them — usually left behind when code was split, moved, or reordered, and the
+  comment stayed put. These read as valid WHY, so they survive every other check:
+  the only way to catch them is to read each comment block against the
+  declaration that actually follows it. Watch for the same comment appearing in
+  two files after a split, and for a comment block stranded at the end of a file
+  or immediately followed by another comment block.
 
 Keep — and tighten if verbose — only genuine WHY: non-obvious rationale,
 trade-offs, constraints, gotchas, invariants, and links to context. When a
 comment describes WHAT, prefer deleting it or fixing the name so the comment
 isn't needed. Match the surrounding file's comment language (do not mix
 Vietnamese/English within a file).
+
+**Genuine WHY is not a licence to write an essay.** The rules above only sort
+WHY from WHAT, so a diff can pass every one of them and still bury the code.
+Also check volume:
+
+- **Density.** Measure the comment-line ratio of each changed file and compare
+  it against comparable files already in the repo — components against
+  components, not components against the engine. Roughly double the house rate
+  is the signal to start cutting.
+- **Length.** A block over ~6 lines needs to earn each one. State the constraint
+  and the consequence; cut the narration of how it was discovered, what was
+  tried first, and what the code plainly shows.
+- **Repeated rationale.** The same fact explained next to every constant it
+  touches. State it once, where the value is defined, and let the other sites
+  name that symbol instead of re-deriving the argument.
 
 ## Phase 2 — Apply the fixes
 

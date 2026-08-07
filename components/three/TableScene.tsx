@@ -164,7 +164,10 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <TableLamp felt={felt} />
       <TurnLight at={turnAt} />
       <StaticShadows
-        trigger={`${view.turnSeat}|${view.players.map((p) => (p.alive ? 1 : 0)).join("")}|${view.players.length}`}
+        /* Three states, not two: a seat that rises for a ghost turn puts a body back on
+           a chair that was a headstone a moment ago, and a plain alive/dead mask would
+           not notice — leaving the bake showing a grave under a seated figure. */
+        trigger={`${view.turnSeat}|${view.players.map((p) => (p.alive ? 1 : p.ghost ? 2 : 0)).join("")}|${view.players.length}`}
         /* A body going over backwards moves for 1.5s, but the alive mask in `trigger`
            changes the instant it starts — that would bake the shadow of a cowboy
            still sitting upright and leave it there until the turn moved on. */

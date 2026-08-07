@@ -115,8 +115,11 @@ export function ReactionPanel({
         {p.actions.map((a, i) => (
           <div key={a}>
             {i > 0 && <div style={{ height: 8 }} />}
-            <button className={a === "pass" ? "ghost" : ""} onClick={() => doAction(a)}>
-              {actionLabel(locale, a)}
+            {/* "Bỏ qua" is the right word when passing is a CHOICE — declining to
+                dodge a Bang!. Here there is nothing to decline: the card is going
+                whatever you press, and the button only says you have read that. */}
+            <button className={a === "pass" && p.kind !== "taken" ? "ghost" : ""} onClick={() => doAction(a)}>
+              {p.kind === "taken" && a === "pass" ? "OK" : actionLabel(locale, a)}
             </button>
           </div>
         ))}

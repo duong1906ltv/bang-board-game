@@ -140,6 +140,16 @@ function fitting(headY: number) {
 }
 const HAT_ON_HEAD = 0.3; // head bone sits at the base of the skull, so lift the hat
 const SIT_SETTLED = 3.0; // seconds into the sitting clip where the sitting-down move ends
+// TEMPORARILY OFF. The arm does not come up and the gun does not leave the felt; the
+// figure still turns to face whoever it is shooting, and everything else — the camera
+// cut, the muzzle flash, the reach for the deck — is untouched.
+//
+// One switch rather than deleted code, because none of the geometry below is suspect:
+// the arm lands where it was measured to land. What is unresolved is WHEN it fires (see
+// AIM_DEBUG — the camera aims by world position, the arm by a seat comparison, and the
+// two disagree). Flip this back to true to restore the whole gesture.
+const ARM_RAISE = false;
+
 // How high the gun arm is carried and how straight it goes. Zero elevation is the arm
 // square to the torso — the hand ends up level with its own shoulder joint. Not from a
 // clip: the .glb has no aiming animation and the nearest ones leave the elbow at 75-102
@@ -788,7 +798,10 @@ function PersonModel({
     const id = setTimeout(() => setJustFired(false), AIM_HOLD * 1000);
     return () => clearTimeout(id);
   }, [firingKey]);
+  // Still means "is this figure holding a shot on someone", which is what the body turns
+  // on. Whether the ARM answers it is a separate question — see ARM_RAISE.
   const armUp = (justFired || !!aiming) && !dead;
+  const armLifts = ARM_RAISE && armUp;
 
   // The reach runs off its own clock rather than a boolean, because it is three moves
   // (out, hold over the pile, back) and the cards in Draw.tsx are timed against the
@@ -851,7 +864,7 @@ function PersonModel({
     }
     // Never both: a figure holding an unanswered Bang! has business more urgent than a
     // card, and the two poses would fight over the same body.
-    if (armUp) rw = 0;
+    if (armLifts) rw = 0;
 
     // Square up to whatever the body is dealing with — the person being shot at, or the
     // cards being reached for. The reach case is not cosmetic: another player's cards sit
@@ -874,7 +887,7 @@ function PersonModel({
     }
     g.rotation.x = REACH_LEAN * rw;
 
-    aimW.current = THREE.MathUtils.clamp(aimW.current + (armUp ? dt / AIM_IN : -dt / AIM_OUT), 0, 1);
+    aimW.current = THREE.MathUtils.clamp(aimW.current + (armLifts ? dt / AIM_IN : -dt / AIM_OUT), 0, 1);
     const [ru, rl, rh] = arms.r;
     if (!ru || !rl || !rh) return;
     const w = aimW.current;

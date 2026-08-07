@@ -122,6 +122,8 @@ export function logText(l: Locale, e: LogEntry, youName?: string): string {
       return (vi ? `☠️ ${subj(e.a)} bị loại` : `☠️ ${subj(e.a)} eliminated`) + (e.role ? ` — ${roleLabel(l, e.role)}` : "");
     case "surrender":
       return (vi ? `🏳️ ${subj(e.a)} đầu hàng` : `🏳️ ${subj(e.a)} surrendered`) + (e.role ? ` — ${roleLabel(l, e.role)}` : "");
+    case "ghost":
+      return vi ? `👻 ${subj(e.a)} nằm xuống lại` : `👻 ${subj(e.a)} lies back down`;
     case "event": {
       const def = EVENT_BY_ID[e.event ?? ""];
       const icon = def?.emoji ?? "🎲";
@@ -187,6 +189,17 @@ export function formatPending(l: Locale, p: PlayerView["pending"], youName?: str
       return L(l, `General Store — ${a} đang chọn bài`, `General Store — ${a} is picking`);
     case "check":
       return L(l, `${a} lật bài kiểm tra`, `${a} makes a Draw!`);
+    // Written from the VICTIM's side, because they are the only one with a button —
+    // `subj` has already turned their own name into "bạn"/"you" for everyone else's
+    // copy. Four sentences, not one with holes in it: which pile the card comes off and
+    // whether it is being taken or destroyed are the two things the victim needs, and a
+    // card face-up on the table gets named because it is public anyway.
+    case "taken": {
+      const verb = p.takenMode === "toss" ? L(l, "huỷ", "destroy") : L(l, "lấy", "take");
+      return p.takenFromHand
+        ? L(l, `${a} muốn ${verb} 1 lá bất kỳ trong xấp bài của ${b}`, `${a} wants to ${verb} a card from ${b}'s hand`)
+        : L(l, `${a} muốn ${verb} lá ${p.takenCard} trên bàn của ${b}`, `${a} wants to ${verb} ${b}'s ${p.takenCard}`);
+    }
   }
 }
 
@@ -264,6 +277,7 @@ const CHECK_KIND: Record<string, [string, string]> = {
   jail: ["Jail", "Jail"],
   barrel: ["Barrel", "Barrel"],
   blackjack: ["Black Jack", "Black Jack"],
+  ghost: ["Lá thăm hồn ma", "Ghost flip"],
 };
 const CHECK_OUTCOME: Record<string, [string, string]> = {
   blast: ["Nổ! −3 máu", "Blast! −3 life"],
@@ -274,6 +288,9 @@ const CHECK_OUTCOME: Record<string, [string, string]> = {
   miss: ["Trượt", "No luck"],
   bonus: ["Rút thêm 1!", "Draw 1 more!"],
   nobonus: ["Không thêm", "No bonus"],
+  // The ghost door only ever widens once, so "next time" is 50% after any miss.
+  rise: ["Đứng dậy — một lượt ma!", "Rises — one ghost turn!"],
+  stay: ["Vẫn nằm — lần sau cửa 50%", "Stays down — 50% next time"],
 };
 export function checkText(l: Locale, kind: string, outcome: string): { kind: string; outcome: string } {
   const i = l === "vi" ? 0 : 1;
@@ -336,6 +353,7 @@ const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
     "Your character cannot do that",
   ],
   "event-forbids-heal": ["Sự kiện đang cấm hồi máu", "An event forbids healing"],
+  "ghost-cannot-heal": ["Hồn ma không hồi máu được", "A ghost has no life to restore"],
   "event-bans-kind": ["Sự kiện đang cấm loại lá này", "An event bans this kind of card"],
   "event-bans-bang": ["Sự kiện: không được bắn lượt này", "Event: no shooting this turn"],
   "bang-limit-reached": [

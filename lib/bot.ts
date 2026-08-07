@@ -111,9 +111,11 @@ function nextAction(room: Room): (() => boolean) | null {
   // A pending reaction takes priority — resolve it if the responder is a bot.
   if (room.pending) return pendingAction(room);
 
-  // Otherwise it's someone's turn.
+  // Otherwise it's someone's turn — including a dead bot that flipped its way up for a
+  // ghost turn. Leaving ghosts out here would be a hang, not a skipped turn: the seat
+  // holds the turn and no human can take it off them.
   const cur = room.players[room.turnIndex];
-  if (!cur || !cur.isBot || !cur.alive) return null;
+  if (!cur || !cur.isBot || (!cur.alive && !cur.ghost)) return null;
   return turnAction(room, cur);
 }
 
@@ -160,6 +162,14 @@ function pendingAction(room: Room): (() => boolean) | null {
     if (!me?.isBot) return null;
     return respondOrPass(me, "bang", findUsableAs(me, "bang"));
   }
+  // Nothing to decide — a bot losing a card just waves it through. Load-bearing: with
+  // no bot branch here the table would sit on the dialog until the server's timer fired,
+  // eight seconds per Panic! against a bot.
+  if (p.kind === "taken") {
+    const me = player(room, p.victimId);
+    if (!me?.isBot) return null;
+    return () => ok(game.respond(code, me.id, "pass"));
+  }
   if (p.kind === "check") {
     // Nothing to decide — but it still has to be dismissed, or the table waits on a
     // bot forever (there is no timeout anywhere in this game).
@@ -189,7 +199,8 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
     return () => game.drawCards(code, me.id, "deck");
   }
 
-  // Play step — pick the single most useful action, one per tick.
+  // ── Play step ── the scheduler only calls back after a success, so this must
+  // return exactly one action per tick or the table stalls.
   const play = (c: Card, targetId?: string) => () => game.playCard(code, me.id, c.id, targetId).ok;
 
   // Every candidate goes through the engine's OWN predicate, which covers the
@@ -216,8 +227,10 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
     if (c && !me.equipment.some((e) => e.defId === defId)) return play(c);
   }
 
-  // 3. Heal if hurt.
-  if (me.hp < me.maxHp) {
+  // 3. Heal if hurt. A ghost is at 0 hp and can never be topped up, so it reads as the
+  // most wounded player at the table — without the guard it would open every ghost turn
+  // reaching for a Beer the engine then refuses.
+  if (me.alive && me.hp < me.maxHp) {
     const beer = usable("beer");
     if (beer) return play(beer);
   }
@@ -239,8 +252,10 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   const wells = usable("wells-fargo");
   if (wells) return play(wells);
 
-  // 7. Saloon only if it actually heals us.
-  if (me.hp < me.maxHp) {
+  // 7. Saloon only if it actually heals us. A ghost is allowed to pour the round — it
+  // just has no reason to, since every point of it goes to players who are still alive
+  // and most of them are not on its side.
+  if (me.alive && me.hp < me.maxHp) {
     const saloon = usable("saloon");
     if (saloon) return play(saloon);
   }

@@ -52,6 +52,25 @@ type Pending =
   | { kind: "duel"; aId: string; bId: string; turnId: string }
   | { kind: "store"; sourceId: string; cards: Card[]; order: string[] }
   | { kind: "kit"; playerId: string; cards: Card[]; picksLeft: number }
+  // Somebody is helping themselves to one of your cards (Panic!, Cat Balou, Jesse
+  // Jones), waiting on you to acknowledge it. You cannot refuse — none of those are
+  // preventable — so this buys one thing only, and it is the thing the private inbox
+  // was already built for: the person losing the card gets to SEE it go, instead of
+  // finding their hand one lighter and no idea why.
+  //
+  // The card is chosen when the play is made, not when the acknowledgement lands, so
+  // the message can name it and the outcome cannot drift while the dialog is open.
+  | {
+      kind: "taken";
+      takerId: string;
+      victimId: string;
+      mode: "take" | "toss"; // into their hand, or straight to the discard
+      cardId: string;
+      fromHand: boolean; // drawn blind out of their hand rather than off the table
+      cardName?: string; // named only when it was face-up in play, which is public
+      playName?: string; // the card played, for the log line written on acknowledgement
+      thenDraw?: number; // Jesse Jones: cards still owed off the deck once this clears
+    }
   // A Dynamite/Jail reveal waiting to be acknowledged by the player it happened to.
   // Upkeep used to flip these and act on them in the same breath, so the one person
   // with a stake in the result saw it as a banner sliding past — and a Jail sentence
@@ -83,6 +102,17 @@ export interface Player {
   // that log keeps only 40 entries — at 7 players a Bang! can fall off it before the
   // person it hit gets the table back.
   inbox: LogEntry[];
+
+  // --- ghost turns (house rule; see beginTurn) ---
+  // A dead player's seat still comes around. When it does they flip for the right to
+  // rise, and if it comes up they play that one turn and lie back down at the end of
+  // it. True only for the length of that turn — `alive` stays false throughout, which
+  // is what keeps every win condition, every target list and every distance honest.
+  ghost: boolean;
+  // Flips missed since dying. The first one needs a Heart (25%); every one after takes
+  // a Heart or a Diamond (50%), and the door stops widening there. Back to 0 each time
+  // they rise, so the next death starts over at a Heart.
+  ghostMisses: number;
 }
 
 // A random event currently in force (or the one that just fired).
@@ -132,6 +162,7 @@ export interface Room {
   }[];
   checks: CheckView[]; // recent Draw! reveals (upkeep / Barrel), display-only
   botTimer: NodeJS.Timeout | null; // paces bot actions so humans can watch
+  ackTimer: NodeJS.Timeout | null; // waves a "taking your card" dialog through if ignored
   deck: Card[]; // draw pile (top = end of array)
   discard: Card[]; // discard pile
   log: LogEntry[]; // action history (oldest → newest, trimmed)
@@ -246,6 +277,8 @@ function newPlayer(name: string, socketId: string, isHost: boolean): Player {
     hp: 0,
     maxHp: 0,
     alive: true,
+    ghost: false,
+    ghostMisses: 0,
     hand: [],
     equipment: [],
     wins: 0,
@@ -288,6 +321,7 @@ export function createRoom(
     deathQueue: [],
     checks: [],
     botTimer: null,
+    ackTimer: null,
     deck: [],
     discard: [],
     log: [],
@@ -458,6 +492,21 @@ export function disconnect(socketId: string): Room | null {
         room.hostId = nextHost.id;
       }
     }
+    // Walking out in the middle of a ghost turn would leave the table holding a turn
+    // nobody can end: a ghost cannot surrender (it is not alive), and there are no turn
+    // timers anywhere. So it lies back down on the way out. A LIVING player who drops
+    // mid-turn is left exactly as before — they can rejoin the same seat and carry on,
+    // which a ghost cannot do, because its turn is over the moment it lies down.
+    if (
+      room.phase === "playing" &&
+      player.ghost &&
+      room.players[room.turnIndex]?.id === player.id &&
+      !room.pending
+    ) {
+      layGhostDown(room, player);
+      advanceToNextSeat(room);
+      beginTurn(room);
+    }
     return room;
   }
   return null;
@@ -493,6 +542,8 @@ export function startGame(code: string): Result {
     p.hp = 0;
     p.maxHp = 0;
     p.alive = true;
+    p.ghost = false;
+    p.ghostMisses = 0;
     p.hand = [];
   });
 
@@ -532,6 +583,8 @@ function finalizeDraft(room: Room) {
     p.maxHp = p.character.maxHp + bonus;
     p.hp = p.maxHp;
     p.alive = true;
+    p.ghost = false;
+    p.ghostMisses = 0;
     p.hand = [];
     p.equipment = [];
     p.inbox = [];
@@ -551,7 +604,7 @@ function finalizeDraft(room: Room) {
   room.phase = "playing";
   // Random events start from a clean slate each game; the Sheriff opens round 1 and
   // therefore marks every later round boundary. Round 1 is queued explicitly: the
-  // first turn is entered straight from here, not through advanceToNextAlive, so
+  // first turn is entered straight from here, not through advanceToNextSeat, so
   // nothing else would ever set the boundary flag for it.
   resetEventState(room);
   room.roundStarterId = room.players[room.turnIndex].id;
@@ -782,6 +835,11 @@ const HEAL_DEF_IDS = ["beer", "saloon"];
 // can never be ended — an infinite discard/draw loop for bot and human alike.
 // Drought therefore stops biting at 1 life, which costs almost nothing.
 export function handLimitOf(room: Room, p: Player): number {
+  // A ghost lies back down at the end of its turn and everything it is holding goes to
+  // the discard with it, so there is nothing for a limit to police. Answering with the
+  // hand itself (rather than hp, which is 0) is what keeps endTurn from demanding a
+  // discard the rule never asks for, and the client from offering one.
+  if (p.ghost) return p.hand.length;
   return Math.max(1, p.hp + (activeEffect(room).handLimitDelta ?? 0));
 }
 
@@ -818,6 +876,10 @@ export function playBlock(room: Room, p: Player, card: Card, targetId?: string):
   // a dying player may still drink to survive (respond()), so "no healing" never
   // becomes "no saving throw".
   if (HEAL_DEF_IDS.includes(card.defId) && eff.noHeal) return { code: "event-forbids-heal" };
+  // A ghost has no life to restore, so a Beer would burn for nothing. Saloon is left
+  // alone on purpose — it heals the LIVING, and pouring a round for the table on the
+  // way out is a real play even if none of it reaches the one buying.
+  if (p.ghost && card.defId === "beer") return { code: "ghost-cannot-heal" };
   if (isBangLike(p, card, targetId) && bangBudget(room, p) <= 0) {
     return { code: eff.noBang ? "event-bans-bang" : "bang-limit-reached" };
   }
@@ -932,12 +994,19 @@ function barrelAttempts(p: Player): number {
 // Both pairs stack (Paul Regret + Mustang = +2). Minimum 1.
 export function distanceBetween(room: Room, from: Player, to: Player): number {
   if (from.id === to.id) return 0;
-  const alive = aliveBySeat(room);
-  const i = alive.findIndex((p) => p.id === from.id);
-  const j = alive.findIndex((p) => p.id === to.id);
+  // A ghost is not in the circle: the living count seats around it as though the chair
+  // were empty, and nobody can measure a distance TO one (so nobody can shoot one). It
+  // still has to measure its own way out, though, so for its own question — and only
+  // then — it steps back into the ring at its own seat. `room.players` is already in
+  // seat order, so the filter keeps the circle in order too.
+  const ring = from.ghost
+    ? room.players.filter((p) => p.alive || p.id === from.id)
+    : aliveBySeat(room);
+  const i = ring.findIndex((p) => p.id === from.id);
+  const j = ring.findIndex((p) => p.id === to.id);
   if (i < 0 || j < 0) return Infinity;
   const raw = Math.abs(i - j);
-  let dist = Math.min(raw, alive.length - raw);
+  let dist = Math.min(raw, ring.length - raw);
 
   // A card and an ability that pull the same way stack: Paul Regret holding a
   // Mustang is seen at +2, Rose Doolan holding a Scope sees everyone at -2.
@@ -986,27 +1055,15 @@ export function drawCards(
   if (charEffect(current).drawMode === "jesse" && source === "player" && targetId && drawTotal > 0) {
     const t = room.players.find((p) => p.id === targetId);
     const robbed = t && t.id !== current.id && t.hand.length > 0 ? t : null;
-    if (robbed) {
-      current.hand.push(robbed.hand.splice(Math.floor(Math.random() * robbed.hand.length), 1)[0]);
-    } else {
-      drawInto(room, current.hand, 1);
-    }
-    drawInto(room, current.hand, drawTotal - 1);
+    // The steal waits on the victim's acknowledgement, exactly like Panic! — from their
+    // seat it is the same event. The turn STAYS in the draw phase meanwhile, and the
+    // rest of the draw is carried on the pending as `thenDraw`: finishing it now would
+    // log the draw before the card it is about has actually moved.
+    if (robbed && openTaken(room, current, robbed, "take", undefined, undefined, drawTotal - 1)) return true;
+    // Nothing to steal (they were empty, or it was themselves): a plain draw.
+    drawInto(room, current.hand, drawTotal);
     room.turnPhase = "play";
-    // Name the victim. Exactly ONE card comes out of their hand and the rest off the
-    // deck, but logged as a bare "drew 2" this was indistinguishable from an ordinary
-    // draw — so whoever just watched a card vanish from their hand read the 2 as two
-    // cards taken from them, and reported Jesse for stealing double. Every other card
-    // that reaches across the table names its target; this one has to as well.
-    const drawn = {
-      kind: "draw" as const,
-      a: current.name,
-      n: current.hand.length - beforeDraw,
-      b: robbed?.name, // absent when the steal didn't happen — reads as a plain draw
-      took: robbed ? 1 : undefined,
-    };
-    pushLog(room, drawn);
-    notify(room, robbed, drawn);
+    pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
     return true;
   }
 
@@ -1080,7 +1137,12 @@ export function playCard(
     room.playsThisTurn += 1; // events may cap how many cards a turn allows
     // Mark this card type as used this turn (exempt plays don't consume a slot).
     if (!exempt && playedCard) room.playedDefsThisTurn.push(playedCard.defId);
-    if (actor && cardName) {
+    // Deferred when the play opened a "somebody is taking your card" dialog: the log is
+    // what the whole 3D scene reads, so a line written now would have the two of them
+    // reaching across the table while the victim is still looking at the dialog and the
+    // card has not moved. respond() writes it once the acknowledgement lands. It also
+    // reads truer — until then, the play has not actually happened to anybody.
+    if (actor && cardName && room.pending?.kind !== "taken") {
       const entry = { kind: "play" as const, a: actor.name, card: cardName, b: targetName };
       pushLog(room, entry);
       if (target && target.id !== actor.id) notify(room, target, entry);
@@ -1317,16 +1379,54 @@ function takePickedCard(target: Player, pick: { from: "hand" | "equipment"; inde
   return pile.splice(pick.index, 1)[0];
 }
 
+// Open the "somebody is taking your card" acknowledgement. Shared by Panic!, Cat Balou
+// and Jesse Jones, because from the victim's seat the three are the same event.
+//
+// The card is picked HERE rather than on acknowledgement: the dialog names it, and
+// re-rolling afterwards would let the message and the outcome disagree.
+function openTaken(
+  room: Room,
+  taker: Player,
+  victim: Player,
+  mode: "take" | "toss",
+  // The card being played, for the log line respond() writes later. Absent for Jesse
+  // Jones — his steal is a draw phase, not a play, and logs as one.
+  playName: string | undefined,
+  targetCardId?: string,
+  thenDraw?: number
+): boolean {
+  const pick = pickTargetCard(victim, targetCardId);
+  if (!pick) return false;
+  const pile = pick.from === "hand" ? victim.hand : victim.equipment;
+  const card = pile[pick.index];
+  if (!card) return false;
+  room.pending = {
+    kind: "taken",
+    takerId: taker.id,
+    victimId: victim.id,
+    mode,
+    cardId: card.id,
+    fromHand: pick.from === "hand",
+    // A card face-up on the table is public, so naming it tells the victim nothing they
+    // could not already see. One out of their hand stays unnamed — not to hide it from
+    // them (it is their own card) but because "1 lá bất kỳ" is what actually happened.
+    cardName: pick.from === "equipment" ? card.name : undefined,
+    playName,
+    thenDraw,
+  };
+  return true;
+}
+
 // Panic!: take a card from a player at distance 1 into your hand.
 function playPanic(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): Result {
   const target = room.players.find((p) => p.id === targetId);
   if (!target) return err("invalid-target");
   const problem = targetProblem(room, current, "panic", target);
   if (problem) return { ok: false, error: problem };
-  const pick = pickTargetCard(target, targetCardId);
-  if (!pick) return err("target-has-no-cards");
+  // Spend the played card first either way: it has been played, publicly, whatever the
+  // victim does next. Only the card coming BACK waits on them.
+  if (!openTaken(room, current, target, "take", CARD_DEF_BY_ID.panic.name, targetCardId)) return err("target-has-no-cards");
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
-  current.hand.push(takePickedCard(target, pick));
   return { ok: true };
 }
 
@@ -1336,11 +1436,25 @@ function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: s
   if (!target) return err("invalid-target");
   const problem = targetProblem(room, current, "cat-balou", target);
   if (problem) return { ok: false, error: problem };
-  const pick = pickTargetCard(target, targetCardId);
-  if (!pick) return err("target-has-no-cards");
+  if (!openTaken(room, current, target, "toss", CARD_DEF_BY_ID["cat-balou"].name, targetCardId)) return err("target-has-no-cards");
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
-  moveToDiscard(room, takePickedCard(target, pick));
   return { ok: true };
+}
+
+// Carry out what the acknowledgement was holding back. Returns the card that moved, so
+// the caller can log it; null if it vanished from under the dialog (the victim
+// surrendered, which discards their whole holding).
+function resolveTaken(room: Room, p: Extract<Pending, { kind: "taken" }>): Card | null {
+  const taker = room.players.find((x) => x.id === p.takerId);
+  const victim = room.players.find((x) => x.id === p.victimId);
+  if (!taker || !victim) return null;
+  const pile = p.fromHand ? victim.hand : victim.equipment;
+  const i = pile.findIndex((c) => c.id === p.cardId);
+  if (i < 0) return null;
+  const card = pile.splice(i, 1)[0];
+  if (p.mode === "toss") moveToDiscard(room, card);
+  else taker.hand.push(card);
+  return card;
 }
 
 // Fire a Bang! at a target. The Bang!/turn budget was already checked upstream in
@@ -1434,7 +1548,10 @@ export function endTurn(code: string, playerId: string): Result {
   if (current.hand.length > limit) {
     return err("hand-over-limit", { n: current.hand.length - limit });
   }
-  if (!advanceToNextAlive(room)) return { ok: false };
+  // A ghost's turn ends with it back in the ground. handLimitOf already answered with
+  // the whole hand for a ghost, so the check above never stood in the way of that.
+  if (current.ghost) layGhostDown(room, current);
+  if (!advanceToNextSeat(room)) return { ok: false };
   beginTurn(room);
   return { ok: true };
 }
@@ -1453,6 +1570,22 @@ function detachFromPending(room: Room, id: string) {
     // Nobody else can dismiss someone's reveal, so a quitter would strand it. The
     // turn hand-off is surrender()'s job (it was their turn either way).
     case "check": if (p.playerId === id) clearPending(room); break;
+    // A quitter must never strand the card. RESOLVE rather than drop: the taker played
+    // for it, and Jesse's turn is parked in the draw phase behind this — dropping it
+    // would leave him unable to draw or to play. resolveTaken copes with the card
+    // already being gone, which is what a surrendering victim does to their own hand.
+    case "taken":
+      if (p.victimId === id || p.takerId === id) {
+        resolveTaken(room, p);
+        const { thenDraw, takerId } = p;
+        clearPending(room);
+        if (thenDraw !== undefined) {
+          const jesse = room.players.find((x) => x.id === takerId);
+          if (jesse && thenDraw > 0) drawInto(room, jesse.hand, thenDraw);
+          room.turnPhase = "play";
+        }
+      }
+      break;
     case "store":
       p.order = p.order.filter((o) => o !== id);
       if (p.order.length === 0) { room.discard.push(...p.cards); clearPending(room); }
@@ -1482,38 +1615,40 @@ export function surrender(code: string, playerId: string): Result {
   if (room.phase === "playing") {
     if (room.pending?.kind === "multi" && room.pending.responders.every((r) => r.done)) resolveMulti(room);
     processDeathQueue(room);
-    if (wasTurn && room.phase === "playing" && !room.pending && advanceToNextAlive(room)) beginTurn(room);
+    if (wasTurn && room.phase === "playing" && !room.pending && advanceToNextSeat(room)) beginTurn(room);
   }
   return { ok: true };
 }
 
-// Move the turn to the next living player, following `turnDir` (the Reverse event
-// flips it) and marking the round boundary that schedules events.
-function advanceToNextAlive(room: Room): boolean {
+// Move the turn to the next SEAT, following `turnDir` (the Reverse event flips it) and
+// marking the round boundary that schedules events.
+//
+// The next seat, not the next living player: a dead one still gets its slot, because
+// that is where it flips for a ghost turn (see beginTurn). Nothing else changes — a
+// seat that fails its flip is handed straight on, so from the living players' side the
+// order is exactly what it always was.
+function advanceToNextSeat(room: Room): boolean {
   const n = room.players.length;
   const leaving = room.players[room.turnIndex];
-  for (let step = 1; step <= n; step++) {
-    const idx = (room.turnIndex + step * room.turnDir + n * n) % n;
-    if (room.players[idx].alive) {
-      room.turnIndex = idx;
-      // Cleared here rather than in endTurn: every hand-off funnels through this
-      // function, including a turn lost to Jail.
-      if (leaving) leaving.inbox = [];
-      markRoundBoundary(room);
-      return true;
-    }
-  }
-  return false;
+  if (n === 0) return false;
+  const idx = (room.turnIndex + room.turnDir + n * n) % n;
+  room.turnIndex = idx;
+  // Cleared here rather than in endTurn: every hand-off funnels through this
+  // function, including a turn lost to Jail.
+  if (leaving) leaving.inbox = [];
+  markRoundBoundary(room);
+  return true;
 }
 
-// A round ends when play returns to whoever opened it. If that player has died, the
-// marker moves to whoever is up now — otherwise the boundary would be lost for the
-// rest of the game and events would never fire again.
+// A round ends when play returns to whoever opened it. Death no longer loses that
+// marker — every seat comes around every round now, ghost turns included — so the only
+// thing that can strand it is the starter LEAVING the room, which splices them out of
+// players[] altogether.
 function markRoundBoundary(room: Room) {
   const cur = room.players[room.turnIndex];
   if (!cur) return;
   const starter = room.players.find((p) => p.id === room.roundStarterId);
-  if (!starter || !starter.alive) {
+  if (!starter) {
     room.roundStarterId = cur.id;
     room.roundEventDue = true;
     return;
@@ -1566,6 +1701,48 @@ const goodJail = (c: Card) => c.suit === "hearts"; // released
 const goodDynamite = (c: Card) => !(c.suit === "spades" && c.rank >= 2 && c.rank <= 9); // no blast
 const goodBarrel = (c: Card) => c.suit === "hearts"; // counts as Missed!
 
+// A dead seat flips for the right to rise for one turn. The first flip after dying
+// needs a Heart; every one after that takes a Heart or a Diamond, and the door stops
+// widening there — so a player is waiting about two and a half rounds for a ghost turn,
+// not the four a flat 25% would cost them.
+//
+// Non-blocking on purpose: the reveal goes into room.checks and the log for everyone to
+// see, but it opens no pending. A flip the whole table had to dismiss would charge six
+// living players for a coin toss that concerns one dead one.
+function ghostFlip(room: Room, p: Player): boolean {
+  // Nobody home. A ghost turn is a turn somebody has to steer, and with no turn timers
+  // anywhere a seat whose player has closed the tab would hold the table for good. Not
+  // counted as a miss either — they are not declining to rise, they are simply away.
+  if (!p.connected) return false;
+  const wide = p.ghostMisses > 0;
+  const rises = (c: Card) => c.suit === "hearts" || (wide && c.suit === "diamonds");
+  const card = drawCheck(room, p, rises);
+  const up = !!card && rises(card);
+  const chk = { name: p.name, card, kind: "ghost", outcome: up ? "rise" : "stay" };
+  room.checks.push(chk);
+  logCheck(room, chk);
+  if (!up) {
+    p.ghostMisses += 1;
+    return false;
+  }
+  p.ghost = true;
+  p.ghostMisses = 0;
+  return true;
+}
+
+// The end of a ghost turn: it lies back down and everything it drew or put in front of
+// itself goes to the discard with it. Not a death — nobody killed it, so no bounty, no
+// Sheriff penalty, and Vulture Sam inherits nothing (killPlayer already emptied these
+// hands once, when they actually died).
+function layGhostDown(room: Room, p: Player) {
+  room.discard.push(...p.hand, ...p.equipment);
+  p.hand = [];
+  p.equipment = [];
+  p.ghost = false;
+  p.inbox = [];
+  pushLog(room, { kind: "ghost", a: p.name });
+}
+
 // Start-of-turn upkeep: resolve Dynamite then Jail for the active player (and any
 // players skipped by Jail), then leave them in the draw phase — unless Jail makes
 // them skip, in which case play passes on. NOT synchronous: a fatal Dynamite IS
@@ -1595,13 +1772,17 @@ function beginTurn(room: Room, resuming = false) {
   // spinning here would hang the server outright and the guard costs nothing.
   let handOffs = 0;
   while (room.phase === "playing") {
-    if (handOffs++ > room.players.length) {
-      // Everyone is skipped: force the current player to play rather than hang.
-      const stuck = room.players[room.turnIndex];
-      if (stuck) {
-        room.turnPhase = "draw";
-        pushLog(room, { kind: "turn", a: stuck.name });
-      }
+    // Two laps' worth: a lap of seats that stayed in their graves, and a lap of Jail
+    // sentences on top of it.
+    if (handOffs++ > room.players.length * 2) {
+      // Everyone is skipped: force the next LIVING player to play rather than hang. It
+      // has to be a living one — parking a turn on a seat that is dead and not risen
+      // would leave a player who cannot act holding a turn nobody can take off them.
+      const idx = room.players.findIndex((p) => p.alive);
+      if (idx < 0) return;
+      room.turnIndex = idx;
+      room.turnPhase = "draw";
+      pushLog(room, { kind: "turn", a: room.players[idx].name });
       return;
     }
     const cur = room.players[room.turnIndex];
@@ -1613,15 +1794,37 @@ function beginTurn(room: Room, resuming = false) {
 
     // --- This round's event: rolled as the round opens (the Sheriff's turn), before
     // any upkeep, so it also colours that turn's Dynamite/Jail Draw! checks. ---
-    if (room.roundEventDue) {
+    //
+    // Never rolled on a dead seat: the round's weather belongs to the living, and an
+    // event handed a dead "opener" would be picking its General Store order and its
+    // minAlive eligibility off somebody who isn't at the table. The flag stays up and
+    // the next living seat rolls it, so a ghost turn plays under the weather that was
+    // already out — which is also the honest reading, since the ghost is finishing the
+    // round it died in.
+    if (room.roundEventDue && cur.alive) {
       room.roundEventDue = false;
       rollRoundEvents(room, cur);
       if (room.phase !== "playing") return; // an event ended the game
       if (!cur.alive) {
         // The event killed whoever was about to play — pass the turn on.
-        if (!advanceToNextAlive(room)) return;
+        if (!advanceToNextSeat(room)) return;
         continue;
       }
+    }
+
+    // --- A dead seat: flip for the right to rise (house rule) ---
+    if (!cur.alive) {
+      if (!ghostFlip(room, cur)) {
+        if (!advanceToNextSeat(room)) return;
+        continue;
+      }
+      // Up. No upkeep to run — killPlayer emptied their equipment and everything a
+      // ghost puts down goes with it at the end of the turn, so there is never a
+      // Dynamite or a Jail waiting on a seat that just rose.
+      room.turnCounter += 1;
+      room.turnPhase = "draw";
+      pushLog(room, { kind: "turn", a: cur.name });
+      return;
     }
 
     // Did upkeep flip anything in front of this player? Only then is there something
@@ -1664,7 +1867,7 @@ function beginTurn(room: Room, resuming = false) {
           // Blown up. They still get to see the card that did it before the table
           // moves on without them; the turn passes when they dismiss it.
           if (gate("skip")) return;
-          if (!advanceToNextAlive(room)) return;
+          if (!advanceToNextSeat(room)) return;
           continue; // run the next player's upkeep
         }
       } else {
@@ -1704,7 +1907,7 @@ function beginTurn(room: Room, resuming = false) {
         // Sentence served with nothing to discard: the only thing left is showing
         // them the card that cost them the turn, then handing it on.
         if (gate("skip")) return;
-        if (!advanceToNextAlive(room)) return;
+        if (!advanceToNextSeat(room)) return;
         continue;
       }
     }
@@ -1733,7 +1936,7 @@ function resumeUpkeep(room: Room) {
     // Survived on Beer: carry on with their own turn. The Dynamite is already gone
     // from their equipment, so re-entering can't explode it twice.
     beginTurn(room, true);
-  } else if (advanceToNextAlive(room)) {
+  } else if (advanceToNextSeat(room)) {
     // Took the death: the turn was theirs, so it has to move on to the next player.
     beginTurn(room);
   }
@@ -1774,7 +1977,34 @@ export function respond(
     clearPending(room);
     // "stay" left the turn fully set up and merely blocked; "skip" still owes the
     // hand-off that the reveal was holding back.
-    if (resume === "skip" && advanceToNextAlive(room)) beginTurn(room);
+    if (resume === "skip" && advanceToNextSeat(room)) beginTurn(room);
+    return { ok: true };
+  }
+
+  // --- Somebody taking your card: only the victim may wave it through ---
+  if (pending.kind === "taken") {
+    if (playerId !== pending.victimId) return err("not-your-reaction");
+    if (type !== "pass") return { ok: false };
+    const taker = room.players.find((x) => x.id === pending.takerId);
+    const victim = room.players.find((x) => x.id === pending.victimId);
+    const moved = resolveTaken(room, pending);
+    const { thenDraw, playName } = pending;
+    clearPending(room);
+    if (taker && victim && moved) {
+      // Logged HERE, not when the card was played: the whole scene reads the log, so a
+      // line written at play time would have the arms reaching while the dialog was
+      // still up and the card had not moved.
+      const entry = playName
+        ? { kind: "play" as const, a: taker.name, card: playName, b: victim.name }
+        : { kind: "draw" as const, a: taker.name, b: victim.name, n: 1 + (thenDraw ?? 0), took: 1 };
+      pushLog(room, entry);
+      notify(room, victim, entry);
+    }
+    // Jesse Jones: the rest of his draw phase was waiting behind this.
+    if (thenDraw !== undefined) {
+      if (thenDraw > 0) drawInto(room, taker?.hand ?? [], thenDraw);
+      room.turnPhase = "play";
+    }
     return { ok: true };
   }
 
@@ -2009,6 +2239,15 @@ function processDeathQueue(room: Room) {
 // those effects fire no matter how the life point is lost.
 function dealDamage(room: Room, target: Player, amount: number, sourceId: string | null) {
   const eff = activeEffect(room);
+  // Nothing reaches a ghost — it is already dead, and its turn ends when the turn ends
+  // rather than when somebody shoots it. Nobody can aim at one (targetProblem needs a
+  // living target, and every multi filters the living), so the only way in is a Duel a
+  // ghost started and lost. Logged as a zero, like a Ceasefire, so the table sees the
+  // shot go straight through instead of the duel just stopping.
+  if (target.ghost) {
+    pushLog(room, { kind: "hit", a: target.name, n: 0, hp: 0 });
+    return;
+  }
   // Ceasefire nullifies damage outright.
   if (eff.noDamage) {
     pushLog(room, { kind: "hit", a: target.name, n: 0, hp: target.hp });
@@ -2048,7 +2287,9 @@ function applyDamage(
   creditId: string | null = null
 ) {
   dealDamage(room, target, amount, sourceId);
-  if (target.hp > 0) return;
+  // A ghost sits at 0 hp permanently; without this it would be queued for a death it
+  // has already had on every hit that misses it.
+  if (target.ghost || target.hp > 0) return;
   room.deathQueue.push({ id: target.id, needed: 1 - target.hp, sourceId, creditId, saveable });
   processDeathQueue(room);
 }
@@ -2067,6 +2308,9 @@ function killPlayer(
 ) {
   target.alive = false;
   target.hp = 0;
+  // A fresh grave flips at a Heart again — the widened door belonged to the last one.
+  target.ghost = false;
+  target.ghostMisses = 0;
   pushLog(room, { kind: "death", a: target.name, role: target.role ?? undefined });
   const cards = [...target.hand, ...target.equipment];
   target.hand = [];
@@ -2133,6 +2377,10 @@ function checkWin(room: Room) {
     clearPending(room);
     room.winner = winner;
     room.phase = "result";
+    // A ghost whose own turn ended the game goes back in the ground with it. Without
+    // this the flag outlives the turn it belongs to: the result screen would show a
+    // dead player standing at the table, still holding a hand.
+    for (const p of room.players) if (p.ghost) layGhostDown(room, p);
     awardWins(room, winner);
   }
 }
@@ -2209,8 +2457,10 @@ function toPublic(p: Player, seat: number, room: Room, viewer: Player | undefine
   // sees anyone else's options or pick.
   const inGame = room.phase === "playing" || room.phase === "result";
   const characterPublic = inGame ? p.character : null;
+  // A ghost sees distances (it has to aim), but nobody sees a distance to one — that
+  // is what "not counted in the circle" means, and it is also why nobody can shoot it.
   const distance =
-    room.phase === "playing" && viewer && viewer.alive && p.alive && p.id !== viewer.id
+    room.phase === "playing" && viewer && (viewer.alive || viewer.ghost) && p.alive && p.id !== viewer.id
       ? distanceBetween(room, viewer, p)
       : null;
   return {
@@ -2221,6 +2471,7 @@ function toPublic(p: Player, seat: number, room: Room, viewer: Player | undefine
     isBot: p.isBot,
     connected: p.connected,
     alive: p.alive,
+    ghost: p.ghost,
     hp: p.hp,
     maxHp: p.maxHp,
     handCount: p.hand.length,
@@ -2320,6 +2571,24 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
     const mine = meId === p.playerId;
     return { kind: "kit", youMustRespond: mine, actions: [], storeCards: mine ? p.cards : [], actorName: name(p.playerId) };
   }
+  if (p.kind === "taken") {
+    const mine = meId === p.victimId;
+    return {
+      kind: "taken",
+      // Only the person losing the card gets a button. Everyone else, the taker
+      // included, watches — they have already done their part.
+      youMustRespond: mine,
+      actions: mine ? ["pass"] : [],
+      actorName: name(p.takerId),
+      targetName: name(p.victimId),
+      takenMode: p.mode,
+      // Named only when it was face-up on the table. Sent to EVERYONE for that case,
+      // because a card in play is public and hiding it here would say less than the
+      // felt already does.
+      takenCard: p.cardName,
+      takenFromHand: p.fromHand,
+    };
+  }
   // store
   const mine = meId === p.order[0];
   return { kind: "store", youMustRespond: mine, actions: [], storeCards: p.cards, actorName: name(p.order[0]) };
@@ -2351,6 +2620,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
       hand: me?.hand ?? [],
       equipment: me?.equipment ?? [],
       alive: me?.alive ?? true,
+      ghost: me?.ghost ?? false,
       turnPhase: isMyTurn ? room.turnPhase : null,
       // Serving a Jail sentence: it's your turn but the only legal move is to
       // discard down to the limit and pass.

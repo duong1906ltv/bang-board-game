@@ -69,6 +69,9 @@ function Nameplate({ p, position, onClick }: { p: PlayerPublic; position?: [numb
       >
         <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
           {p.isTurn ? "▶ " : ""}
+          {/* On its feet but still dead — the plaque is the only place that says so in
+              words, since the figure itself looks like everyone else's. */}
+          {p.ghost ? "👻 " : ""}
           {p.role ? ROLE_EMOJI[p.role] + " " : ""}
           {p.name}
         </div>
@@ -237,7 +240,7 @@ export function YourAvatar({
 }: {
   // Read off view.you, not the players array: the array hides roles from everyone,
   // including from you, so your own sheriff star would never light up.
-  you: { alive: boolean; hp: number; role: Role | null; equipment: Card[]; seat: number; hand: Card[] };
+  you: { alive: boolean; ghost: boolean; hp: number; role: Role | null; equipment: Card[]; seat: number; hand: Card[] };
   players: PlayerPublic[];
   count: number;
   ring: number;
@@ -262,7 +265,10 @@ export function YourAvatar({
   // for every seat including yours, so that one comes off view.you.
   const me = players.find((q) => q.seat === you.seat);
   const plaque = me && { ...me, role: you.role };
-  if (!you.alive && reaction?.kind !== "fall")
+  // A ghost is up: the figure comes back and the grave stands empty for the length of
+  // the turn, which is the whole signal — nobody else at this table is sitting in a
+  // chair they were buried under.
+  if (!you.alive && !you.ghost && reaction?.kind !== "fall")
     return (
       <>
         <Tombstone position={[x, FLOOR_Y, z]} />
@@ -414,7 +420,7 @@ function Seat({
       <group position={[x, 0, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
         <OpponentSpot stealable={stealable} onSteal={onSteal} />
       </group>
-      {p.alive || reaction?.kind === "fall" ? (
+      {p.alive || p.ghost || reaction?.kind === "fall" ? (
         <Lean ang={ang} seat={[ax, az]} reaction={reaction}>
           <Avatar
             position={[ax, 0, az]}
@@ -439,7 +445,7 @@ function Seat({
         <Tombstone position={[ax, FLOOR_Y, az]} />
       )}
       <Nameplate p={p} position={[ax, PLATE_Y, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
-      {p.isTurn && p.alive && <TurnMarker position={[ax, markY(models), az]} />}
+      {p.isTurn && (p.alive || p.ghost) && <TurnMarker position={[ax, markY(models), az]} />}
       <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={color} pickable={!!pickCardMode && targetable} onPickCard={(cid) => onPickCard?.(p.id, cid)} />
       {targetable && onPickTarget && (
         // Right on the head — you are aiming at them, so the crosshair rings the
