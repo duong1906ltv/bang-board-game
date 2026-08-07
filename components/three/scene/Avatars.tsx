@@ -139,7 +139,6 @@ function fitting(headY: number) {
   return { scale, stoolTop: FLOOR_Y + MODEL_HIP_Y * scale, sitFwd: MODEL_HIP_BACK * scale };
 }
 const HAT_ON_HEAD = 0.3; // head bone sits at the base of the skull, so lift the hat
-const SIT_SETTLED = 3.0; // seconds into the sitting clip where the sitting-down move ends
 // TEMPORARILY OFF. The arm does not come up and the gun does not leave the felt; the
 // figure still turns to face whoever it is shooting, and everything else — the camera
 // cut, the muzzle flash, the reach for the deck — is untouched.
@@ -235,6 +234,19 @@ const HOLD_Y = 0.46;
 // half a hand along the fingers — bones in this rig run down their own local +Y, so this
 // is a plain offset — and the cards come up out of the grip instead of through it.
 const HOLD_PUSH = 0.09;
+// Which way the elbow hangs while the fan is held. NOT straight down, which is what the
+// IK assumes by default: forward-kinematicsing the sitting pose puts this arm's full
+// reach at 1.125 and the fan target only 0.504 from the shoulder — 45% of it — so the arm
+// has to fold hard, and a down-pole at that fold lands the elbow at y=-0.10, inside the
+// figure's own thigh and below the table top. Two meshes in the same space is what threw
+// the shards across the screen, and the arm read as wrung out.
+//
+// Tilted out from the body by this much, the elbow comes to [0.50, -0.03, 0.07] — clear
+// of the hip, arm still closed on the chest the way someone actually holds cards. 50°
+// pushes it further out to a chicken wing, which is a look rather than a fix.
+const ELBOW_OUT = (30 * Math.PI) / 180;
+const ELBOW_DOWN_K = Math.cos(ELBOW_OUT);
+const ELBOW_OUT_K = Math.sin(ELBOW_OUT);
 // How far the fingers close on it. Nothing to measure against — the file has no grip
 // clip — but the rig bounds it: ONE bone drives all four fingers, so this is a
 // whole-hand close, and much past this the block of fingers passes through the cards it
@@ -244,6 +256,25 @@ const THUMB_CURL = (35 * Math.PI) / 180;
 
 // TEMPORARY — delete with the effect that reads it. Same switch as guns.ts's ?guns.
 const AIM_DEBUG = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("aim");
+
+// TEMPORARY — delete once the stray shards are found. Add ?rig to the room URL.
+//
+// The hat, the gun and the fan of cards all hang off a BONE, and a bone's world scale
+// here is ~64x (armature modelled at 100x, figure scaled by ~0.64). Each divides that
+// back out, measured off the skeleton rather than written down. So a measurement that
+// comes back as 1 instead of ~64 does not fail quietly — it hangs something 64 times too
+// big on a bone: a Winchester 28 units long, or a hand of cards 8.9 across, on a table
+// whose felt is 2.7. That is exactly the size of the shards crossing the screen, which
+// is what this is here to confirm or rule out.
+const RIG_DEBUG = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("rig");
+const rigLog = (seat: number, what: string, ws: number, scale: number) => {
+  if (!RIG_DEBUG) return;
+  const bad = ws < 10; // anything but the ~64 the rig actually carries
+  console.log(
+    `[rig] ghế ${seat} ${what.padEnd(10)} ws.x=${ws.toFixed(3)} → scale=${scale.toFixed(5)}` +
+      (bad ? "  ‼️ ĐO HỤT — vật này đang to gấp ~64 lần" : "")
+  );
+};
 
 // How fast the body swivels towards whoever it is aiming at. Exponential, so this is
 // a time constant, not a duration: ~85% of the way round in 0.34s, which lands inside
@@ -290,6 +321,8 @@ const V = Array.from({ length: 8 }, () => new THREE.Vector3());
 // every slot in it.
 const TARGET = new THREE.Vector3();
 const ANCHOR = new THREE.Vector3();
+const POLE_HINT = new THREE.Vector3();
+const RIG_V = new THREE.Vector3(); // TEMPORARY — ?rig only
 const Q = Array.from({ length: 3 }, () => new THREE.Quaternion());
 const M = Array.from({ length: 2 }, () => new THREE.Matrix4());
 
@@ -310,12 +343,17 @@ function swing(b: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3, w: num
 // an arm tucked in, not an arm pointing. This lands it at 133 degrees, and because it
 // touches only these two bones the head stays at 0.62, where every nameplate, crosshair
 // and camera cut expects to find it.
+// `poleHint` is which way the elbow hangs, in world space. It defaults to straight DOWN,
+// which is right for an arm reaching out — and wrong for one folded up to the chest. See
+// ELBOW_OUT: at the fan's distance the down-pole buries the elbow in the figure's own
+// thigh, and two meshes sharing the same space is what the stray shards on screen are.
 function solveArm(
   upper: THREE.Object3D,
   lower: THREE.Object3D,
   hand: THREE.Object3D,
   target: THREE.Vector3,
-  w: number
+  w: number,
+  poleHint?: THREE.Vector3
 ) {
   const [s, e, h, t, d, pole, ew, from] = V;
   upper.getWorldPosition(s);
@@ -333,7 +371,8 @@ function solveArm(
   // Law of cosines for the angle the upper arm makes with the line to the target; the
   // elbow then swings that far off it, towards whichever way is down.
   const a = Math.acos(THREE.MathUtils.clamp((l1 * l1 + len * len - l2 * l2) / (2 * l1 * len), -1, 1));
-  pole.copy(DOWN).addScaledVector(d, -DOWN.dot(d));
+  const hang = poleHint ?? DOWN;
+  pole.copy(hang).addScaledVector(d, -hang.dot(d));
   if (pole.lengthSq() < 1e-8) return;
   pole.normalize();
   ew.copy(s).addScaledVector(d, Math.cos(a) * l1).addScaledVector(pole, Math.sin(a) * l1);
@@ -706,6 +745,7 @@ function PersonModel({
   // Only scale and parentage here — where the gun points is set per frame below,
   // because a rifle points at the target while the hand that holds it stays tucked.
   const gunK = useRef(1);
+  const rigT = useRef(0); // TEMPORARY — ?rig only, see the size check in the frame loop
   useEffect(() => {
     const hand = arms.r[2];
     if (!hand || dead) return;
@@ -717,6 +757,7 @@ function PersonModel({
     hand.getWorldScale(ws);
     gunK.current = spec.heldLen / spec.modelLen / Math.max(ws.x, 1e-6);
     gun.scale.setScalar(gunK.current);
+    rigLog(seat, `súng ${spec.url.split("/").pop()}`, ws.x, gunK.current);
     hand.add(gun);
     return () => {
       hand.remove(gun);
@@ -731,10 +772,13 @@ function PersonModel({
     const ws = new THREE.Vector3();
     head.getWorldScale(ws);
     hat.scale.setScalar(1 / Math.max(ws.x, 1e-6));
+    rigLog(seat, "nón", ws.x, hat.scale.x);
     head.add(hat);
     return () => {
       head.remove(hat);
     };
+    // `seat` is for the debug line only and never changes for a mounted figure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [body]);
 
   // The hand of cards, into the left fist — same trick as the hat and the gun. Its
@@ -753,10 +797,12 @@ function PersonModel({
     // Along the bone, i.e. down the fingers, into the middle of the fist. holdCards only
     // ever writes the quaternion, so this survives every frame after it.
     fan.position.set(0, HOLD_PUSH * k, 0);
+    rigLog(seat, "quạt bài", ws.x, fan.scale.x);
     hand.add(fan);
     return () => {
       hand.remove(fan);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arms]);
 
   // Base pose. The sitting clip opens with the act of sitting down, which would replay
@@ -776,7 +822,12 @@ function PersonModel({
     // starts past that move and clamps on the final seated frame instead.
     a.setLoop(THREE.LoopOnce, 1);
     a.clampWhenFinished = true;
-    if (!dead) a.time = SIT_SETTLED;
+    // Straight to the LAST frame, which is the pose that then holds. It used to park at
+    // 3.0s, chosen as "where the sitting-down move ends" — but the clip runs 8.33s, so
+    // the figure went on shifting for another five seconds after it appeared (the
+    // shoulder travels 0.03 over that stretch) before finally settling. Read off the
+    // action rather than written down, because the men's and women's clips differ.
+    if (!dead) a.time = a.getClip().duration;
     // Full weight at once, NOT faded in. Whatever weight the pose is missing the mixer
     // fills from the bind pose, and the bind pose is standing: a 0.3s fade is 0.3s of
     // standing up out of the chair on every mount (head 4.18 -> 3.40, measured). There
@@ -909,6 +960,32 @@ function PersonModel({
     holdGun(gun, rh, rl, spec, gunK.current, FWD, !!spec.fore && w > 0.5);
     // ...and then most of the way back down onto the cloth, unless the arm is up.
     if (w < 1) restGun(gun, rh, spec, position, faceAngle, 1 - w);
+
+    // TEMPORARY — ?rig only. Everything hung off a bone can only go wrong in one of two
+    // ways, and both show up here: the wrong SIZE (a scale measured against a stale bone
+    // matrix), or a NaN transform. NaN is worth its own line because it never heals —
+    // restGun puts the gun back with position.lerp, and lerping out of NaN gives NaN
+    // again, so one bad frame leaves that mesh strewn across the room for good.
+    // On a one-second timer: this decomposes a matrix per figure.
+    if (RIG_DEBUG) {
+      rigT.current += dt;
+      if (rigT.current > 1) {
+        rigT.current = 0;
+        gun.getWorldScale(RIG_V);
+        const len = RIG_V.x * spec.modelLen;
+        const nan = !Number.isFinite(gun.position.x) || !Number.isFinite(gun.quaternion.x);
+        if (nan || len > spec.heldLen * 2 || len < spec.heldLen / 2) {
+          console.warn(
+            `[rig] ghế ${seat}: súng đang dài ${len.toFixed(2)} (phải là ${spec.heldLen})` +
+              (nan ? " — VÀ toạ độ/hướng là NaN" : "")
+          );
+        }
+        const fanScale = cardsRef.current?.scale.x ?? 0;
+        if (fanScale > (HELD_CARD_W / CARD_W) * 0.1) {
+          console.warn(`[rig] ghế ${seat}: quạt bài scale=${fanScale.toFixed(4)} — to gấp ~64 lần`);
+        }
+      }
+    }
     // The RIGHT arm reaches for cards, the same one that picks the gun up. That is the
     // split a person uses — you hold your hand in the off hand and work with the other —
     // and it is only available because restGun leaves this fist empty between shots.
@@ -938,7 +1015,10 @@ function PersonModel({
       HOLD_Y,
       position[2] + fz * HOLD_OUT - fx * HOLD_SIDE
     );
-    solveArm(lu, ll, lh, TARGET, 1);
+    // Down, tilted out along the body's own left — the side this arm is on. A figure
+    // facing `yaw` has its local +x at (cos yaw, 0, -sin yaw), which is what fz/-fx are.
+    POLE_HINT.set(fz * ELBOW_OUT_K, -ELBOW_DOWN_K, -fx * ELBOW_OUT_K);
+    solveArm(lu, ll, lh, TARGET, 1, POLE_HINT);
     // Fingers close on it, and the thumb comes over the front. Written EVERY frame, not
     // once: the sitting clip drives five finger channels of its own, so the mixer would take
     // the hand straight back open.
