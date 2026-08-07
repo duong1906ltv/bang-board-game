@@ -110,6 +110,13 @@ export function Table({
   useEffect(() => {
     if (!inPlayPhase && discarding) setDiscarding(false);
   }, [inPlayPhase, discarding]);
+  // Discard mode is left from four places — the confirm, the cancel, Escape, and the turn
+  // ending under it — so the selection is emptied HERE rather than at each of them, where
+  // the fourth one would eventually be forgotten and leave a stale pick to greet the next
+  // discard already half-made.
+  useEffect(() => {
+    if (!discarding) setDiscardPick([]);
+  }, [discarding]);
   // A card can leave the hand without being discarded — Sid burning two, an opponent's
   // Panic! — and a selection holding an id that is no longer there would arm the confirm
   // for a card the server will refuse.
@@ -136,6 +143,13 @@ export function Table({
   // disagree with the engine. Returns true (and flashes why) when blocked, so the
   // player never aims into a silent server rejection.
   const blockOneCard = (defId: string) => {
+    // Jail blocks every card, so it arrives as a full `blockedDefIds` and would otherwise
+    // be reported below as "an event blocks this card" — the wrong reason, and now the
+    // one a jailed player hits on every single tap.
+    if (you.jailed) {
+      flash(L(locale, "Đang bị giam — chỉ bỏ bài rồi kết thúc lượt", "In jail — discard down, then end the turn."));
+      return true;
+    }
     if (bangLike(defId) && !you.canBang) {
       flash(L(locale, "Bạn hết lượt Bang!", "No Bang! left this turn."));
       return true;
@@ -186,7 +200,6 @@ export function Table({
   const confirmDiscard = () => {
     if (discardPick.length !== overLimit) return;
     for (const id of discardPick) onDiscard(id);
-    setDiscardPick([]);
   };
 
   // The engine resolves who each card may be aimed at (targetProblem in game.ts)
@@ -465,13 +478,23 @@ export function Table({
                 <button
                   className="ghost"
                   style={{ width: "auto", padding: "12px 14px" }}
-                  onClick={() => { setDiscarding(false); setDiscardPick([]); }}
+                  onClick={() => setDiscarding(false)}
                 >
                   {L(locale, "Huỷ", "Cancel")}
                 </button>
               </div>
             ) : (
-              <button onClick={() => (overLimit > 0 ? setDiscarding(true) : onEndTurn())}>
+              /* Entering closes the two other things that own a tap. Leaving a crosshair
+                 up behind the discard would have the aim banner still asking for a target
+                 while every tap was quietly selecting a card to throw away. */
+              <button
+                onClick={() => {
+                  if (overLimit === 0) return onEndTurn();
+                  setAiming(null);
+                  setSidPicking(false);
+                  setDiscarding(true);
+                }}
+              >
                 {overLimit > 0
                   ? L(locale, `Kết thúc lượt → bỏ ${overLimit} lá`, `End turn → discard ${overLimit}`)
                   : L(locale, "Kết thúc lượt →", "End turn →")}
@@ -484,7 +507,7 @@ export function Table({
       {/* Sid Ketchum: discard 2 → heal 1, usable ANY time (even off-turn / dying) */}
       {canBurnToHeal && you.alive && you.hp < you.maxHp && you.hand.length >= 2 && (
         <button
-          onClick={() => { setSidPicking((v) => !v); setSidPick([]); }}
+          onClick={() => { setSidPicking((v) => !v); setSidPick([]); setDiscarding(false); }}
           style={{
             position: "fixed",
             left: 12,
@@ -521,7 +544,11 @@ export function Table({
             <div key={c.id} style={{ pointerEvents: "auto" }}>
               <HandCard
                 card={c}
-                canInteract={inPlayPhase || sidPicking}
+                /* Dead while the table waits on somebody: playCardImpl refuses outright
+                   with `waiting-for-reaction`, so every tap here would be an error
+                   message. Answering a pending is the reaction panel's job, not the
+                   hand's — except Sid's burn, which is legal at any time at all. */
+                canInteract={(inPlayPhase && !view.pending) || sidPicking}
                 entering={justDrew.has(c.id)}
                 selected={sidPick.includes(c.id) || discardPick.includes(c.id) || aiming?.id === c.id}
                 onTap={() => cardAction(c)}
