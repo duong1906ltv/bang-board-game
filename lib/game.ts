@@ -183,11 +183,12 @@ export interface Room {
   usedEventIds: string[]; // every event already seen this game — drawn from like a deck
   turnCounter: number; // turns begun this game (telemetry / sim reporting only)
   turnDir: 1 | -1; // play direction (the "reverse" event flips it)
-  // The direction to put back once the current turn is over, or null when nothing
-  // is pending. Reverse lasts ONE turn: it fires as that turn opens, so it governs
-  // the hand-off at the end of it (who plays next) and is then undone. Kept as the
-  // direction to restore rather than a boolean so a second Reverse landing before
-  // the first is undone still returns the table to where it actually started.
+  // The direction to put back once this ROUND is over, or null when nothing is
+  // pending. Reverse is round weather like every other event: it fires as the round
+  // opens and the whole round runs backwards, so the lap still visits every seat
+  // exactly once and still ends on the opener. Kept as the direction to restore
+  // rather than a boolean so a second Reverse landing before the first is undone
+  // still returns the table to where it actually started.
   turnDirRestore: (1 | -1) | null;
 }
 
@@ -792,9 +793,9 @@ function makeCtx(room: Room, opener: Player): EventCtx {
       room.deck = shuffle([...room.deck, ...room.discard]);
       room.discard = [];
     },
-    // One turn only: the flip decides who picks up after the player it fired on,
-    // then beginTurn puts the table back. Remember the direction we came from the
-    // first time, so this stays the same one-turn detour if it somehow fires twice.
+    // The rest of the round runs backwards; markRoundBoundary puts the table back as
+    // the round closes. Remember the direction we came from the first time, so this
+    // stays one reversal even if it somehow fires twice.
     reverseOrder: () => {
       room.turnDirRestore ??= room.turnDir;
       room.turnDir = room.turnDir === 1 ? -1 : 1;
@@ -1644,16 +1645,33 @@ function advanceToNextSeat(room: Room): boolean {
 // marker — every seat comes around every round now, ghost turns included — so the only
 // thing that can strand it is the starter LEAVING the room, which splices them out of
 // players[] altogether.
+//
+// That "returns to the opener" test only holds because a lap is a lap in EITHER
+// direction: n hand-offs the other way come back to the same seat. What it cannot
+// survive is the direction changing mid-lap, which is why Reverse now runs the whole
+// round and is put back here, at the boundary itself — see openRound below.
 function markRoundBoundary(room: Room) {
   const cur = room.players[room.turnIndex];
   if (!cur) return;
   const starter = room.players.find((p) => p.id === room.roundStarterId);
   if (!starter) {
     room.roundStarterId = cur.id;
-    room.roundEventDue = true;
+    openRound(room);
     return;
   }
-  if (cur.id === starter.id) room.roundEventDue = true;
+  if (cur.id === starter.id) openRound(room);
+}
+
+// The round closes here and the next one is queued. The hand-off that led here was
+// the old round's last, so it rightly used the old direction; everything from now on
+// belongs to the new round, which starts from the table's normal direction again. A
+// Reverse in the batch about to roll then flips a direction that is genuinely normal
+// rather than cancelling the one it set last round.
+function openRound(room: Room) {
+  room.roundEventDue = true;
+  if (room.turnDirRestore == null) return;
+  room.turnDir = room.turnDirRestore;
+  room.turnDirRestore = null;
 }
 
 // The living player to the left (next in play order) of `p` — Dynamite follows the
@@ -1756,13 +1774,6 @@ function layGhostDown(room: Room, p: Player) {
 function beginTurn(room: Room, resuming = false) {
   if (!resuming) {
     room.checks = [];
-    // A Reverse bought exactly one turn: it steered the hand-off that led here, and
-    // that debt is now settled. Undone BEFORE this turn's events roll, so a fresh
-    // Reverse landing now flips the real direction rather than cancelling the old one.
-    if (room.turnDirRestore != null) {
-      room.turnDir = room.turnDirRestore;
-      room.turnDirRestore = null;
-    }
     // Turn-scope events end here; lasting/curse timers tick exactly once per call,
     // so a turn skipped by Jail doesn't burn two turns off a 3-turn sandstorm.
     tickEvents(room);

@@ -256,7 +256,7 @@ const EVENT_TEXT: Record<string, [string, string, string, string]> = {
   // chaos
   "pass-the-hand": ["Chuyền Tay", "Pass the Hand", "Mọi người chuyền tay bài theo chiều đi.", "Everyone passes their hand along the play direction."],
   "gun-shuffle": ["Đổi Súng", "Gun Shuffle", "Mọi người chuyền súng theo chiều đi.", "Everyone passes their gun along the play direction."],
-  reverse: ["Đảo Chiều", "Reverse", "Lượt này đảo chiều: người kế tiếp là người phía bên kia.", "This turn reverses: play passes the other way, then back to normal."],
+  reverse: ["Đảo Chiều", "Reverse", "Cả vòng này chạy ngược: lượt đi về phía bên kia cho tới hết vòng.", "The whole round runs backwards: play passes the other way until the round ends."],
 
 };
 
