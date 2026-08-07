@@ -61,12 +61,15 @@ function CrossedRifles() {
 }
 
 // A wall-mounted oil lamp that also casts a warm pool of light on a side wall.
-function WallSconce({ felt }: { felt: number }) {
+function WallSconce({ felt, lit = true }: { felt: number; lit?: boolean }) {
   return (
     <group>
       <mesh position={[0, -0.02, 0.06]}><boxGeometry args={[0.1, 0.18, 0.1]} /><meshStandardMaterial color="#1a1a1a" metalness={0.5} roughness={0.6} /></mesh>
       <mesh position={[0, 0.13, 0.08]}><sphereGeometry args={[0.09, 14, 14]} /><meshStandardMaterial color="#fff2d0" emissive="#ffcf8f" emissiveIntensity={2.2} /></mesh>
-      <pointLight position={[0, 0.13, 0.35]} color="#ffcf8f" intensity={7} distance={felt * 3} decay={2} />
+      {/* The glowing globe above stays either way — an unlit sconce still reads as a
+          lamp. What goes is the light it casts, which every material in the room pays
+          for on every pixel. */}
+      {lit && <pointLight position={[0, 0.13, 0.35]} color="#ffcf8f" intensity={7} distance={felt * 3} decay={2} />}
     </group>
   );
 }
@@ -138,9 +141,32 @@ function Window({ x, y, z }: { x: number; y: number; z: number }) {
   );
 }
 
+// The surfaces that cover the screen — ceiling shell, walls, panelling, floor, felt — in
+// whichever material the machine can afford.
+//
+// Only these get the treatment, and that is the point: they are what a zoomed-out
+// table is made of, pixel for pixel, while the beams and the bottles are a few hundred
+// pixels each. meshStandardMaterial runs the full physically-based path per pixel and
+// loops every light in the scene; Lambert is diffuse only. On these surfaces the
+// difference is close to invisible anyway — they are all roughness 0.95–1, so the
+// specular term the expensive shader computes is very nearly zero.
+function Surface({
+  low,
+  roughness = 1,
+  ...rest
+}: {
+  low?: boolean;
+  roughness?: number;
+  color?: string;
+  map?: THREE.Texture;
+  side?: THREE.Side;
+}) {
+  return low ? <meshLambertMaterial {...rest} /> : <meshStandardMaterial {...rest} roughness={roughness} />;
+}
+
 // Western saloon shell: plank floor, boarded walls with waist-high panelling, a bar
 // along one side and the wall decor. Sizes scale with the table.
-export function SaloonInner({ felt }: { felt: number }) {
+export function SaloonInner({ felt, low }: { felt: number; low?: boolean }) {
   const floorTex = useMemo(plankTexture, []);
   const signTex = useMemo(signTexture, []);
   const roomW = felt * 6.5;
@@ -171,17 +197,17 @@ export function SaloonInner({ felt }: { felt: number }) {
       {/* Ceiling, and a dark shell behind everything so no gap can show the void. */}
       <mesh position={[0, floorY + roomH / 2, 0]}>
         <boxGeometry args={[roomW, roomH, roomW]} />
-        <meshStandardMaterial color="#2a1b0e" side={THREE.BackSide} roughness={1} />
+        <Surface low={low} color="#2a1b0e" side={THREE.BackSide} />
       </mesh>
       {walls.map((w, i) => (
         <group key={i} position={w.pos as unknown as [number, number, number]} rotation={[0, w.rot, 0]}>
           <mesh receiveShadow>
             <planeGeometry args={[roomW, roomH]} />
-            <meshStandardMaterial map={wallTex} roughness={1} />
+            <Surface low={low} map={wallTex} />
           </mesh>
           <mesh position={[0, -roomH / 2 + dadoH / 2, 0.02]} receiveShadow>
             <planeGeometry args={[roomW, dadoH]} />
-            <meshStandardMaterial map={dadoTex} color="#8a6034" roughness={0.95} />
+            <Surface low={low} map={dadoTex} color="#8a6034" roughness={0.95} />
           </mesh>
           {/* The capping rail along the top of the panelling. */}
           <mesh position={[0, -roomH / 2 + dadoH, 0.05]}>
@@ -204,7 +230,7 @@ export function SaloonInner({ felt }: { felt: number }) {
       {/* plank floor just above the box bottom */}
       <mesh position={[0, floorY + 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[roomW, roomW]} />
-        <meshStandardMaterial map={floorTex} roughness={1} />
+        <Surface low={low} map={floorTex} />
       </mesh>
       {/* back wall: carved SALOON sign + lucky horseshoes. The band below them is
           left empty — it used to carry the players' WANTED posters. */}
@@ -219,21 +245,21 @@ export function SaloonInner({ felt }: { felt: number }) {
       ))}
       {/* left wall: a lamp sconce */}
       <group position={[-wall + 0.07, floorY + 1.9, felt * 1.15]} rotation={[0, Math.PI / 2, 0]}>
-        <WallSconce felt={felt} />
+        <WallSconce felt={felt} lit={!low} />
       </group>
       {/* right wall: crossed rifles + a lamp sconce */}
       <group position={[wall - 0.07, floorY + 2.2, -felt * 0.3]} rotation={[0, -Math.PI / 2, 0]}>
         <CrossedRifles />
       </group>
       <group position={[wall - 0.07, floorY + 1.9, felt * 1.15]} rotation={[0, -Math.PI / 2, 0]}>
-        <WallSconce felt={felt} />
+        <WallSconce felt={felt} lit={!low} />
       </group>
     </group>
   );
 }
 
 // The round table itself: felt top, apron and legs.
-export function TableInner({ felt, models }: { felt: number; models?: boolean }) {
+export function TableInner({ felt, models, low }: { felt: number; models?: boolean; low?: boolean }) {
   const bodyR = felt + 0.12;
   const felTex = useMemo(() => feltTexture(), []);
   useEffect(() => () => felTex.dispose(), [felTex]);
@@ -249,7 +275,7 @@ export function TableInner({ felt, models }: { felt: number; models?: boolean })
           playing surface's height is decided. */}
       <mesh position={[0, FELT_Y, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <circleGeometry args={[felt, 96]} />
-        <meshStandardMaterial map={felTex} roughness={0.98} />
+        <Surface low={low} map={felTex} roughness={0.98} />
       </mesh>
       {/* padded leather rim around the felt */}
       <mesh position={[0, 0.028, 0]} rotation={[-Math.PI / 2, 0, 0]}>

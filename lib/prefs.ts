@@ -9,6 +9,7 @@ const ALERT_KEY = "bang:alert";
 const SHOTCAM_KEY = "bang:shotcam";
 const MODELS_KEY = "bang:models";
 const SFX_KEY = "bang:sfx";
+const LOWSPEC_KEY = "bang:lowspec";
 
 // localStorage có thể ném (chế độ riêng tư, cookie bị chặn) nên mọi truy cập đều
 // bọc try/catch và rơi về mặc định.
@@ -45,6 +46,16 @@ export const setModels = (on: boolean) => setBool(MODELS_KEY, on);
 // Tiếng súng, cùng nhịp với getShotCam ở trên.
 export const getSfx = () => getBool(SFX_KEY, true);
 export const setSfx = (on: boolean) => setBool(SFX_KEY, on);
+
+// Chế độ cấu hình thấp. Khác hẳn ba công tắc trên: chúng bỏ bớt THỨ để vẽ, còn cái
+// này đổi CÁCH vẽ từng pixel — bỏ khử răng cưa, hạ độ phân giải, tắt bóng đổ, bớt
+// nguồn sáng, và đổi vật liệu của những mặt lấp kín màn hình sang loại rẻ hơn.
+//
+// Sinh ra vì tắt cả ba công tắc kia vẫn không cứu được máy yếu: hình học của cảnh
+// chỉ 25 nghìn tam giác, nút thắt nằm ở tốc độ lấp pixel — 44 vật liệu PBR nhân với
+// 7 nguồn sáng, mà căn phòng thì không nằm sau công tắc nào cả.
+export const getLowSpec = () => getBool(LOWSPEC_KEY, false);
+export const setLowSpec = (on: boolean) => setBool(LOWSPEC_KEY, on);
 
 // Gọi người chơi về khi tới lượt / phải phản ứng, lúc tab đang ẩn. Mặc định BẬT:
 // ván không có đồng hồ đếm nên một người đi mất là cả bàn đứng chờ vô hạn.

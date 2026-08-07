@@ -14,7 +14,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
-import { FLOOR_Y, layout, seatPositions } from "./scene/geometry";
+import { DISCARD_X, FELT_Y, FLOOR_Y, layout, seatPositions } from "./scene/geometry";
 import { ROOM_H, SaloonInner, TableInner, TableLampInner, StaticShadows } from "./scene/Saloon";
 import { Opponents, YourAvatar } from "./scene/Players";
 import { GUN_STOW_SEC } from "./scene/Avatars";
@@ -47,9 +47,12 @@ interface SceneProps {
   fx?: boolean; // advanced effects (bloom / vignette) — switchable off for weak devices
   shotCam?: boolean; // cut to a close shot on gunfire (see ShotCam)
   models?: boolean; // 3D cowboys instead of the block avatars (see CowboyModel)
+  // Fill-rate mode, not a content switch: fewer pixels, no MSAA, no shadow pass, two
+  // fewer lights, and cheap materials on the surfaces that cover the screen.
+  lowSpec?: boolean;
 }
 
-function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, homeKey, canDraw, onDrawDeck, stealIds, onSteal, fx, shotCam = true, models = true }: SceneProps) {
+function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, homeKey, canDraw, onDrawDeck, stealIds, onSteal, fx, shotCam = true, models = true, lowSpec = false }: SceneProps) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
   const controls = useRef<ElementRef<typeof OrbitControls> | null>(null);
@@ -59,7 +62,9 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
   // for the camera mid-cut.
   const homePos = useMemo<[number, number, number]>(() => [0, camY, camZ], [camY, camZ]);
   const homeTarget = useMemo<[number, number, number]>(() => [0, 0, -felt * 0.12], [felt]);
-  useGoHome(controls, homeKey, homePos, homeTarget);
+  const glide = useGlide(controls);
+  const discardZoom = useDiscardZoom(controls, glide, felt * 0.7, homePos, homeTarget);
+  useGoHome(glide, homeKey, homePos, homeTarget, discardZoom.release);
   const pickerOpen = view.pending?.kind === "store" || view.pending?.kind === "kit";
   const dim = useRoomDim(!!pickerOpen);
   // One shot, many reactors: the camera cut, the muzzle flash and the shooter's
@@ -174,10 +179,10 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
         live={moving?.key ?? (armKey >= 0 ? armKey : undefined)}
         liveSec={moving?.sec ?? (armKey >= 0 ? GUN_STOW_SEC : undefined)}
       />
-      <Saloon felt={felt} />
+      <Saloon felt={felt} low={lowSpec} />
       <Decor felt={felt} models={models} />
-      <Table felt={felt} models={models} />
-      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} canDraw={canDraw} onDrawDeck={onDrawDeck} />
+      <Table felt={felt} models={models} low={lowSpec} />
+      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} canDraw={canDraw} onDrawDeck={onDrawDeck} onZoomDiscard={discardZoom.toggle} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} shot={shot} aimingSeat={aimingSeat} reaches={reaches} stealIds={stealIds} onSteal={onSteal} models={models} />
       <YourAvatar you={view.you} players={view.players} count={view.players.length} ring={ring} felt={felt} shot={shot} aiming={aimingSeat === view.you.seat} reach={yourReach} onInspect={onInspect} onInspectPlayer={onInspectPlayer} models={models} />
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
@@ -212,52 +217,54 @@ export default function TableScene({
   fx = true,
   shotCam = true,
   models = true,
+  lowSpec = false,
 }: SceneProps) {
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
       {/* dpr cap 1.5, not 2: at 2 a retina screen renders FOUR times the pixels of a
           1x screen every frame, and on a table of flat colours the difference is
-          barely visible while the cost is not. 1.5 is 44% fewer pixels than 2. */}
-      <Canvas shadows dpr={fx ? [1, 1.5] : [1, 1.25]}>
-        <Scene {...{ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, homeKey, canDraw, onDrawDeck, stealIds, onSteal, fx, shotCam, models }} />
+          barely visible while the cost is not. 1.5 is 44% fewer pixels than 2.
+          Low spec pins it at 1 — 36% fewer again than the 1.25 an effects-off table
+          used to settle for.
+
+          `antialias` is a CONTEXT creation flag: three.js reads it once, when the
+          WebGL context is made, and ignores it forever after. So the switch has to
+          rebuild the canvas, which is what the key is for — and why the settings
+          hint warns that toggling rebuilds the table. */}
+      <Canvas
+        key={lowSpec ? "low" : "full"}
+        shadows={!lowSpec}
+        dpr={lowSpec ? 1 : fx ? [1, 1.5] : [1, 1.25]}
+        gl={{ antialias: !lowSpec, powerPreference: lowSpec ? "default" : "high-performance" }}
+      >
+        <Scene {...{ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, homeKey, canDraw, onDrawDeck, stealIds, onSteal, fx, shotCam, models, lowSpec }} />
       </Canvas>
     </div>
   );
 }
 
-// Flying the camera back to where it started, for the button in the HUD. Orbiting is
-// free — a player can end up under the table or staring at a wall — and there was no way
-// back short of reloading.
+// Moving the camera on the game's behalf, for the home button in the HUD and for the
+// zoom onto the discard pile. Orbiting is free — a player can end up under the table or
+// staring at a wall — and there was no way back short of reloading.
 //
 // A glide rather than a jump: the room the camera swings through on the way is what tells
 // you it is the same table you were already looking at. And it yields to the shot camera,
-// which takes the controls away for the length of a cut (`enabled = false`); pressing the
-// button mid-gunfight parks the request until the cut hands the camera back.
+// which takes the controls away for the length of a cut (`enabled = false`); asking for a
+// move mid-gunfight parks it until the cut hands the camera back.
 const HOME_SEC = 0.55;
-const TO_P = new THREE.Vector3();
-const TO_T = new THREE.Vector3();
+const GLIDE_P = new THREE.Vector3();
+const GLIDE_T = new THREE.Vector3();
 
-function useGoHome(
-  controls: MutableRefObject<ElementRef<typeof OrbitControls> | null>,
-  key: number | undefined,
-  pos: [number, number, number],
-  target: [number, number, number]
-) {
+type Controls = MutableRefObject<ElementRef<typeof OrbitControls> | null>;
+
+// `done` runs when the camera arrives, and only then: it is where a limit relaxed for
+// the trip gets put back, and putting one back mid-glide would have c.update() clamp the
+// camera on the next frame — a jump, in the middle of the move that exists to avoid one.
+function useGlide(controls: Controls) {
   const t = useRef(-1);
   const from = useRef({ p: new THREE.Vector3(), t: new THREE.Vector3() });
-  const armed = useRef(false);
-  useEffect(() => {
-    // The first run is the mount, when the camera is already home.
-    if (!armed.current) {
-      armed.current = true;
-      return;
-    }
-    const c = controls.current;
-    if (!c) return;
-    from.current.p.copy(c.object.position);
-    from.current.t.copy(c.target);
-    t.current = 0;
-  }, [key, controls]);
+  const to = useRef({ p: new THREE.Vector3(), t: new THREE.Vector3() });
+  const done = useRef<(() => void) | null>(null);
   useFrame((_, dt) => {
     if (t.current < 0) return;
     const c = controls.current;
@@ -268,11 +275,96 @@ function useGoHome(
     if (!c.enabled) return; // the shot camera has it; wait rather than fight
     t.current = Math.min(1, t.current + dt / HOME_SEC);
     const k = t.current * t.current * (3 - 2 * t.current); // smoothstep, so it eases out
-    c.object.position.lerpVectors(from.current.p, TO_P.fromArray(pos), k);
-    c.target.lerpVectors(from.current.t, TO_T.fromArray(target), k);
+    c.object.position.lerpVectors(from.current.p, to.current.p, k);
+    c.target.lerpVectors(from.current.t, to.current.t, k);
     c.update();
-    if (t.current >= 1) t.current = -1;
+    if (t.current >= 1) {
+      t.current = -1;
+      done.current?.();
+      done.current = null;
+    }
   });
+  return (p: THREE.Vector3, target: THREE.Vector3, onArrive?: () => void) => {
+    const c = controls.current;
+    if (!c) return;
+    from.current.p.copy(c.object.position);
+    from.current.t.copy(c.target);
+    to.current.p.copy(p);
+    to.current.t.copy(target);
+    done.current = onArrive ?? null;
+    t.current = 0;
+  };
+}
+
+function useGoHome(
+  glide: ReturnType<typeof useGlide>,
+  key: number | undefined,
+  pos: [number, number, number],
+  target: [number, number, number],
+  onArrive?: () => void
+) {
+  const armed = useRef(false);
+  useEffect(() => {
+    // The first run is the mount, when the camera is already home.
+    if (!armed.current) {
+      armed.current = true;
+      return;
+    }
+    glide(GLIDE_P.fromArray(pos), GLIDE_T.fromArray(target), onArrive);
+    // `glide` and `onArrive` are rebuilt every render; the key is what this fires on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+}
+
+// Reading the top of the discard. Click the pile and the camera slides in on it; click
+// it again, or press the home button, and it comes back out.
+//
+// It keeps whatever ANGLE the player has orbited to and only closes the distance, so the
+// move is "come closer to that" rather than "look at the table my way" — and because the
+// direction is unchanged, the polar limits on OrbitControls cannot bite halfway in.
+//
+// The distance limit has to be lifted for the trip: minDistance is felt*0.7 (1.9 units at
+// a seven-player table), measured to keep the camera out of the table BODY when it is
+// aimed at the middle. Aimed at a card lying on the cloth that same number is a wall a
+// long way short of legible, and c.update() enforces it on every frame of the glide.
+const ZOOM_DIST = 1.0; // a 0.72-scale card is 0.63 tall — this fills ~60% of the frame
+const ZOOM_MIN = 0.5; // and they can push in to twice that by hand once they are there
+const DISCARD_AT = new THREE.Vector3(DISCARD_X, FELT_Y, 0);
+const ZOOM_DIR = new THREE.Vector3();
+const ZOOM_P = new THREE.Vector3();
+
+function useDiscardZoom(
+  controls: Controls,
+  glide: ReturnType<typeof useGlide>,
+  minDistance: number,
+  home: [number, number, number],
+  homeTarget: [number, number, number]
+) {
+  const zoomed = useRef(false);
+  // Put the limit back — on ARRIVAL, never on departure. Restoring it while the camera
+  // is still down at the pile would have the very next c.update() shove it back out to
+  // 1.9, which is the jump the glide exists to avoid.
+  const release = () => {
+    zoomed.current = false;
+    if (controls.current) controls.current.minDistance = minDistance;
+  };
+  return {
+    // The home button lands here too, so a player who reaches for it instead of clicking
+    // the pile again does not leave the table with its close-up limit still relaxed.
+    release,
+    toggle: () => {
+      const c = controls.current;
+      if (!c) return;
+      if (zoomed.current) {
+        glide(GLIDE_P.fromArray(home), GLIDE_T.fromArray(homeTarget), release);
+        return;
+      }
+      zoomed.current = true;
+      c.minDistance = ZOOM_MIN;
+      ZOOM_DIR.subVectors(c.object.position, c.target).normalize();
+      glide(ZOOM_P.copy(DISCARD_AT).addScaledVector(ZOOM_DIR, ZOOM_DIST), DISCARD_AT);
+    },
+  };
 }
 
 // The room drops back while a choice is staged over the table, so three cards read as a

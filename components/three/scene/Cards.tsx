@@ -132,7 +132,7 @@ function DrawPile({ count, live, onDraw }: { count: number; live: boolean; onDra
 // Neither pile carries a counter any more. The numbers were the only floating HUD
 // left out on the felt, and the piles already show what they need to: the draw stack
 // grows with `deckCount`, and the discard shows its top card face-up.
-export function CenterPiles({ deckCount, discardCount, topDiscard, canDraw, onDrawDeck }: { deckCount: number; discardCount: number; topDiscard: Card | null; canDraw?: boolean; onDrawDeck?: () => void }) {
+export function CenterPiles({ deckCount, discardCount, topDiscard, canDraw, onDrawDeck, onZoomDiscard }: { deckCount: number; discardCount: number; topDiscard: Card | null; canDraw?: boolean; onDrawDeck?: () => void; onZoomDiscard?: () => void }) {
   return (
     <group position={[0, FELT_Y + CARD_LIFT, 0]}>
       <DrawPile count={deckCount} live={!!canDraw} onDraw={onDrawDeck} />
@@ -141,6 +141,14 @@ export function CenterPiles({ deckCount, discardCount, topDiscard, canDraw, onDr
           <CardMesh card={topDiscard} detail scale={0.72} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0.2]} />
         ) : (
           discardCount > 0 && <CardMesh faceDown scale={0.72} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0.25]} />
+        )}
+        {/* Click it to read it: the camera slides in on the pile (see useDiscardZoom).
+            Ringless — this deals nobody a card — and only offered when there is a card
+            down there to go and look at. A 0.72-scale card is 0.45 x 0.63, and the plane
+            is a little over that; it stops well short of the draw pile's own hit area,
+            which reaches x = 0.03 and is 0.42 away. */}
+        {(topDiscard || discardCount > 0) && onZoomDiscard && (
+          <PickSpot radius={0} ring={false} hit={[0.62, 0.8]} ringY={0} onPick={onZoomDiscard} />
         )}
       </group>
     </group>

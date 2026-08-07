@@ -59,6 +59,8 @@ export function SettingsMenu({
   onToggleModels,
   sfx,
   onToggleSfx,
+  lowSpec,
+  onToggleLowSpec,
   canSurrender,
   onSurrender,
 }: {
@@ -70,6 +72,8 @@ export function SettingsMenu({
   onToggleModels: () => void;
   sfx: boolean;
   onToggleSfx: () => void;
+  lowSpec: boolean;
+  onToggleLowSpec: () => void;
   canSurrender?: boolean;
   onSurrender?: () => void;
 }) {
@@ -128,6 +132,21 @@ export function SettingsMenu({
                 locale,
                 "Ánh sáng loé đèn dầu + viền tối quanh bàn. Tắt đi nếu máy chạy chậm.",
                 "Lamp bloom + vignette around the table. Turn off if the game runs slow."
+              )}
+            />
+            {/* Last of the three, and the one to reach for when the other two did not
+                help: they take THINGS out of the scene, this changes how every pixel is
+                drawn. The scene's geometry was never the problem — 25k triangles all in
+                — so on a machine that struggles this is the switch that moves. */}
+            <Toggle
+              on={lowSpec}
+              onToggle={onToggleLowSpec}
+              onLabel={L(locale, "🐢 Cấu hình thấp: BẬT", "🐢 Low spec: ON")}
+              offLabel={L(locale, "○ Cấu hình thấp: TẮT", "○ Low spec: OFF")}
+              hint={L(
+                locale,
+                "Bỏ khử răng cưa, hạ độ phân giải, tắt bóng đổ, bớt 2 đèn tường, và vẽ tường/sàn bằng vật liệu rẻ hơn. Bàn xấu đi một chút nhưng nhẹ đi vài lần. Bật/tắt sẽ dựng lại bàn.",
+                "Drops anti-aliasing, resolution, shadows, two wall lamps, and draws the room with a cheaper material. A little uglier, several times lighter. Toggling rebuilds the table."
               )}
             />
             <Toggle

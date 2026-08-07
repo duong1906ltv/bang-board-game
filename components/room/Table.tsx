@@ -74,7 +74,7 @@ export function Table({
   const [charView, setCharView] = useState<Character | null>(null);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [playerInfo, setPlayerInfo] = useState<PlayerPublic | null>(null);
-  const { fx, toggleFx, shotCam, toggleShotCam, models, toggleModels, sfx, toggleSfx } =
+  const { fx, toggleFx, shotCam, toggleShotCam, models, toggleModels, sfx, toggleSfx, lowSpec, toggleLowSpec } =
     useDisplayPrefs();
   // Auto-opens only on this device's first game.
   const [briefing, setBriefing] = useState(false);
@@ -256,6 +256,7 @@ export function Table({
           fx={fx}
           shotCam={shotCam}
           models={models}
+          lowSpec={lowSpec}
         />
       </div>
 
@@ -402,6 +403,8 @@ export function Table({
             onToggleModels={toggleModels}
             sfx={sfx}
             onToggleSfx={toggleSfx}
+            lowSpec={lowSpec}
+            onToggleLowSpec={toggleLowSpec}
             canSurrender={you.alive && view.phase === "playing"}
             onSurrender={() => setConfirmSurrender(true)}
           />

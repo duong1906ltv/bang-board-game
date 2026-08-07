@@ -19,6 +19,7 @@ export function PickSpot({
   ringY,
   hitY = 0.1,
   center = [0, 0],
+  ring: ringed = true,
   onPick,
 }: {
   radius: number; // inner radius of the ring
@@ -28,6 +29,11 @@ export function PickSpot({
   ringY: number; // ring height, in the parent's frame — on the cloth, under the cards
   hitY?: number; // and the plane's, which only has to clear the tallest card
   center?: [number, number]; // x, z of whatever is being ringed
+  // Off for a spot that is not a card gesture at all — the discard pile takes a click
+  // to move the CAMERA, and wearing the gold ring would promise a card it never deals.
+  // What it still wants from here is the pointer cursor and the single flicker-free
+  // hit plane, which is the whole reason this is one component.
+  ring?: boolean;
   onPick: () => void;
 }) {
   const ring = useRef<THREE.MeshStandardMaterial>(null);
@@ -57,10 +63,12 @@ export function PickSpot({
   return (
     <group position={[center[0], 0, center[1]]}>
       {/* Scaled after the -90° that lays it flat, so the squash is along world z. */}
-      <mesh position={[0, ringY, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1, squash, 1]}>
-        <ringGeometry args={[radius, radius + thickness, 56]} />
-        <meshStandardMaterial ref={ring} color="#ffcf3a" emissive="#ff9500" transparent depthWrite={false} />
-      </mesh>
+      {ringed && (
+        <mesh position={[0, ringY, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1, squash, 1]}>
+          <ringGeometry args={[radius, radius + thickness, 56]} />
+          <meshStandardMaterial ref={ring} color="#ffcf3a" emissive="#ff9500" transparent depthWrite={false} />
+        </mesh>
+      )}
       {/* ONE invisible plane takes the pointer, rather than the cards themselves. A
           stack is several coplanar planes, so a single ray hits all of them and r3f
           fires enter/leave for each as the mouse crosses them — the hover flickered.
