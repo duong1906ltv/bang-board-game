@@ -2625,8 +2625,15 @@ function buildPending(room: Room, me: Player | undefined): PendingView | null {
     };
   }
   // store
+  //
+  // Only the person picking is shown the cards. Bang!'s own General Store deals them
+  // face up for the whole table, and this is a deliberate house departure from that:
+  // the row is staged over the middle of everyone's screen, so a public reveal meant
+  // six people watching a decision they had no part in, with the table behind it
+  // covered. Onlookers get the PendingNote line saying whose pick it is — the same
+  // treatment Kit Carlson's three cards have always had.
   const mine = meId === p.order[0];
-  return { kind: "store", youMustRespond: mine, actions: [], storeCards: p.cards, actorName: name(p.order[0]) };
+  return { kind: "store", youMustRespond: mine, actions: [], storeCards: mine ? p.cards : [], actorName: name(p.order[0]) };
 }
 
 // Build the personalized view for one player: they always see their OWN role,
