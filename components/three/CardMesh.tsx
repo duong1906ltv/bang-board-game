@@ -31,13 +31,26 @@ const KIND_BORDER: Record<string, string> = {
 
 const EMOJI_FONT = "'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif";
 
-function drawFace(card: Card): THREE.CanvasTexture {
+// `detail` is for a card the player actually READS — in practice the top of the
+// discard pile, which is face-up in the middle of the table and is the one card
+// anybody leans in on. It buys two things at once:
+//   - the effect text, in the band the art gives up (196px of art down to 140)
+//   - twice the pixels, because 16px type on a 256-wide canvas turns to mush once
+//     the card fills a third of the screen at the near zoom stop
+// Everything else stays plain: a gun lying on the felt is 0.29 units across and read
+// by its silhouette and the icon badge over it, so text there would be a smudge and
+// twenty of these canvases would cost ~40MB of texture for nothing.
+function drawFace(card: Card, detail: boolean): THREE.CanvasTexture {
   const W = 256;
   const H = 358;
+  // Draw in one fixed coordinate system whatever the resolution: scale the context
+  // instead of the numbers, so the layout below is written once.
+  const S = detail ? 2 : 1;
   const c = document.createElement("canvas");
-  c.width = W;
-  c.height = H;
+  c.width = W * S;
+  c.height = H * S;
   const ctx = c.getContext("2d")!;
+  ctx.scale(S, S);
   const def = CARD_DEF_BY_ID[card.defId];
   const red = card.suit === "hearts" || card.suit === "diamonds";
 
@@ -106,12 +119,41 @@ function drawFace(card: Card): THREE.CanvasTexture {
   // art, then the emoji icon. Images decode async, so draw when ready and flag
   // the texture for re-upload.
   const boxX = PARCH_X + 8, boxY = PARCH_Y + 56;
-  const boxW = W - (PARCH_X + 8) * 2, boxH = 196;
+  const boxW = W - (PARCH_X + 8) * 2, boxH = detail ? 140 : 196;
   ctx.fillStyle = "#e7d6b0";
   ctx.fillRect(boxX, boxY, boxW, boxH);
   ctx.lineWidth = 2;
   ctx.strokeStyle = "rgba(74,48,22,0.45)";
   ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+  // Effect text, in the band the shrunken art panel gives up. Drawn once here rather
+  // than inside the art callbacks: it sits BELOW the panel, which is clipped, so the
+  // async illustration can never land on top of it.
+  //
+  // Auto-fit instead of one fixed size — the shortest effect is 10 characters and the
+  // longest 89, so no single size serves both. Largest that fits whole wins, and the
+  // smallest clamps with an ellipsis so a longer string added later still cannot run
+  // into the rank.
+  if (detail && def?.effect) {
+    const top = boxY + boxH + 8;
+    const band = H - PARCH_Y - 44 - top; // stop clear of the rank + suit below
+    ctx.fillStyle = "#5b4123";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    const sizes = [16, 15, 14, 13, 12, 11];
+    for (const [i, size] of sizes.entries()) {
+      ctx.font = `${size}px system-ui, sans-serif`;
+      const lh = Math.round(size * 1.18);
+      const max = Math.max(1, Math.floor(band / lh));
+      const lines = wrapText(ctx, def.effect, boxW);
+      if (lines.length > max && i < sizes.length - 1) continue;
+      lines.slice(0, max).forEach((ln, j) => {
+        const cut = lines.length > max && j === max - 1;
+        ctx.fillText(cut ? `${ln}…` : ln, W / 2, top + j * lh);
+      });
+      break;
+    }
+  }
 
   // Range token over the art, bottom-right — same marker as the 2D face. Drawn
   // after the art each time, so it survives the async image draw below.
@@ -203,6 +245,25 @@ function drawBack(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
+// Greedy word wrap against the real font metrics. The effect strings are Vietnamese
+// prose of very uneven length, and a characters-per-line rule mis-measures them badly
+// — accents and the narrow digits in "Draw! ra [2–9] Bích" both throw it off.
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/)) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxW) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -220,6 +281,7 @@ export function CardMesh({
   rotation,
   onClick,
   scale = 1,
+  detail,
 }: {
   card?: Card;
   faceDown?: boolean;
@@ -227,14 +289,17 @@ export function CardMesh({
   rotation?: [number, number, number];
   onClick?: () => void;
   scale?: number;
+  // Draw the full readable face — effect text, at twice the resolution. For a card
+  // the player reads rather than identifies; see drawFace.
+  detail?: boolean;
 }) {
   // Memo by VALUE (defId/suit/rank), not by the `card` object reference: every
   // socket `view` update produces fresh card objects with identical values, so
   // keying on the object would rebuild the CanvasTexture on every broadcast.
   const texture = useMemo(
-    () => (faceDown || !card ? cardBack() : drawFace(card)),
+    () => (faceDown || !card ? cardBack() : drawFace(card, !!detail)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [card?.defId, card?.suit, card?.rank, faceDown]
+    [card?.defId, card?.suit, card?.rank, faceDown, detail]
   );
   // CanvasTexture holds a GPU allocation that r3f does not free for us: dispose
   // the previous one whenever it changes or the mesh unmounts. Never the shared

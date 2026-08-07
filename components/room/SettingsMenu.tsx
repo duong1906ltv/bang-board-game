@@ -43,23 +43,33 @@ function MusicToggle() {
   );
 }
 
-// Everything that is NOT match state lives in here (graphics, music, language, turn
-// alerts, surrender), so the HUD outside can stay down to what you read constantly
-// while playing: role, life, character, range.
+// Non-match state only, so the HUD outside stays down to what you read constantly:
+// role, life, character, range.
 //
-// The button sits inside the HUD (`position:fixed; zIndex:55`), which is its own
-// stacking context: an `absolute` child panel would be CLAMPED to level 55 and drawn
-// over by later HUD siblings (banner 56, card row 55). Hence the panel is PORTALed to
-// body, where zIndex 1300 really does sit above the shared ladder
-// (scene 40 < cam/mic 45 < HUD 55 < modal).
+// PORTALed to body rather than rendered in place: the trigger sits inside the HUD,
+// itself a zIndex-55 stacking context, so an `absolute` child panel would be clamped
+// to 55 and drawn over by later siblings (banner 56). On body at 1300 it clears the
+// whole ladder — scene 40 < cam/mic 45 < HUD 55 < modal.
 export function SettingsMenu({
   fx,
   onToggleFx,
+  shotCam,
+  onToggleShotCam,
+  models,
+  onToggleModels,
+  sfx,
+  onToggleSfx,
   canSurrender,
   onSurrender,
 }: {
   fx: boolean;
   onToggleFx: () => void;
+  shotCam: boolean;
+  onToggleShotCam: () => void;
+  models: boolean;
+  onToggleModels: () => void;
+  sfx: boolean;
+  onToggleSfx: () => void;
   canSurrender?: boolean;
   onSurrender?: () => void;
 }) {
@@ -105,27 +115,49 @@ export function SettingsMenu({
                 textTransform: "uppercase",
                 letterSpacing: 1,
                 opacity: 0.6,
-                marginBottom: 8,
               }}
             >
               {L(locale, "Cài đặt", "Settings")}
             </div>
-            <button
-              className="ghost"
-              style={{ width: "100%", padding: "8px 10px", fontSize: 13 }}
-              onClick={onToggleFx}
-            >
-              {fx
-                ? L(locale, "✨ Hiệu ứng: BẬT", "✨ Effects: ON")
-                : L(locale, "○ Hiệu ứng: TẮT", "○ Effects: OFF")}
-            </button>
-            <div style={{ fontSize: 11, opacity: 0.6, marginTop: 8, lineHeight: 1.45 }}>
-              {L(
+            <Toggle
+              on={fx}
+              onToggle={onToggleFx}
+              onLabel={L(locale, "✨ Hiệu ứng: BẬT", "✨ Effects: ON")}
+              offLabel={L(locale, "○ Hiệu ứng: TẮT", "○ Effects: OFF")}
+              hint={L(
                 locale,
                 "Ánh sáng loé đèn dầu + viền tối quanh bàn. Tắt đi nếu máy chạy chậm.",
                 "Lamp bloom + vignette around the table. Turn off if the game runs slow."
               )}
-            </div>
+            />
+            <Toggle
+              on={models}
+              onToggle={onToggleModels}
+              onLabel={L(locale, "🤠 Cao bồi 3D: BẬT", "🤠 3D cowboys: ON")}
+              offLabel={L(locale, "○ Cao bồi 3D: TẮT (hình khối)", "○ 3D cowboys: OFF (blocks)")}
+              hint={L(
+                locale,
+                "Nhân vật là model 3D có xương, ngồi vào ghế và cầm súng lục. Tắt đi để quay lại hình khối — nhẹ hơn cho máy yếu.",
+                "Rigged 3D figures that sit at the table holding a revolver. Turn off for the block avatars — lighter on weak machines."
+              )}
+            />
+            <Toggle
+              on={sfx}
+              onToggle={onToggleSfx}
+              onLabel={L(locale, "🔊 Tiếng súng: BẬT", "🔊 Gunshots: ON")}
+              offLabel={L(locale, "○ Tiếng súng: TẮT", "○ Gunshots: OFF")}
+            />
+            <Toggle
+              on={shotCam}
+              onToggle={onToggleShotCam}
+              onLabel={L(locale, "🎬 Cắt cảnh khi bắn: BẬT", "🎬 Shot camera: ON")}
+              offLabel={L(locale, "○ Cắt cảnh khi bắn: TẮT", "○ Shot camera: OFF")}
+              hint={L(
+                locale,
+                "Mỗi phát Bang! camera lao vào cận mặt người bắn ~1,5 giây rồi lùi về. Tắt nếu thấy chóng mặt hoặc làm chậm nhịp ván.",
+                "Every Bang! swoops the camera in on the shooter for ~1.5s, then pulls back. Turn off if it makes you queasy or slows the game down."
+              )}
+            />
             <AlertToggle />
 
             <Divider />
@@ -163,6 +195,36 @@ export function SettingsMenu({
         document.body
       )}
     </span>
+  );
+}
+
+// One on/off row. `hint` explains what turning the switch off costs you.
+function Toggle({
+  on,
+  onToggle,
+  onLabel,
+  offLabel,
+  hint,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  onLabel: string;
+  offLabel: string;
+  hint?: string;
+}) {
+  return (
+    <>
+      <button
+        className="ghost"
+        style={{ width: "100%", padding: "8px 10px", fontSize: 13, marginTop: 8 }}
+        onClick={onToggle}
+      >
+        {on ? onLabel : offLabel}
+      </button>
+      {hint && (
+        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 8, lineHeight: 1.45 }}>{hint}</div>
+      )}
+    </>
   );
 }
 

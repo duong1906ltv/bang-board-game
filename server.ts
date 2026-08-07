@@ -4,7 +4,7 @@
 import { createServer } from "http";
 import next from "next";
 import { Server } from "socket.io";
-import { ClientToServerEvents, ServerToClientEvents, RtcPeer } from "./lib/types";
+import { ClientToServerEvents, ServerToClientEvents, RtcPeer, Look } from "./lib/types";
 import * as game from "./lib/game";
 import * as bot from "./lib/bot";
 
@@ -25,16 +25,35 @@ app.prepare().then(() => {
     cors: { origin: "*" },
   });
 
+  // Which body each player picked for their figure, by room and player id.
+  //
+  // Beside the engine rather than inside it: this is a costume, and the rules must not
+  // be able to see it. It is also the only per-player state the server owns, so it is
+  // the one thing here that has to answer for its own lifetime — see the sweep in
+  // `disconnect`, which is where reaped rooms get collected.
+  const looks = new Map<string, Map<string, Look>>();
+
+  function remember(code: string, playerId: string, look?: Look) {
+    if (!look) return;
+    let m = looks.get(code);
+    if (!m) looks.set(code, (m = new Map()));
+    m.set(playerId, look);
+  }
+
   // Send every connected player their OWN personalized (hidden-info-filtered) view.
   function broadcast(code: string) {
     const room = game.getRoom(code);
     if (!room) return;
     game.refillEmptyHands(room); // Suzy Lafayette
+    const chosen = looks.get(code);
     // No draft/reaction countdowns: players take as long as they need. Only bots
     // are auto-paced (below); human picks/reactions never time out.
     for (const p of room.players) {
       if (p.socketId && p.connected) {
-        io.to(p.socketId).emit("view", game.buildView(room, p.id));
+        const view = game.buildView(room, p.id);
+        // Painted on afterwards, so buildView never learns the field exists.
+        if (chosen) for (const q of view.players) q.look = chosen.get(q.id);
+        io.to(p.socketId).emit("view", view);
       }
     }
     scheduleBots(room, code);
@@ -126,33 +145,37 @@ app.prepare().then(() => {
     // Explicitly creating a room means "I have people to invite by code", so it is
     // unlisted: quick-join must not drop a stranger into it. Public rooms come
     // from quickJoin's own fallback instead.
-    socket.on("createRoom", ({ name }, cb) => {
+    socket.on("createRoom", ({ name, look }, cb) => {
       const { room, player } = game.createRoom(name, socket.id, true);
+      remember(room.code, player.id, look);
       socket.join(room.code);
       cb({ code: room.code, playerId: player.id });
       broadcast(room.code);
     });
 
-    socket.on("joinRoom", ({ code, name }, cb) => {
+    socket.on("joinRoom", ({ code, name, look }, cb) => {
       code = normCode(code);
       const res = game.addPlayer(code, name, socket.id);
       if (!res.ok || !res.player) return cb({ ok: false, error: res.error });
+      remember(code, res.player.id, look);
       socket.join(code);
       cb({ ok: true, playerId: res.player.id });
       broadcast(code);
     });
 
-    socket.on("quickJoin", ({ name, seats }, cb) => {
+    socket.on("quickJoin", ({ name, seats, look }, cb) => {
       const res = game.quickJoin(name, socket.id, (seats || []).slice(0, 8));
+      remember(res.code, res.playerId, look);
       socket.join(res.code);
       cb(res);
       broadcast(res.code);
     });
 
-    socket.on("rejoin", ({ code, playerId }, cb) => {
+    socket.on("rejoin", ({ code, playerId, look }, cb) => {
       code = normCode(code);
       const res = game.rejoin(code, playerId, socket.id);
       if (!res.ok) return cb({ ok: false, error: res.error });
+      remember(code, playerId, look);
       socket.join(code);
       cb({ ok: true });
       broadcast(code);
@@ -279,6 +302,9 @@ app.prepare().then(() => {
 
     socket.on("disconnect", () => {
       for (const code of mediaRooms.keys()) leaveMedia(code, socket.id);
+      // The engine reaps empty rooms, and nothing tells us when. A socket closing is
+      // the closest thing to a signal there is, and it is rare enough to afford a sweep.
+      for (const code of looks.keys()) if (!game.getRoom(code)) looks.delete(code);
       const room = game.disconnect(socket.id);
       if (room) broadcast(room.code);
     });

@@ -1,7 +1,7 @@
 "use client";
 
 import { io, Socket } from "socket.io-client";
-import { ClientToServerEvents, ServerToClientEvents } from "./types";
+import { ClientToServerEvents, ServerToClientEvents, Look } from "./types";
 
 let socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 
@@ -74,5 +74,24 @@ export function loadName(): string {
     return localStorage.getItem("bang:name") || "";
   } catch {
     return "";
+  }
+}
+
+// The body the player's figure wears. Lives here rather than on the server because the
+// server only holds it for as long as the room lives — this browser is what carries it
+// from one game to the next, and back into a room the server has since forgotten.
+export function saveLook(look: Look | null) {
+  try {
+    if (look) localStorage.setItem("bang:look", look);
+    else localStorage.removeItem("bang:look");
+  } catch {}
+}
+
+export function loadLook(): Look | null {
+  try {
+    const v = localStorage.getItem("bang:look");
+    return v === "m" || v === "f" ? v : null;
+  } catch {
+    return null;
   }
 }

@@ -16,14 +16,14 @@ const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.0, A4 = 440.0
 const C5 = 523.25;
 const C2 = 65.41, F2 = 87.31, G2 = 98.0, A2 = 110.0;
 
-// Plucked melody, one entry per eighth-note step (0 = rest).
+// One entry per eighth-note step; 0 = rest.
 const MELODY = [
   E4, R, G4, C5, R, G4, E4, R, // C
   E4, R, A4, C5, R, A4, E4, R, // Am
   F4, R, A4, C5, R, A4, F4, R, // F
   D4, R, G4, B4, R, G4, D4, R, // G
 ];
-// Walking bass — root on beats 1 and 3 of each bar.
+// Root on beats 1 and 3 of each bar.
 const BASS = [
   C2, R, R, R, C2, R, R, R,
   A2, R, R, R, A2, R, R, R,

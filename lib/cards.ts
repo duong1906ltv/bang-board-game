@@ -220,7 +220,6 @@ function parseSpec(spec: string): { suit: Suit; rank: number }[] {
   return spec.trim().split(/\s+/).flatMap(expandToken);
 }
 
-// A concrete card instance in the deck / a hand / the discard pile.
 export interface Card {
   id: string; // unique instance id
   defId: string; // catalog slug

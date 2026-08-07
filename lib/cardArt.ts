@@ -40,7 +40,7 @@ const rangeBadge = (n: number) =>
      <line x1='60' y1='66' x2='60' y2='86'/><line x1='50' y1='76' x2='70' y2='76'/>
    </g>`;
 
-// A revolver (short handgun) — Schofield.
+// Dùng cho Schofield.
 const revolver =
   `<g fill='#222' stroke='#222' stroke-linejoin='round'>
      <rect x='52' y='30' width='36' height='6' rx='2'/>

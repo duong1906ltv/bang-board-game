@@ -154,10 +154,19 @@ export interface EventView {
 
 // ─── Views sent to clients ───────────────────────────────────────────────────
 
+// Which body a player's seated figure wears. Purely cosmetic — the engine never reads
+// it, and it is carried by the server alongside the view rather than stored on the
+// player, so it cannot affect a single rule.
+//
+// Optional on purpose: a player who never touched the toggle, and every bot, has none,
+// and the table falls back to what their Bang! character suggests.
+export type Look = "m" | "f";
+
 export interface PlayerPublic {
   id: string;
   name: string;
   seat: number;
+  look?: Look; // chosen at the name box; absent means "follow the character"
   isHost: boolean;
   isBot: boolean; // server-controlled AI player (for testing / filling seats)
   connected: boolean;
@@ -265,23 +274,26 @@ export interface LogEntry {
 // ─── Socket.IO event payloads ────────────────────────────────────────────────
 
 export interface ClientToServerEvents {
+  // `look` rides along with every way in, including rejoin: the server keeps it beside
+  // the room rather than inside it, so a server restart or a reaped room forgets it and
+  // the returning browser is the only thing that still knows.
   createRoom: (
-    data: { name: string },
+    data: { name: string; look?: Look },
     cb: (res: { code: string; playerId: string }) => void
   ) => void;
   joinRoom: (
-    data: { code: string; name: string },
+    data: { code: string; name: string; look?: Look },
     cb: (res: { ok: boolean; playerId?: string; error?: GameError }) => void
   ) => void;
   // One-tap matchmaking: no code to type. `seats` are the (code, playerId) pairs
   // this browser remembers, so a returning player is put back in their own seat
   // instead of a stranger's lobby. Never fails — worst case it opens a new lobby.
   quickJoin: (
-    data: { name: string; seats: { code: string; playerId: string }[] },
+    data: { name: string; seats: { code: string; playerId: string }[]; look?: Look },
     cb: (res: { code: string; playerId: string; kind: "rejoin" | "joined" | "created" }) => void
   ) => void;
   rejoin: (
-    data: { code: string; playerId: string },
+    data: { code: string; playerId: string; look?: Look },
     cb: (res: { ok: boolean; error?: GameError }) => void
   ) => void;
   startGame: (data: { code: string }) => void;

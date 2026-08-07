@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
-import { getSocket, loadIdentity } from "@/lib/socketClient";
+import { getSocket, loadIdentity, loadLook } from "@/lib/socketClient";
 import { PlayerView, type EventLevel } from "@/lib/types";
 import TurnAlert from "@/components/TurnAlert";
 import { L, useLocale, initLocale, tError } from "@/lib/i18n";
@@ -27,9 +27,6 @@ export default function RoomPage() {
   const [view, setView] = useState<PlayerView | null>(null);
   const [error, setError] = useState<GameError | string | null>(null);
   const [copied, setCopied] = useState(false);
-  // Webcam feeds keyed by playerId, published by VideoChat and painted onto the
-  // matching seat in the 3D table.
-  const [feeds, setFeeds] = useState<Map<string, MediaStream>>(new Map());
   // Tạm ẩn voice/video (chưa có người dùng). Bật lại: đổi thành true.
   const VOICE_CHAT_ENABLED = false;
 
@@ -44,7 +41,10 @@ export default function RoomPage() {
         router.replace("/");
         return;
       }
-      socket.timeout(8000).emit("rejoin", { code, playerId }, (err, res) => {
+      // The look goes back up on every rejoin, not just on the way in: the server holds
+      // it only for as long as the room lives, so after a restart this browser is the
+      // only thing that still remembers which figure this seat was wearing.
+      socket.timeout(8000).emit("rejoin", { code, playerId, look: loadLook() ?? undefined }, (err, res) => {
         if (err || !res?.ok) {
           setError(res?.error ?? { code: "no-such-room" as const });
           redirectTimer = setTimeout(() => router.replace("/"), 1200);
@@ -109,7 +109,7 @@ export default function RoomPage() {
       <Header code={code} copied={copied} onCopy={copyCode} />
       {error && <p className="err">{tError(locale, error)}</p>}
 
-      {VOICE_CHAT_ENABLED && <VideoChat code={code} selfPlayerId={view.you.id} onFeeds={setFeeds} />}
+      {VOICE_CHAT_ENABLED && <VideoChat code={code} selfPlayerId={view.you.id} />}
       {/* calls you back when it is your turn or you must react while the tab is hidden */}
       <TurnAlert view={view} />
 
@@ -118,7 +118,7 @@ export default function RoomPage() {
       )}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} feeds={feeds} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} />
+        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} />
       )}
 
       {view.pending &&

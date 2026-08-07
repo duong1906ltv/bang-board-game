@@ -28,20 +28,19 @@ interface PeerRecord {
   pending: RTCIceCandidateInit[]; // ICE candidates that arrived before the answer/offer
 }
 
-// One entry per remote peer. Nothing renders them directly: audio goes to AudioSink
-// and the streams are published upward for the 3D WANTED posters.
+// One entry per remote peer. Nothing renders them directly: audio goes to AudioSink,
+// and the streams are still published upward via `onFeeds` for any caller that wants
+// the picture — nothing in the 3D scene does since the WANTED posters were removed.
 interface Tile {
   id: string; // socket id
-  playerId: string; // seat identity — used to place this feed on the 3D table
+  playerId: string; // seat identity — kept so a feed can be matched back to a seat
   name: string;
   stream: MediaStream | null;
 }
 
-// The video now lives on the WANTED posters in the 3D scene, so nothing here is
-// on screen — but a peer's VOICE has to keep coming out of somewhere. It used to
-// come out of the visible tiles; the texture elements in TableScene are all
-// `muted` (they must be, or every voice would double), so without this the call
-// would go silent the moment the tiles were removed.
+// Nothing here is on screen — this call is voice-only now — but a peer's VOICE has
+// to come out of somewhere. It used to come out of visible video tiles, so without
+// this sink the call would go silent the moment they were removed.
 //
 // Audio-only sink: no width/height, never painted, just plays.
 function AudioSink({ stream }: { stream: MediaStream | null }) {
@@ -58,10 +57,11 @@ export default function VideoChat({
   onFeeds,
 }: {
   code: string;
-  selfPlayerId?: string; // your seat id, so your own feed gets a poster too
-  // Publishes `playerId -> stream` upward so the 3D table can paint each feed
-  // onto the matching seat. This component stays the sole owner of the peer
-  // connections; it only shares the resulting streams.
+  selfPlayerId?: string; // your seat id, so your own feed is published alongside the rest
+  // Publishes `playerId -> stream` upward for anyone who wants to show the
+  // picture. Currently nobody does — the 3D table stopped painting feeds when the
+  // WANTED posters were removed, so this is voice-only in practice. This component
+  // stays the sole owner of the peer connections; it only shares the streams.
   onFeeds?: (feeds: Map<string, MediaStream>) => void;
 }) {
   const locale = useLocale();
@@ -97,8 +97,8 @@ export default function VideoChat({
       // Constrained on purpose. Bare `video: true` lets the browser pick, often
       // 720p, and in a mesh call every participant ENCODES that separately for each
       // of the other six — the single most expensive thing this page asks of a
-      // laptop. The feed lands on a wall poster a couple of hundred pixels wide, so
-      // 480x360 at 20fps is already more detail than is ever displayed.
+      // laptop. Nothing displays the picture at all since the WANTED posters went,
+      // so 480x360 at 20fps is already more than anyone will ever see of it.
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 480 },
@@ -190,7 +190,7 @@ export default function VideoChat({
         if (pc.connectionState === "failed" || pc.connectionState === "closed") dropPeer(peerId);
       };
 
-      upsertTile({ id: peerId, playerId, name, stream: null }); // register the peer now, so audio and poster wiring exist before the stream lands
+      upsertTile({ id: peerId, playerId, name, stream: null }); // register the peer now, so the audio wiring exists before the stream lands
 
       if (initiator) {
         (async () => {
@@ -268,8 +268,7 @@ export default function VideoChat({
 
   // Hand the seat-keyed feeds to the parent whenever they change. Peers whose
   // identity hasn't arrived yet (playerId "") are skipped rather than guessed.
-  // Your own stream goes in too, so your own poster hangs on the wall like
-  // everyone else's.
+  // Your own stream goes in too, so a caller sees every seat, itself included.
   useEffect(() => {
     if (!onFeeds) return;
     const m = new Map<string, MediaStream>();
@@ -282,8 +281,8 @@ export default function VideoChat({
 
   return (
     <div style={{ position: "fixed", left: 12, bottom: 12, zIndex: 45, display: "flex", flexDirection: "column", gap: 8, maxWidth: "min(72vw, 640px)" }}>
-      {/* Voice only — the picture is on the posters. Your own stream is never
-          sunk here: hearing yourself back is a feedback loop. */}
+      {/* Voice only. Your own stream is never sunk here: hearing yourself back
+          is a feedback loop. */}
       {tiles.map((t) => (
         <AudioSink key={t.id} stream={t.stream} />
       ))}

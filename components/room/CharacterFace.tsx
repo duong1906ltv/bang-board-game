@@ -4,9 +4,8 @@ import { Character } from "@/lib/types";
 import { CHARACTER_PHOTO } from "@/lib/characterArt";
 import { L, useLocale, charAbility } from "@/lib/i18n";
 
-// The character as a playing card, matching the printed ones: name banner, portrait
-// with a column of hearts for life points, ability text below. Used both in the draft
-// (where you compare two side by side) and in the review popups.
+// The character as a playing card, matching the printed ones. Shown in the draft
+// (two side by side) and in the review popups.
 //
 // The height is FIXED rather than fitting the text: the draft shows two of these next
 // to each other, and 226px is the tallest any of the 16 abilities needs in either

@@ -2,10 +2,8 @@
 
 import { useState } from "react";
 import { PlayerView } from "@/lib/types";
-import { type Card } from "@/lib/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 import { L, useLocale, formatPending, checkText, actionLabel } from "@/lib/i18n";
-import { CardModal } from "./CardModal";
 import { PENDING_EMOJI, CHECK_ICON } from "./constants";
 
 export function ReactionPanel({
@@ -22,10 +20,6 @@ export function ReactionPanel({
   const you = view.you;
 
   const [open, setOpen] = useState(true);
-  // A store/kit card the player tapped to read before committing. Picking used to
-  // fire on the first tap off a thumbnail with no effect text anywhere, so choosing
-  // from a General Store meant either knowing all 21 cards by their art or guessing.
-  const [preview, setPreview] = useState<Card | null>(null);
 
   const doAction = (a: "missed" | "beer" | "bang" | "pass") => {
     if (a === "pass") return onRespond("pass");
@@ -73,6 +67,11 @@ export function ReactionPanel({
     );
   }
 
+  // General Store and Kit Carlson are picked from the cards themselves, staged over the
+  // table (see TableChoice) — both carry no actions, so there is nothing left for a
+  // panel to hold and covering the felt with one would hide what the choice depends on.
+  if (p.kind === "store" || p.kind === "kit") return null;
+
   return (
     <div className="modal-overlay">
       <div className="modal-card" style={{ color: "var(--accent)", position: "relative" }}>
@@ -113,43 +112,6 @@ export function ReactionPanel({
           </div>
         )}
 
-        {(p.kind === "store" || p.kind === "kit") && (
-          <>
-            <div className="card-row" style={{ justifyContent: "center" }}>
-              {(p.storeCards ?? []).map((c) => (
-                <PlayingCard
-                  key={c.id}
-                  card={c}
-                  size="sm"
-                  // Tapping opens the card full-size with its effect text; the pick
-                  // itself is confirmed from there. Onlookers may read the cards too —
-                  // they are face-up on the table — they just get no pick button.
-                  onClick={() => setPreview(c)}
-                  dimmed={!p.youMustRespond}
-                />
-              ))}
-            </div>
-            {/* Re-read from the live list: a card you were still reading about can be
-                taken by whoever picks before you, and offering "take this" for a card
-                that has already left the table is a rejection waiting to happen. */}
-            {preview && (p.storeCards ?? []).some((c) => c.id === preview.id) && (
-              <CardModal
-                card={preview}
-                showEffect
-                onClose={() => setPreview(null)}
-                actions={
-                  p.youMustRespond
-                    ? [
-                        { label: L(locale, "Chọn lá này", "Take this card"), onClick: () => { setPreview(null); onChoose(preview.id); } },
-                        { label: L(locale, "Đóng", "Close"), onClick: () => setPreview(null), ghost: true },
-                      ]
-                    : undefined
-                }
-              />
-            )}
-          </>
-        )}
-
         {p.actions.map((a, i) => (
           <div key={a}>
             {i > 0 && <div style={{ height: 8 }} />}
@@ -159,7 +121,10 @@ export function ReactionPanel({
           </div>
         ))}
 
-        {!p.youMustRespond && p.kind !== "store" && (
+        {/* The exception this used to carry — "not for a General Store" — is gone with
+            the store itself: an onlooker there is watching the cards out on the table,
+            not this panel. */}
+        {!p.youMustRespond && (
           <p className="muted" style={{ marginTop: 10 }}>{L(locale, "Đang chờ người khác…", "Waiting for others…")}</p>
         )}
       </div>

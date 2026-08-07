@@ -762,3 +762,20 @@ button.ghost:hover:not(:disabled) {
   from { opacity: .85; transform: translate(-50%, -50%) scale(.82); }
   to   { opacity: 0;   transform: translate(-50%, -50%) scale(1.5); }
 }
+
+/* The cards of a General Store / Kit Carlson arriving on the table. They rise from the
+   middle — where the deck they came off is — turning face-on as they come, one after
+   another. Kit Carlson's whole ability is "look at the top 3 of the deck", and until
+   this they simply appeared, saying nothing about where they came from.
+
+   The turn is rotateY 90deg -> 0: the card starts edge-on, which is a sliver of nothing,
+   so it reads as being turned over without needing a back face drawn. */
+@keyframes tcDeal {
+  from { opacity: 0; transform: translateY(54px) scale(0.7) rotateY(90deg); }
+  60%  { opacity: 1; }
+  to   { opacity: 1; transform: none; }
+}
+.tc-deal {
+  animation: tcDeal 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) backwards;
+  transform-style: preserve-3d;
+}

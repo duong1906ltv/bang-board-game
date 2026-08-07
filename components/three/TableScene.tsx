@@ -4,1512 +4,29 @@
 // so the game logic / socket layer is untouched — this is purely a render layer.
 // A fixed 3/4 view across a round table, opponents around the far arc. Your own
 // hand is 2D DOM UI, not part of this scene.
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+//
+// This file is only the assembly: camera, lights, and which pieces go where. The
+// pieces themselves live in ./scene — geometry.ts holds every measured number,
+// and each component file owns one thing you can see.
+import { memo, useEffect, useMemo, useRef } from "react";
+import type { ElementRef, MutableRefObject } from "react";
 import * as THREE from "three";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, Html } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
-import { CardMesh } from "./CardMesh";
-import { PlayingCard } from "@/components/PlayingCard";
-import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
-import type { PlayerView, PlayerPublic, CheckView } from "@/lib/types";
-import { ROLE_EMOJI } from "@/lib/types";
-
-// Repeating wooden-plank texture drawn on a canvas (no external asset needed).
-function plankTexture() {
-  const c = document.createElement("canvas");
-  c.width = 128;
-  c.height = 128;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = "#6e4a28";
-  ctx.fillRect(0, 0, 128, 128);
-  const ph = 32;
-  for (let y = 0; y < 128; y += ph) {
-    const alt = (y / ph) % 2 === 0;
-    ctx.fillStyle = alt ? "#7a5330" : "#623f22";
-    ctx.fillRect(0, y, 128, ph - 2);
-    ctx.strokeStyle = "rgba(0,0,0,0.35)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, y + ph - 1);
-    ctx.lineTo(128, y + ph - 1);
-    ctx.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 6);
-  return tex;
-}
-
-
-
-// A carved wooden "SALOON" sign board for the back wall.
-function signTexture() {
-  const c = document.createElement("canvas");
-  c.width = 512;
-  c.height = 150;
-  const ctx = c.getContext("2d");
-  if (!ctx) return new THREE.CanvasTexture(c);
-  // wood board with horizontal plank seams
-  ctx.fillStyle = "#4a2f16";
-  ctx.fillRect(0, 0, 512, 150);
-  ctx.strokeStyle = "rgba(0,0,0,0.3)";
-  ctx.lineWidth = 3;
-  for (let y = 50; y < 150; y += 50) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke();
-  }
-  // gilt border + engraved title
-  ctx.strokeStyle = "#caa24a";
-  ctx.lineWidth = 8;
-  ctx.strokeRect(12, 12, 488, 126);
-  ctx.fillStyle = "#f0d68a";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = "bold 84px Georgia, serif";
-  ctx.fillText("SALOON", 256, 80);
-  return new THREE.CanvasTexture(c);
-}
-
-// ── procedural wall / floor decor (self-contained, no external assets) ────────
-// Each piece is built in its local frame facing +z (like the wall posters); when
-// mounted on a side wall the parent <group> is rotated so +z points into the room.
-
-const WOOD = "#5a3a1c";
-const WOOD_DARK = "#3a2410";
-const METAL = "#8a8f96";
-
-// Spoked wagon wheel — the quintessential frontier wall piece.
-function WagonWheel({ r = 0.62 }: { r?: number }) {
-  const spokes = 8;
-  return (
-    <group>
-      <mesh><torusGeometry args={[r, r * 0.06, 8, 30]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
-      <mesh><torusGeometry args={[r * 0.62, r * 0.05, 8, 26]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
-      <mesh rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[r * 0.13, r * 0.13, 0.1, 12]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.7} /></mesh>
-      {Array.from({ length: spokes }).map((_, i) => (
-        <mesh key={i} rotation={[0, 0, (Math.PI / spokes) * i]}>
-          <boxGeometry args={[r * 0.045, r * 1.2, 0.03]} />
-          <meshStandardMaterial color={WOOD} roughness={0.8} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-// A hung horseshoe (open end pointing down, "for luck").
-function Horseshoe({ s = 0.22 }: { s?: number }) {
-  return (
-    <mesh rotation={[0, 0, Math.PI * 1.28]}>
-      <torusGeometry args={[s, s * 0.16, 8, 22, Math.PI * 1.45]} />
-      <meshStandardMaterial color={METAL} metalness={0.6} roughness={0.4} />
-    </mesh>
-  );
-}
-
-// A single rifle lying along local +Y (barrel up), for the crossed-rifles trophy.
-function Rifle() {
-  return (
-    <group>
-      <mesh position={[0, 0.2, 0]}><cylinderGeometry args={[0.022, 0.022, 1.15, 10]} /><meshStandardMaterial color="#2b2b2e" metalness={0.7} roughness={0.35} /></mesh>
-      <mesh position={[0, -0.02, 0]}><boxGeometry args={[0.06, 0.36, 0.05]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
-      <mesh position={[0, -0.46, 0]} rotation={[0, 0, 0.16]}><boxGeometry args={[0.1, 0.42, 0.07]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.8} /></mesh>
-    </group>
-  );
-}
-
-// Two rifles crossed — a fitting emblem for a game of gunfights.
-function CrossedRifles() {
-  return (
-    <group>
-      <group rotation={[0, 0, 0.5]}><Rifle /></group>
-      <group rotation={[0, 0, -0.5]}><Rifle /></group>
-    </group>
-  );
-}
-
-// A wall-mounted oil lamp that also casts a warm pool of light on a side wall.
-function WallSconce({ felt }: { felt: number }) {
-  return (
-    <group>
-      <mesh position={[0, -0.02, 0.06]}><boxGeometry args={[0.1, 0.18, 0.1]} /><meshStandardMaterial color="#1a1a1a" metalness={0.5} roughness={0.6} /></mesh>
-      <mesh position={[0, 0.13, 0.08]}><sphereGeometry args={[0.09, 14, 14]} /><meshStandardMaterial color="#fff2d0" emissive="#ffcf8f" emissiveIntensity={2.2} /></mesh>
-      <pointLight position={[0, 0.13, 0.35]} color="#ffcf8f" intensity={7} distance={felt * 3} decay={2} />
-    </group>
-  );
-}
-
-// A short liquor bottle (glass body + neck), colour varied by index.
-function Bottle({ position, tint }: { position: [number, number, number]; tint: string }) {
-  return (
-    <group position={position}>
-      <mesh><cylinderGeometry args={[0.045, 0.045, 0.2, 10]} /><meshStandardMaterial color={tint} roughness={0.25} metalness={0.1} transparent opacity={0.85} /></mesh>
-      <mesh position={[0, 0.15, 0]}><cylinderGeometry args={[0.018, 0.03, 0.1, 8]} /><meshStandardMaterial color={tint} roughness={0.25} /></mesh>
-    </group>
-  );
-}
-
-// A corner bar: a plank counter with a bottle row plus a wall shelf behind it.
-function Bar({ floorY, len = 2.6 }: { floorY: number; len?: number }) {
-  const tints = ["#3e6b3a", "#7a4a1c", "#5a7a86", "#6b3030", "#3e6b3a", "#7a4a1c"];
-  const bottleZ = Array.from({ length: 6 }).map((_, i) => -len / 2 + 0.3 + (i * (len - 0.6)) / 5);
-  return (
-    <group position={[0, floorY, 0]}>
-      {/* counter body + top */}
-      <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[0.6, 1.0, len]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.85} /></mesh>
-      <mesh position={[0, 1.02, 0]}><boxGeometry args={[0.72, 0.06, len + 0.12]} /><meshStandardMaterial color={WOOD} roughness={0.7} /></mesh>
-      {bottleZ.map((z, i) => (<Bottle key={i} position={[0.05, 1.15, z]} tint={tints[i]} />))}
-      {/* back shelf against the wall + its bottles */}
-      <mesh position={[-0.42, 1.55, 0]}><boxGeometry args={[0.18, 0.05, len * 0.85]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
-      {bottleZ.filter((_, i) => i % 2 === 0).map((z, i) => (<Bottle key={i} position={[-0.42, 1.68, z]} tint={tints[(i * 2 + 1) % tints.length]} />))}
-    </group>
-  );
-}
-
-// An upright saloon piano for a back corner.
-function Piano({ floorY }: { floorY: number }) {
-  const keys = 14;
-  return (
-    <group position={[0, floorY, 0]}>
-      <mesh position={[0, 0.62, 0]} castShadow><boxGeometry args={[1.5, 1.24, 0.5]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.5} metalness={0.1} /></mesh>
-      <mesh position={[0, 1.28, 0.02]}><boxGeometry args={[1.6, 0.1, 0.62]} /><meshStandardMaterial color="#2a1a0e" roughness={0.4} /></mesh>
-      {/* upper front panel + keyboard shelf */}
-      <mesh position={[0, 0.82, 0.27]}><boxGeometry args={[1.3, 0.5, 0.04]} /><meshStandardMaterial color="#221208" roughness={0.5} /></mesh>
-      <mesh position={[0, 0.55, 0.3]} rotation={[-0.25, 0, 0]}><boxGeometry args={[1.3, 0.16, 0.06]} /><meshStandardMaterial color="#f2ead6" roughness={0.4} /></mesh>
-      {/* a few black keys hinted as dark ticks */}
-      {Array.from({ length: keys }).map((_, i) => (
-        <mesh key={i} position={[-0.6 + (i * 1.2) / (keys - 1), 0.585, 0.33]} rotation={[-0.25, 0, 0]}>
-          <boxGeometry args={[0.04, 0.09, 0.02]} /><meshStandardMaterial color="#1a1a1a" />
-        </mesh>
-      ))}
-      {/* stool */}
-      <mesh position={[0, 0.34, 0.75]} castShadow><boxGeometry args={[0.6, 0.08, 0.3]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
-    </group>
-  );
-}
-
-// Swinging batwing doors in a wooden frame — the saloon entrance.
-function BatwingDoors() {
-  return (
-    <group>
-      {/* frame */}
-      <mesh position={[-0.52, 0.95, 0]}><boxGeometry args={[0.12, 1.9, 0.16]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
-      <mesh position={[0.52, 0.95, 0]}><boxGeometry args={[0.12, 1.9, 0.16]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
-      <mesh position={[0, 1.92, 0]}><boxGeometry args={[1.2, 0.14, 0.16]} /><meshStandardMaterial color={WOOD} roughness={0.8} /></mesh>
-      {/* dark night-time opening behind the doors */}
-      <mesh position={[0, 0.95, -0.06]}><planeGeometry args={[0.94, 1.8]} /><meshStandardMaterial color="#1b1206" /></mesh>
-      {/* two half-height swinging doors */}
-      {[-0.235, 0.235].map((x, i) => (
-        <group key={i} position={[x, 0.9, 0.03]}>
-          <mesh><boxGeometry args={[0.42, 0.95, 0.05]} /><meshStandardMaterial color="#6b4526" roughness={0.85} /></mesh>
-          {[-0.28, 0, 0.28].map((y, j) => (
-            <mesh key={j} position={[0, y, 0.03]}><boxGeometry args={[0.38, 0.06, 0.02]} /><meshStandardMaterial color={WOOD_DARK} roughness={0.8} /></mesh>
-          ))}
-        </group>
-      ))}
-    </group>
-  );
-}
-
-
-// A simple saguaro cactus (trunk + two arms).
-function Cactus({ position }: { position: [number, number, number] }) {
-  const mat = <meshStandardMaterial color="#3f7a3a" roughness={0.9} />;
-  return (
-    <group position={position}>
-      <mesh castShadow position={[0, 0.7, 0]}>
-        <capsuleGeometry args={[0.16, 1.2, 6, 12]} />
-        {mat}
-      </mesh>
-      <mesh castShadow position={[0.28, 0.85, 0]} rotation={[0, 0, -0.5]}>
-        <capsuleGeometry args={[0.08, 0.5, 6, 12]} />
-        {mat}
-      </mesh>
-      <mesh castShadow position={[-0.28, 1.05, 0]} rotation={[0, 0, 0.5]}>
-        <capsuleGeometry args={[0.08, 0.5, 6, 12]} />
-        {mat}
-      </mesh>
-    </group>
-  );
-}
-
-// A rustic barrel: body + darker metal hoops. Placed as background props.
-function Barrel({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position}>
-      <mesh castShadow>
-        <cylinderGeometry args={[0.32, 0.28, 0.9, 20]} />
-        <meshStandardMaterial color="#5a3a1c" roughness={0.9} />
-      </mesh>
-      {[-0.28, 0, 0.28].map((y, i) => (
-        <mesh key={i} position={[0, y, 0]}>
-          <cylinderGeometry args={[0.335, 0.335, 0.06, 20]} />
-          <meshStandardMaterial color="#2c1c0e" roughness={0.8} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-// Western saloon shell: plank floor, warm wood walls, wall decor, a bar, a
-// piano, and a few barrels in the background. Sizes scale with the table.
-function SaloonInner({ felt }: { felt: number }) {
-  const floorTex = useMemo(plankTexture, []);
-  const signTex = useMemo(signTexture, []);
-  // Free the canvas-backed textures when the scene unmounts (r3f doesn't).
-  useEffect(() => () => [floorTex, signTex].forEach((t) => t.dispose()), [floorTex, signTex]);
-  const roomW = felt * 6.5;
-  const roomH = 7;
-  const floorY = FLOOR_Y;
-  const wall = roomW / 2 - 0.05; // inner wall distance from centre
-  const barrelR = felt * 2.3;
-  const barrels: [number, number, number][] = [
-    [Math.cos(2.1) * barrelR, floorY + 0.45, Math.sin(2.1) * barrelR],
-    [Math.cos(4.2) * barrelR, floorY + 0.45, Math.sin(4.2) * barrelR],
-    [Math.cos(5.4) * barrelR, floorY + 0.45, Math.sin(5.4) * barrelR],
-  ];
-  return (
-    <group>
-      {/* room walls + ceiling (we're inside the box) */}
-      <mesh position={[0, floorY + roomH / 2, 0]}>
-        <boxGeometry args={[roomW, roomH, roomW]} />
-        <meshStandardMaterial color="#6b4a2c" side={THREE.BackSide} roughness={1} />
-      </mesh>
-      {/* plank floor just above the box bottom */}
-      <mesh position={[0, floorY + 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[roomW, roomW]} />
-        <meshStandardMaterial map={floorTex} roughness={1} />
-      </mesh>
-      {/* The back wall is deliberately bare: it is now the players' poster wall
-          (see WantedPosters). The three decorative sheets that used to hang here —
-          two WANTED sheets at ±0.62·wall and the Ronaldo tribute in the middle —
-          were removed, which is what lets the player posters run right across the
-          wall evenly and roughly twice as large. */}
-      {/* back wall: carved SALOON sign above the posters + lucky horseshoes */}
-      <mesh position={[0, floorY + 3.5, -wall + 0.03]}>
-        <planeGeometry args={[2.6, 0.76]} />
-        <meshStandardMaterial map={signTex} roughness={0.9} />
-      </mesh>
-      {[-wall * 0.5, wall * 0.5].map((x, i) => (
-        <group key={i} position={[x, floorY + 3.25, -wall + 0.06]}>
-          <Horseshoe />
-        </group>
-      ))}
-      {/* left wall: wagon wheel + a lamp sconce; batwing entrance toward the front */}
-      <group position={[-wall + 0.07, floorY + 2.2, -felt * 0.3]} rotation={[0, Math.PI / 2, 0]}>
-        <WagonWheel />
-      </group>
-      <group position={[-wall + 0.07, floorY + 1.9, felt * 1.15]} rotation={[0, Math.PI / 2, 0]}>
-        <WallSconce felt={felt} />
-      </group>
-      <group position={[-wall + 0.1, floorY, felt * 1.7]} rotation={[0, Math.PI / 2, 0]}>
-        <BatwingDoors />
-      </group>
-      {/* right wall: crossed rifles + a lamp sconce */}
-      <group position={[wall - 0.07, floorY + 2.2, -felt * 0.3]} rotation={[0, -Math.PI / 2, 0]}>
-        <CrossedRifles />
-      </group>
-      <group position={[wall - 0.07, floorY + 1.9, felt * 1.15]} rotation={[0, -Math.PI / 2, 0]}>
-        <WallSconce felt={felt} />
-      </group>
-      {/* corners: a bar along the back-left wall, an upright piano back-right */}
-      <group position={[-wall + 0.45, 0, -felt * 1.4]}>
-        <Bar floorY={floorY} len={felt * 1.5} />
-      </group>
-      <group position={[felt * 1.8, 0, -wall + 0.45]}>
-        <Piano floorY={floorY} />
-      </group>
-
-      {barrels.map((p, i) => (
-        <Barrel key={i} position={p} />
-      ))}
-      <Cactus position={[Math.cos(3.5) * barrelR, floorY, Math.sin(3.5) * barrelR]} />
-      <Cactus position={[Math.cos(0.9) * barrelR * 1.1, floorY, Math.sin(0.9) * barrelR * 1.1]} />
-    </group>
-  );
-}
-
-// Flat star emblem — a Shape, so it sits flush on the hat or the felt with no depth.
-function SheriffStar({ radius, y, color, opacity = 1 }: { radius: number; y: number; color: string; opacity?: number }) {
-  const geo = useMemo(() => {
-    const shape = new THREE.Shape();
-    const spikes = 5;
-    const inner = radius * 0.42;
-    for (let i = 0; i < spikes * 2; i++) {
-      const r = i % 2 === 0 ? radius : inner;
-      const a = (Math.PI / spikes) * i - Math.PI / 2;
-      const x = Math.cos(a) * r;
-      const yy = Math.sin(a) * r;
-      if (i === 0) shape.moveTo(x, yy);
-      else shape.lineTo(x, yy);
-    }
-    shape.closePath();
-    return new THREE.ShapeGeometry(shape);
-  }, [radius]);
-  useEffect(() => () => geo.dispose(), [geo]);
-  return (
-    <mesh geometry={geo} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <meshStandardMaterial color={color} transparent opacity={opacity} roughness={0.6} metalness={0.3} />
-    </mesh>
-  );
-}
-
-// Layout scales with the number of opponents so a 7-player table isn't cramped.
-// Opponents clockwise from your own seat, so avatars and posters run in the same
-// order. Note posters prepend YOU, so a poster is one slot right of its avatar.
-// The green scope players tap to pick a card or a target. One component so both
-// affordances read as the same UI element — the aim prompt says to look for it.
-function Crosshair({ size, color, fill, stroke }: { size: number; color: string; fill: string; stroke: number }) {
-  return (
-    <svg viewBox="0 0 100 100" width={size} height={size}>
-      <circle cx="50" cy="50" r="34" fill={fill} stroke={color} strokeWidth={stroke} />
-      <line x1="50" y1="8" x2="50" y2="28" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
-      <line x1="50" y1="72" x2="50" y2="92" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
-      <line x1="8" y1="50" x2="28" y2="50" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
-      <line x1="72" y1="50" x2="92" y2="50" stroke={color} strokeWidth={stroke} strokeLinecap="round" />
-      <circle cx="50" cy="50" r="6" fill={color} />
-    </svg>
-  );
-}
-
-function othersInTurnOrder<T extends { seat: number }>(players: T[], youSeat: number, n: number): T[] {
-  return players
-    .filter((p) => p.seat !== youSeat)
-    .sort((a, b) => ((a.seat - youSeat + n) % n) - ((b.seat - youSeat + n) % n));
-}
-
-function layout(nOpp: number) {
-  const ring = 1.4 + 0.13 * nOpp; // radius of the opponent circle
-  const felt = ring + 0.5; // felt top radius
-  // Arc widens with player count so a full table wraps evenly around the felt
-  // instead of bunching on the far side (up to ~270° for 6 opponents).
-  const arc = Math.min(1.5, 0.6 + 0.15 * nOpp) * Math.PI;
-  // Frame the camera relative to the table size so the whole table reads the same
-  // way for any player count: a 3/4 "seated" view, table filling the width.
-  const d = felt * 1.95;
-  const camY = d * 0.6; // ~37° above horizon
-  const camZ = d * 0.8;
-  const fov = 55;
-  return { ring, felt, arc, camY, camZ, fov };
-}
-
-// The felt surface, drawn on a canvas instead of being a flat colour. A single
-// `meshStandardMaterial color` read as plastic clip-art; this bakes in the fibre
-// noise, a darkened rim, the inner ring and the sheriff star so the whole surface
-// is one texture (no extra ring mesh, no decal plane fighting for z).
-function feltTexture(): THREE.Texture {
-  const S = 1024;
-  const c = document.createElement("canvas");
-  c.width = c.height = S;
-  const g = c.getContext("2d")!;
-  const mid = S / 2;
-
-  // base: lit toward the middle (under the lamp), falling off to the rim
-  const grad = g.createRadialGradient(mid, mid * 0.9, S * 0.05, mid, mid, mid);
-  grad.addColorStop(0, "#2f7d47");
-  grad.addColorStop(0.55, "#246438");
-  grad.addColorStop(1, "#173f24");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, S, S);
-
-  // felt fibre: short strokes at random angles, half light and half dark, so the
-  // surface breaks up under the lamp instead of reading as a solid sheet
-  for (let i = 0; i < 24000; i++) {
-    const x = Math.random() * S;
-    const y = Math.random() * S;
-    const a = Math.random() * Math.PI;
-    const len = 1.5 + Math.random() * 3;
-    g.strokeStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.045)";
-    g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(x, y);
-    g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
-    g.stroke();
-  }
-
-  // sheriff star, worn into the felt rather than painted on top
-  g.save();
-  g.translate(mid, mid);
-  g.beginPath();
-  const spikes = 5;
-  const R = S * 0.2;
-  for (let i = 0; i < spikes * 2; i++) {
-    const r = i % 2 === 0 ? R : R * 0.42;
-    const a = (Math.PI / spikes) * i - Math.PI / 2;
-    const x = Math.cos(a) * r;
-    const y = Math.sin(a) * r;
-    i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
-  }
-  g.closePath();
-  g.fillStyle = "rgba(190,150,70,0.13)";
-  g.fill();
-  g.strokeStyle = "rgba(0,0,0,0.16)";
-  g.lineWidth = 3;
-  g.stroke();
-  g.restore();
-
-  // faint betting ring
-  g.beginPath();
-  g.arc(mid, mid, S * 0.32, 0, Math.PI * 2);
-  g.strokeStyle = "rgba(0,0,0,0.18)";
-  g.lineWidth = 5;
-  g.stroke();
-
-  // darkened outer edge so the rim doesn't glow brighter than the middle
-  const rim = g.createRadialGradient(mid, mid, mid * 0.82, mid, mid, mid);
-  rim.addColorStop(0, "rgba(0,0,0,0)");
-  rim.addColorStop(1, "rgba(0,0,0,0.5)");
-  g.fillStyle = rim;
-  g.fillRect(0, 0, S, S);
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
-}
-
-function TableInner({ felt }: { felt: number }) {
-  const bodyR = felt + 0.12;
-  const felTex = useMemo(() => feltTexture(), []);
-  useEffect(() => () => felTex.dispose(), [felTex]);
-  const legR = bodyR * 0.72;
-  const legs: [number, number][] = [
-    [legR, legR],
-    [legR, -legR],
-    [-legR, legR],
-    [-legR, -legR],
-  ];
-  return (
-    <group>
-      {/* wooden table body — top surface at y=0 */}
-      <mesh position={[0, -0.2, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[bodyR, bodyR * 0.94, 0.4, 64]} />
-        <meshStandardMaterial color="#5a3312" roughness={0.75} />
-      </mesh>
-      {/* green felt, lifted just above the body top to avoid z-fighting */}
-      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[felt, 96]} />
-        <meshStandardMaterial map={felTex} roughness={0.98} />
-      </mesh>
-      {/* padded leather rim around the felt */}
-      <mesh position={[0, 0.028, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[felt * 0.965, felt, 96]} />
-        <meshStandardMaterial color="#4a2c14" roughness={0.6} />
-      </mesh>
-      {legs.map(([x, z], i) => (
-        <mesh key={i} position={[x, -0.95, z]} castShadow>
-          <cylinderGeometry args={[0.1, 0.08, 1.3, 16]} />
-          <meshStandardMaterial color="#3f2410" roughness={0.85} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-// ─── Webcam WANTED posters ───────────────────────────────────────────────────
-//
-// Placement is dictated by what the fixed camera can actually see, which is much
-// less wall than it looks. Two constraints, both measured rather than eyeballed:
-//
-//  - Vertically: pitched ~35° down with a 55° vertical fov, the top of frame at the
-//    back wall lands at y≈1.41, and avatar heads reach ~0.8. So posters live in a
-//    thin band and want to be as high in it as they can get.
-//  - Horizontally: the back wall is nearly face-on and almost all of it is in frame,
-//    but the side walls recede from the camera and leave frame quickly — only their
-//    back-corner stretch is visible at all (see posterSlots).
-//
-// Hence: every poster on the back wall, spread evenly across its full width.
-// One slot: where the poster hangs and how big it is.
-interface PosterSlot {
-  pos: [number, number, number];
-  w: number;
-  h: number;
-}
-
-// Work out the strip of back wall the camera can actually see, then fit n posters
-// across it. Both bounds are derived from the same numbers `layout()` uses, so the
-// posters re-fit themselves for every player count instead of being hand-placed.
-//
-// The lower bound is the subtlety. Avatar heads only reach y≈0.8 in world space, but
-// they sit far in FRONT of the wall, so on screen they blot out a much taller band of
-// it: projecting a head-top through the camera onto the wall plane puts the horizon
-// of hidden wall near y≈-0.6…-1.0 depending on table size. Comparing world heights
-// instead of projecting is what made an earlier version of this call the band "barely
-// half a unit tall" when it is really closer to two.
-function posterSlots(felt: number, wall: number, n: number): PosterSlot[] {
-  // mirror layout(): camera framing per table size
-  const d = felt * 1.95;
-  const camY = d * 0.6;
-  const camZ = d * 0.8;
-  const targetZ = -felt * 0.12;
-  const seatR = felt + 0.45;
-  const wallDist = camZ + wall; // camera → back wall, along z
-
-  // top of frame on the wall: the upper view ray, which still points downward
-  const pitch = Math.atan(camY / (camZ - targetZ));
-  const yTop = camY - wallDist * Math.tan(pitch - (55 / 2) * (Math.PI / 180));
-
-  // bottom: where the nearest-blocking avatar's head projects onto the wall
-  const headY = 0.72;
-  const t = wallDist / (camZ + seatR);
-  const yBottom = camY + t * (headY - camY);
-
-  const band = Math.max(0.8, yTop - yBottom);
-  const gap = 0.18;
-  const slotW = (wall * 2) / n - gap;
-  // 4:3 to match the webcam frame exactly — no cropping either way. Height is
-  // capped by the band, width by how many have to fit side by side.
-  // The /1.42 matters: the backing board is 1.34x the photo's height (it carries the
-  // WANTED header and the name plaque), so sizing the PHOTO to the band overflowed it
-  // at both ends — the header ran off the top of frame and the plaque disappeared
-  // behind the players' heads.
-  const h = Math.min(band / 1.42, slotW * 0.75);
-  const w = h * (4 / 3);
-  const yMid = (yTop + yBottom) / 2;
-
-  return Array.from({ length: n }, (_, i) => {
-    const spread = (wall * 2) / n;
-    const x = -wall + spread * (i + 0.5);
-    return { pos: [x, yMid, -wall + 0.06] as [number, number, number], w, h };
-  });
-}
-
-// A framed poster carrying one player's live webcam, with their name on a plaque
-// beneath it. Flat and wall-mounted, so it faces the camera without billboarding
-// and its 4:3 feed needs no square crop.
-function WantedPoster({
-  slot,
-  stream,
-  name,
-  isTurn,
-}: {
-  slot: PosterSlot;
-  stream?: MediaStream | null;
-  name: string;
-  isTurn: boolean;
-}) {
-  const { w: W, h: H } = slot;
-  const live = useStreamTexture(stream);
-  // Falls back to the drawn mugshot so the slot is never an empty frame.
-  const tex = live ?? noCamTex();
-  const frame = isTurn ? "#e0a955" : "#6b4a24";
-  return (
-    <group position={slot.pos}>
-      {/* backing board */}
-      <mesh position={[0, 0, -0.02]}>
-        <planeGeometry args={[W + 0.12 * W, H + 0.34 * H]} />
-        <meshStandardMaterial color="#e8d5a8" roughness={1} />
-      </mesh>
-      {/* WANTED header */}
-      <mesh position={[0, H / 2 + 0.1 * H, 0]}>
-        <planeGeometry args={[W * 0.86, 0.13 * H]} />
-        <meshBasicMaterial map={wantedHeaderTex()} transparent toneMapped={false} />
-      </mesh>
-      {/* the photo: live feed, or the drawn mugshot until the camera comes on.
-          `toneMapped` off only for a live feed — the sketch should sit in the
-          scene's lighting like the paper it's printed on. */}
-      <mesh>
-        <planeGeometry args={[W, H]} />
-        {live ? (
-          <meshBasicMaterial map={tex} toneMapped={false} />
-        ) : (
-          <meshStandardMaterial map={tex} roughness={1} />
-        )}
-      </mesh>
-      {/* frame rails around the photo — lit up while it's this player's turn */}
-      {[
-        [0, H / 2, W + 0.05 * W, 0.035 * H],
-        [0, -H / 2, W + 0.05 * W, 0.035 * H],
-      ].map(([x, y, w, h], i) => (
-        <mesh key={`h${i}`} position={[x, y, 0.01]}>
-          <planeGeometry args={[w, h]} />
-          <meshStandardMaterial color={frame} roughness={0.85} />
-        </mesh>
-      ))}
-      {[-W / 2, W / 2].map((x, i) => (
-        <mesh key={`v${i}`} position={[x, 0, 0.01]}>
-          <planeGeometry args={[0.035 * H, H + 0.035 * H]} />
-          <meshStandardMaterial color={frame} roughness={0.85} />
-        </mesh>
-      ))}
-      {/* name plaque under the photo */}
-      <Html
-        center
-        position={[0, -H / 2 - 0.13 * H, 0.03]}
-        distanceFactor={8}
-        style={{ pointerEvents: "none" }}
-      >
-        <div
-          style={{
-            whiteSpace: "nowrap",
-            fontFamily: "Georgia, serif",
-            fontWeight: 700,
-            fontSize: 17,
-            letterSpacing: 0.5,
-            color: "#2f1f0c",
-            textTransform: "uppercase",
-            userSelect: "none",
-          }}
-        >
-          {name}
-        </div>
-      </Html>
-    </group>
-  );
-}
-
-// Stand-in for a player who hasn't turned their camera on: the classic drawn
-// mugshot. Every slot is filled from the moment the game starts, so the wall reads
-// as a complete set of suspects and a poster appearing is never a layout shift —
-// the picture simply changes from sketch to live feed. Cached and shared.
-let noCamCache: THREE.Texture | null = null;
-function noCamTex(): THREE.Texture {
-  if (noCamCache) return noCamCache;
-  const W = 320;
-  const H = 420;
-  const c = document.createElement("canvas");
-  c.width = W;
-  c.height = H;
-  const g = c.getContext("2d")!;
-  // aged paper
-  g.fillStyle = "#ddc79a";
-  g.fillRect(0, 0, W, H);
-  for (let i = 0; i < 2600; i++) {
-    g.fillStyle = Math.random() > 0.5 ? "rgba(120,90,50,0.05)" : "rgba(255,240,200,0.05)";
-    g.fillRect(Math.random() * W, Math.random() * H, 2.5, 2.5);
-  }
-  // bust silhouette
-  g.fillStyle = "#8a6c47";
-  g.beginPath();
-  g.arc(W / 2, H * 0.42, W * 0.19, 0, Math.PI * 2); // head
-  g.fill();
-  g.beginPath();
-  g.moveTo(W * 0.16, H);
-  g.quadraticCurveTo(W * 0.5, H * 0.56, W * 0.84, H); // shoulders
-  g.closePath();
-  g.fill();
-  // hat over the silhouette so it still reads western
-  g.fillStyle = "#6b5030";
-  g.beginPath();
-  g.ellipse(W / 2, H * 0.29, W * 0.31, H * 0.035, 0, 0, Math.PI * 2);
-  g.fill();
-  g.fillRect(W * 0.34, H * 0.2, W * 0.32, H * 0.09);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  noCamCache = t;
-  return t;
-}
-
-// "WANTED" strip above each photo. Cached: one texture shared by every poster.
-let wantedHeaderCache: THREE.Texture | null = null;
-function wantedHeaderTex(): THREE.Texture {
-  if (wantedHeaderCache) return wantedHeaderCache;
-  const c = document.createElement("canvas");
-  c.width = 320;
-  c.height = 64;
-  const g = c.getContext("2d")!;
-  g.clearRect(0, 0, 320, 64);
-  g.fillStyle = "#2f1f0c";
-  g.textAlign = "center";
-  g.textBaseline = "middle";
-  g.font = "bold 44px Georgia, serif";
-  g.fillText("WANTED", 160, 34);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  wantedHeaderCache = t;
-  return t;
-}
-
-// One poster per player, ALWAYS — the whole table's worth of suspects hangs on the
-// wall from the start, showing a drawn mugshot until that player's camera comes on.
-//
-// Slots are assigned by SEAT, not by "index among those currently on camera".
-// Assigning by the latter would shuffle every poster to a different wall each time
-// somebody joined or left the call, so you could never learn whose is whose; with
-// fixed slots, turning a camera on only swaps that one picture.
-function WantedPosters({
-  players,
-  youSeat,
-  youId,
-  youName,
-  feeds,
-  felt,
-}: {
-  players: PlayerPublic[];
-  youSeat: number;
-  youId: string;
-  youName: string;
-  feeds?: Map<string, MediaStream>;
-  felt: number;
-}) {
-  const wall = (felt * 6.5) / 2 - 0.05;
-  const n = players.length;
-  // Same ordering the seats use: the player after you first, so the sequence
-  // matches how the avatars read left-to-right across the arc. You are not on the
-  // arc (you are the camera), so your slot goes on the near-left wall — the one
-  // closest to where you sit.
-  const others = othersInTurnOrder(players, youSeat, n);
-  const you = players.find((p) => p.seat === youSeat);
-  const ordered = [
-    { id: youId, name: youName, isTurn: !!you?.isTurn },
-    ...others.map((p) => ({ id: p.id, name: p.name, isTurn: p.isTurn })),
-  ];
-  const slots = posterSlots(felt, wall, ordered.length);
-  return (
-    <>
-      {ordered.map((p, i) =>
-        slots[i] ? (
-          <WantedPoster
-            key={p.id}
-            slot={slots[i]}
-            stream={feeds?.get(p.id) ?? null}
-            name={p.name}
-            isTurn={p.isTurn}
-          />
-        ) : null
-      )}
-    </>
-  );
-}
-
-// Stop re-rendering the shadow map on every single frame.
-//
-// three.js refreshes shadow maps continuously by default, which only makes sense for
-// a scene that keeps moving. Here the geometry is essentially static: the room, the
-// table and the seated figures never move, and the things that DO move (cards flying
-// to a hand, the Draw! reveal) are small, lit from above and cast nothing anyone
-// looks at. So the map is rendered once, then only when the game state actually
-// changes — `key` carries whatever should trigger a refresh.
-function StaticShadows({ trigger }: { trigger: string }) {
-  const gl = useThree((s) => s.gl);
-  useEffect(() => {
-    gl.shadowMap.autoUpdate = false;
-    gl.shadowMap.needsUpdate = true;
-    return () => {
-      gl.shadowMap.autoUpdate = true;
-    };
-  }, [gl]);
-  // A new turn / a death / a player joining can change what casts a shadow.
-  useEffect(() => {
-    gl.shadowMap.needsUpdate = true;
-  }, [gl, trigger]);
-  return null;
-}
-
-// The hanging oil lamp over the table: the scene's key light. It is the one thing
-// bright enough to trip Bloom's threshold, and being a point light directly above
-// the felt it also gives every figure a shadow that anchors it to the table.
-function TableLampInner({ felt }: { felt: number }) {
-  const y = 2.55;
-  return (
-    <group position={[0, y, 0]}>
-      {/* chain up to the ceiling */}
-      <mesh position={[0, 0.75, 0]}>
-        <cylinderGeometry args={[0.012, 0.012, 1.5, 6]} />
-        <meshStandardMaterial color="#2b2b2e" metalness={0.6} roughness={0.5} />
-      </mesh>
-      {/* tin shade */}
-      <mesh position={[0, 0.12, 0]} castShadow>
-        <coneGeometry args={[0.46, 0.3, 24, 1, true]} />
-        <meshStandardMaterial color="#3a2a18" roughness={0.7} metalness={0.35} side={THREE.DoubleSide} />
-      </mesh>
-      {/* the flame globe — emissive so Bloom blooms it */}
-      <mesh position={[0, -0.05, 0]}>
-        <sphereGeometry args={[0.14, 18, 18]} />
-        <meshStandardMaterial color="#fff6d8" emissive="#ffc873" emissiveIntensity={3.4} toneMapped={false} />
-      </mesh>
-      {/* Key light. `decay={1.4}` rather than a physical 2 so the far seats stay
-          lit instead of falling away into the dark.
-          NO castShadow, deliberately: a point light shadow in three.js is a CUBE
-          map, so switching it on re-renders the whole scene SIX more times every
-          frame. That one flag was most of the reason this page ran hot. The
-          directional light below still casts, which is what anchors the figures. */}
-      <pointLight
-        position={[0, -0.05, 0]}
-        color="#ffd79a"
-        intensity={26}
-        distance={felt * 5}
-        decay={1.4}
-      />
-    </group>
-  );
-}
-
-function Nameplate({ p, position, onClick }: { p: PlayerPublic; position?: [number, number, number]; onClick?: () => void }) {
-  return (
-    <Html center position={position} distanceFactor={6} style={{ pointerEvents: onClick ? "auto" : "none" }}>
-      <div
-        onClick={onClick}
-        title={onClick ? "Xem thông tin" : undefined}
-        /* A solid plaque, not bare white text. Floating unbacked text read as
-           unanchored and collided illegibly with the wall posters behind it. */
-        style={{
-          whiteSpace: "nowrap",
-          textAlign: "center",
-          fontFamily: "system-ui, sans-serif",
-          color: "#f4e9d6",
-          cursor: onClick ? "pointer" : "default",
-          userSelect: "none",
-          padding: "5px 11px 6px",
-          borderRadius: 9,
-          background: "rgba(24,18,12,0.82)",
-          border: `1px solid ${p.isTurn ? "#e0a955" : "rgba(120,95,60,0.75)"}`,
-          boxShadow: p.isTurn
-            ? "0 0 0 2px rgba(224,169,85,0.25), 0 3px 10px rgba(0,0,0,0.5)"
-            : "0 3px 10px rgba(0,0,0,0.5)",
-          backdropFilter: "blur(2px)",
-        }}
-      >
-        <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
-          {p.isTurn ? "▶ " : ""}
-          {p.role ? ROLE_EMOJI[p.role] + " " : ""}
-          {p.name}
-        </div>
-        <div style={{ fontSize: 12, letterSpacing: -1, marginTop: 1 }}>
-          {"❤️".repeat(Math.max(0, p.hp))}
-          <span style={{ opacity: 0.3 }}>{"🤍".repeat(Math.max(0, p.maxHp - p.hp))}</span>
-        </div>
-        {p.character && (
-          <div style={{ fontSize: 10, opacity: 0.75, marginTop: 1 }}>{p.character.name}</div>
-        )}
-      </div>
-    </Html>
-  );
-}
-
-// A face-down mini fan showing how many cards an opponent holds.
-function OpponentHand({ count }: { count: number }) {
-  const n = Math.min(count, 6);
-  return (
-    <group>
-      {Array.from({ length: n }).map((_, i) => {
-        const off = (i - (n - 1) / 2) * 0.12;
-        return (
-          <CardMesh
-            key={i}
-            faceDown
-            scale={0.5}
-            /* lie flat, clearly above the felt so no part sinks below and gets clipped */
-            position={[off, 0.08 + i * 0.004, -0.1]}
-            rotation={[-Math.PI / 2, 0, off * 0.25]}
-          />
-        );
-      })}
-    </group>
-  );
-}
-
-// Distinct shirt colors so seated players read apart.
-const AVATAR_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#c39bd3"];
-
-// Floor level (matches the Saloon shell). Avatars/tombstones are placed with
-// their group origin at the table top (y=0), so the body must reach down to here.
-const FLOOR_Y = -1.55;
-
-// A low-poly seated cowboy: torso + head + hat. Radially symmetric, so no facing
-// needed. The body reaches from the floor up past the table rim — its lower half
-// is hidden behind the table edge, so it reads as "someone sitting at the table"
-// instead of floating above the felt.
-// Turn a live MediaStream into a texture we can paint on a mesh.
-//
-// This is the ONLY decode of a remote peer's video (VideoChat renders audio only), but a
-// THREE.VideoTexture needs an element of its own. Two things are load-bearing:
-//  - `muted`: the audio is already playing through VideoChat's tile, and an
-//    unmuted element here would double every voice (and block autoplay).
-//  - the element must live in the document: iOS/Safari refuses to decode a
-//    detached <video>, which would leave the face plate permanently black.
-function useStreamTexture(stream: MediaStream | null | undefined): THREE.VideoTexture | null {
-  const [tex, setTex] = useState<THREE.VideoTexture | null>(null);
-  useEffect(() => {
-    if (!stream) {
-      setTex(null);
-      return;
-    }
-    const el = document.createElement("video");
-    el.srcObject = stream;
-    el.muted = true;
-    el.playsInline = true;
-    el.autoplay = true;
-    el.style.cssText =
-      "position:fixed;left:-10px;top:-10px;width:1px;height:1px;opacity:0;pointer-events:none";
-    document.body.appendChild(el);
-    el.play().catch(() => {});
-
-    const t = new THREE.VideoTexture(el);
-    t.colorSpace = THREE.SRGBColorSpace;
-    // Centre-crop to a square so the poster plate never squashes the face sideways.
-    // Recomputed once the real resolution is known.
-    const crop = () => {
-      const w = el.videoWidth;
-      const h = el.videoHeight;
-      if (!w || !h) return;
-      if (w > h) {
-        t.repeat.set(h / w, 1);
-        t.offset.set((1 - h / w) / 2, 0);
-      } else {
-        t.repeat.set(1, w / h);
-        t.offset.set(0, (1 - w / h) / 2);
-      }
-    };
-    el.addEventListener("loadedmetadata", crop);
-    crop();
-    setTex(t);
-
-    return () => {
-      el.removeEventListener("loadedmetadata", crop);
-      t.dispose();
-      el.pause();
-      el.srcObject = null;
-      el.remove();
-      setTex(null);
-    };
-  }, [stream]);
-  return tex;
-}
-
-// Head geometry lives at module scope because the aim crosshair is placed on the
-// head too — as two separate literals they would silently drift apart the first
-// time the figure is resized.
-const AVATAR_SHOULDER_Y = 0.42; // torso top, just above the table rim (y=0)
-const AVATAR_HEAD_R = 0.15;
-const AVATAR_HEAD_Y = AVATAR_SHOULDER_Y + AVATAR_HEAD_R + 0.05; // clear of the shoulders
-
-function Avatar({ position, color, dead, sheriff }: { position: [number, number, number]; color: string; dead?: boolean; sheriff?: boolean }) {
-  const shoulderY = AVATAR_SHOULDER_Y;
-  // Torso stops just under the table rim and a barrel carries it down to the floor.
-  // It used to be one cone running the whole way from the shoulders to FLOOR_Y —
-  // 1.97 tall under a 0.30 head, so it read as a traffic cone, not a person. The
-  // old code assumed the table edge hid its lower half, but seats sit at
-  // felt + 0.45, well outside the table body, so the entire cone was on show.
-  const hipY = -0.5;
-  const bodyH = shoulderY - hipY;
-  // Faces are NOT on the heads. A head sized to fit seven seats around a table is
-  // ~35px tall on screen, and a face needs 70-100px to read — the two demands are
-  // irreconcilable, and every fix (2x head, moved hat, billboarded disc) was a
-  // patch on that same mismatch. The webcams live on the wall posters instead,
-  // where they are rectangular, face-on, and free of body proportions.
-  const headR = AVATAR_HEAD_R;
-  const headY = AVATAR_HEAD_Y;
-  const brimY = headY + 0.1;
-  const shirt = dead ? "#4a4a4a" : color;
-  const skin = dead ? "#7a7a7a" : "#e8c39a";
-  const shoulderR = 0.25;
-  return (
-    // No rotation needed: with the arms gone the figure is radially symmetric
-    // again, so it looks the same from every seat.
-    <group position={position}>
-      {/* the stool: a plain saloon barrel, so the figure sits on something instead
-          of tapering into thin air above the floor. No hoops — at this size they
-          were two extra meshes per player that resolved to nothing. */}
-      <mesh position={[0, (FLOOR_Y + hipY) / 2 + 0.02, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[0.3, 0.27, hipY - FLOOR_Y - 0.04, 16]} />
-        <meshStandardMaterial color="#6b4626" roughness={0.9} />
-      </mesh>
-      {/* Torso. Shoulders are suggested by flaring the top of the column, not built
-          from parts: the previous shoulder spheres, upper arms and hands did not
-          actually join up — the hand floated 0.13 clear of the arm and the arm was
-          tilted the wrong way, so instead of an arm you saw four loose balls. At a
-          figure this small an arm carries no information worth five extra meshes. */}
-      <mesh position={[0, hipY + bodyH / 2, 0]} castShadow>
-        <cylinderGeometry args={[shoulderR * 1.12, shoulderR * 0.82, bodyH, 20]} />
-        <meshStandardMaterial color={shirt} roughness={0.8} />
-      </mesh>
-      <mesh position={[0, headY, 0]} castShadow>
-        <sphereGeometry args={[headR, 24, 24]} />
-        <meshStandardMaterial color={skin} roughness={0.6} />
-      </mesh>
-      {/* cowboy hat: brim + crown */}
-      <group position={[0, brimY, 0]}>
-        <mesh castShadow>
-          <cylinderGeometry args={[0.27, 0.27, 0.02, 24]} />
-          <meshStandardMaterial color="#6b4a24" roughness={0.85} />
-        </mesh>
-        <mesh position={[0, 0.06, 0]} castShadow>
-          <cylinderGeometry args={[0.13, 0.16, 0.14, 24]} />
-          <meshStandardMaterial color="#5a3a1c" roughness={0.85} />
-        </mesh>
-        {/* Sheriff badge: a gold star pinned on top of the hat */}
-        {sheriff && <SheriffStar radius={0.1} y={0.15} color="#f5c518" />}
-      </group>
-    </group>
-  );
-}
-
-// A stone grave marker shown at an eliminated player's seat, with a carved cross.
-function Tombstone({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position}>
-      {/* mound base */}
-      <mesh position={[0, 0.05, 0.02]} castShadow receiveShadow>
-        <boxGeometry args={[0.46, 0.1, 0.22]} />
-        <meshStandardMaterial color="#4f4a45" roughness={1} />
-      </mesh>
-      {/* slab */}
-      <mesh position={[0, 0.34, 0]} castShadow>
-        <boxGeometry args={[0.34, 0.5, 0.09]} />
-        <meshStandardMaterial color="#8d8880" roughness={0.95} />
-      </mesh>
-      {/* rounded top */}
-      <mesh position={[0, 0.59, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-        <cylinderGeometry args={[0.17, 0.17, 0.09, 20]} />
-        <meshStandardMaterial color="#8d8880" roughness={0.95} />
-      </mesh>
-      {/* carved cross (R.I.P.) */}
-      <mesh position={[0, 0.44, 0.05]}>
-        <boxGeometry args={[0.05, 0.22, 0.02]} />
-        <meshStandardMaterial color="#5b564f" roughness={1} />
-      </mesh>
-      <mesh position={[0, 0.5, 0.05]}>
-        <boxGeometry args={[0.17, 0.05, 0.02]} />
-        <meshStandardMaterial color="#5b564f" roughness={1} />
-      </mesh>
-    </group>
-  );
-}
-
-// A large arrow bobbing above whoever's turn it is, pointing down at them.
-function TurnArrow({ position }: { position: [number, number, number] }) {
-  const ref = useRef<THREE.Group>(null);
-  const t = useRef(0);
-  useFrame((_, dt) => {
-    t.current += dt;
-    if (ref.current) ref.current.position.y = position[1] + Math.abs(Math.sin(t.current * 3)) * 0.28;
-  });
-  const mat = <meshStandardMaterial color="#ffcf3a" emissive="#ff9500" emissiveIntensity={0.9} roughness={0.4} />;
-  return (
-    <group ref={ref} position={position}>
-      {/* shaft */}
-      <mesh position={[0, 0.24, 0]}>
-        <cylinderGeometry args={[0.07, 0.07, 0.32, 16]} />
-        {mat}
-      </mesh>
-      {/* head pointing straight down */}
-      <mesh position={[0, -0.02, 0]} rotation={[Math.PI, 0, 0]}>
-        <coneGeometry args={[0.2, 0.3, 20]} />
-        {mat}
-      </mesh>
-    </group>
-  );
-}
-
-// Blue "in play" cards (guns, Barrel, Scope, Jail…) laid face-up on the felt in
-// front of a seat, upright toward the camera so the whole table can read them.
-function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string; pickable?: boolean; onPickCard?: (cardId: string) => void }) {
-  if (!cards.length) return null;
-  const cx = radius * Math.cos(ang);
-  const cz = radius * Math.sin(ang);
-  const gap = 0.38;
-  // Orient the row so each card's long axis points toward the table centre
-  // (portrait, facing the seat) and cards spread tangentially.
-  return (
-    <group position={[cx, 0, cz]} rotation={[0, Math.PI / 2 - ang, 0]}>
-      {cards.map((c, i) => {
-        const o = (i - (cards.length - 1) / 2) * gap;
-        const def = CARD_DEF_BY_ID[c.defId];
-        const suffix =
-          def?.kind === "gun" && def.range
-            ? `${def.range}`
-            : c.defId === "scope"
-            ? "−1"
-            : c.defId === "mustang"
-            ? "+1"
-            : "";
-        return (
-          <group key={c.id} position={[o, 0, 0]}>
-            <CardMesh card={c} scale={0.46} position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} />
-            {/* a scope over each selectable card so it's easy to pick (Cat Balou / Panic) */}
-            {pickable && (
-              <Html center position={[0, 0.3, 0]} distanceFactor={7} style={{ pointerEvents: "auto" }} zIndexRange={[46, 36]}>
-                <div
-                  onClick={() => onPickCard?.(c.id)}
-                  title="Chọn lá này"
-                  style={{ cursor: "pointer", filter: "drop-shadow(0 0 6px #33d17a)" }}
-                >
-                  <Crosshair size={42} color="#33d17a" fill="rgba(51,209,122,0.18)" stroke={8} />
-                </div>
-              </Html>
-            )}
-            {/* icon badge above the card; tap to see the full card + effect */}
-            {/* Bounded z-index so table badges stay UNDER center overlays like the
-                CheckFx reveal (which sits at 70–80) instead of poking through it. */}
-            <Html center position={[0, 0.14, -0.28]} distanceFactor={9} style={{ pointerEvents: "auto" }} zIndexRange={[45, 30]}>
-              <div
-                title={pickable ? "Chọn lá này" : def?.effect}
-                draggable={false}
-                onDragStart={(e) => e.preventDefault()}
-                onClick={() => (pickable && onPickCard ? onPickCard(c.id) : onInspect?.(c))}
-                style={{
-                  whiteSpace: "nowrap",
-                  fontFamily: "system-ui, sans-serif",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#fff",
-                  background: pickable ? "rgba(20,110,50,0.9)" : "rgba(20,18,16,0.85)",
-                  border: `2px solid ${pickable ? "#33d17a" : color ?? "rgba(240,226,192,0.5)"}`,
-                  boxShadow: pickable ? "0 0 8px #33d17a" : undefined,
-                  padding: "0 5px",
-                  borderRadius: 7,
-                  textShadow: "0 1px 2px #000",
-                  cursor: "pointer",
-                  userSelect: "none",
-                  WebkitUserSelect: "none",
-                }}
-              >
-                {/* Guns: 🎯 + range (same style as the header range badge) — avoids
-                    the green water-pistol 🔫 emoji and the dark, hard-to-see rifle art. */}
-                {def?.kind === "gun" ? "🎯" : (CARD_ICON[c.defId] ?? "🔵")}
-                {suffix && <span style={{ fontSize: 10, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
-              </div>
-            </Html>
-          </group>
-        );
-      })}
-    </group>
-  );
-}
-
-// A crosshair "scope" floating over a valid Bang! target. Green = available,
-// yellow when hovered. Click to pick this player.
-function TargetMarker({ position, onClick }: { position: [number, number, number]; onClick: () => void }) {
-  const [hover, setHover] = useState(false);
-  const col = hover ? "#ffd24a" : "#33d17a";
-  return (
-    <Html center position={position} distanceFactor={6} style={{ pointerEvents: "auto" }} zIndexRange={[40, 30]}>
-      <div
-        onClick={onClick}
-        onPointerEnter={() => setHover(true)}
-        onPointerLeave={() => setHover(false)}
-        style={{ cursor: "pointer", filter: `drop-shadow(0 0 6px ${col})` }}
-        title="Bắn mục tiêu này"
-      >
-        <Crosshair
-          size={hover ? 66 : 58}
-          color={col}
-          fill={hover ? "rgba(255,210,74,0.18)" : "rgba(51,209,122,0.12)"}
-          stroke={7}
-        />
-      </div>
-    </Html>
-  );
-}
-
-function Opponents({
-  players,
-  youSeat,
-  ring,
-  felt,
-  arc,
-  targetIds,
-  onPickTarget,
-  onInspect,
-  onInspectPlayer,
-  pickCardMode,
-  onPickCard,
-}: {
-  players: PlayerPublic[];
-  youSeat: number;
-  ring: number;
-  felt: number;
-  arc: number;
-  targetIds?: string[];
-  onPickTarget?: (id: string) => void;
-  onInspect?: (c: Card) => void;
-  onInspectPlayer?: (p: PlayerPublic) => void;
-  pickCardMode?: boolean;
-  onPickCard?: (ownerId: string, cardId: string) => void;
-}) {
-  // Order opponents by turn order relative to the viewer (the player right after
-  // you first) so the seating reads the same from everyone's perspective.
-  const n = players.length;
-  const others = othersInTurnOrder(players, youSeat, n);
-  const seatR = felt + 0.45; // avatars out past the felt so bodies don't cover it
-  return (
-    <>
-      {others.map((p, i) => {
-        // Spread across the far arc (centered straight ahead, away from the camera).
-        const t = others.length === 1 ? 0.5 : i / (others.length - 1);
-        const ang = 1.5 * Math.PI - arc / 2 + arc * t;
-        const x = ring * Math.cos(ang);
-        const z = ring * Math.sin(ang);
-        const ax = seatR * Math.cos(ang);
-        const az = seatR * Math.sin(ang);
-        const targetable = !!targetIds?.includes(p.id);
-        return (
-          <group key={p.id}>
-            <group position={[x, 0.05, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
-              <OpponentHand count={p.handCount} />
-            </group>
-            {p.alive && p.isTurn && <TurnArrow position={[ax, 1.75, az]} />}
-            {p.alive ? (
-              <Avatar position={[ax, 0, az]} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} dead={false} sheriff={p.role === "sheriff"} />
-            ) : (
-              <Tombstone position={[ax, FLOOR_Y, az]} />
-            )}
-                  <Nameplate p={p} position={[ax, 1.35, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
-            <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} pickable={!!pickCardMode && targetable} onPickCard={(cid) => onPickCard?.(p.id, cid)} />
-            {targetable && onPickTarget && (
-              // Right on the head — you are aiming at them, so the crosshair rings
-              // the face. It used to float at y=1.6, above even the nameplate, which
-              // put it in the top band of the screen where the aiming instruction bar
-              // covers it. That bar cannot be drawn under: it is `position: fixed` at
-              // zIndex 56 while the whole canvas is a zIndex-40 stacking context, so
-              // nothing inside the scene can ever paint over it. The head sits well
-              // below that band, which is what keeps the scope clickable.
-              <TargetMarker position={[ax, AVATAR_HEAD_Y, az]} onClick={() => onPickTarget(p.id)} />
-            )}
-          </group>
-        );
-      })}
-    </>
-  );
-}
-
-// Draw pile + discard pile in the middle of the table. The top discarded card
-// is shown face-up so the centre reads as an active play area — and is clickable,
-// because lying flat at table scale it is legible as a shape but not as a card, and
-// Pedro Ramirez has to know exactly what he would be taking before he takes it.
-function CenterPiles({ deckCount, discardCount, topDiscard, onInspect }: { deckCount: number; discardCount: number; topDiscard: Card | null; onInspect?: (c: Card) => void }) {
-  const stack = Math.min(Math.max(deckCount, 1), 6);
-  const label = (text: string) => (
-    <Html center position={[0, 0.25, 0.55]} distanceFactor={6} style={{ pointerEvents: "none" }}>
-      <div style={{ color: "#f0e2c0", fontWeight: 700, fontSize: 15, textShadow: "0 1px 3px #000", whiteSpace: "nowrap" }}>{text}</div>
-    </Html>
-  );
-  return (
-    <group position={[0, 0.05, 0]}>
-      <group position={[-0.45, 0, 0]}>
-        {Array.from({ length: stack }).map((_, i) => (
-          <CardMesh key={i} faceDown scale={0.72} position={[0, i * 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} />
-        ))}
-        {label(`🂠 ${deckCount}`)}
-      </group>
-      <group position={[0.45, 0, 0]}>
-        {topDiscard ? (
-          <CardMesh card={topDiscard} scale={0.72} position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0.2]} onClick={onInspect ? () => onInspect(topDiscard) : undefined} />
-        ) : (
-          discardCount > 0 && <CardMesh faceDown scale={0.72} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0.25]} />
-        )}
-        {label(`🗑️ ${discardCount}`)}
-      </group>
-    </group>
-  );
-}
-
-// A single card animating from the draw pile at table centre toward "you" (the
-// camera), arcing up and turning face-up along the way, so a draw reads as "that
-// card came to me". Removes itself once it reaches the near edge.
-function DrawFlight({
-  card,
-  delay,
-  felt,
-  camY,
-  camZ,
-  onDone,
-}: {
-  card: Card;
-  delay: number;
-  felt: number;
-  camY: number;
-  camZ: number;
-  onDone: () => void;
-}) {
-  const group = useRef<THREE.Group>(null);
-  const t = useRef(-delay); // stagger multiple cards drawn in the same turn
-  const DUR = 0.7;
-  // Deck top (matches CenterPiles: group y=0.05 + draw-pile x=-0.45).
-  const from = useMemo(() => new THREE.Vector3(-0.45, 0.15, 0), []);
-  // Arc apex, lifted high over the felt on the way toward the camera.
-  const mid = useMemo(() => new THREE.Vector3(-0.2, felt * 0.9, felt * 0.5), [felt]);
-  // Near the camera, low and forward, so it reads as arriving in your hand.
-  const to = useMemo(() => new THREE.Vector3(0, camY * 0.42, camZ * 0.72), [camY, camZ]);
-
-  useFrame((_, dt) => {
-    const g = group.current;
-    if (!g) return;
-    t.current += dt;
-    if (t.current < 0) {
-      g.visible = false;
-      return;
-    }
-    g.visible = true;
-    const p = Math.min(t.current / DUR, 1);
-    const e = 1 - Math.pow(1 - p, 3); // easeOutCubic
-    // Quadratic Bézier from → mid → to.
-    const u = 1 - e;
-    g.position.set(
-      u * u * from.x + 2 * u * e * mid.x + e * e * to.x,
-      u * u * from.y + 2 * u * e * mid.y + e * e * to.y,
-      u * u * from.z + 2 * u * e * mid.z + e * e * to.z
-    );
-    // Lie flat on the deck → stand up facing the camera, with a little spin.
-    g.rotation.x = -Math.PI / 2 + (Math.PI / 2 - 0.35) * e;
-    g.rotation.z = Math.sin(e * Math.PI) * 0.5;
-    const s = 0.72 * (0.7 + 0.7 * e);
-    g.scale.setScalar(s);
-    // Fade out over the last stretch as it "tucks" into the hand.
-    const opacity = p < 0.8 ? 1 : 1 - (p - 0.8) / 0.2;
-    g.traverse((o) => {
-      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-      if (m) {
-        m.transparent = true;
-        m.opacity = opacity;
-      }
-    });
-    if (p >= 1) onDone();
-  });
-
-  return (
-    <group ref={group} visible={false}>
-      <CardMesh card={card} />
-    </group>
-  );
-}
-
-// Watches your hand and launches a DrawFlight for each newly-added card, so
-// drawn cards visibly travel from the deck toward you instead of just popping in.
-function FlyingCards({ hand, felt, camY, camZ }: { hand: Card[]; felt: number; camY: number; camZ: number }) {
-  const [flights, setFlights] = useState<{ key: string; card: Card; delay: number }[]>([]);
-  const prev = useRef<string[]>(hand.map((c) => c.id));
-  const primed = useRef(false);
-
-  useEffect(() => {
-    const ids = hand.map((c) => c.id);
-    if (!primed.current) {
-      // Skip the initial mount (entering 3D) so the whole hand doesn't fly in.
-      primed.current = true;
-      prev.current = ids;
-      return;
-    }
-    const added = hand.filter((c) => !prev.current.includes(c.id));
-    prev.current = ids;
-    if (added.length) {
-      setFlights((f) => [
-        ...f,
-        ...added.map((c, i) => ({ key: `${c.id}-${i}`, card: c, delay: i * 0.14 })),
-      ]);
-    }
-  }, [hand]);
-
-  const done = (key: string) => setFlights((f) => f.filter((x) => x.key !== key));
-
-  return (
-    <>
-      {flights.map((fl) => (
-        <DrawFlight
-          key={fl.key}
-          card={fl.card}
-          delay={fl.delay}
-          felt={felt}
-          camY={camY}
-          camZ={camZ}
-          onDone={() => done(fl.key)}
-        />
-      ))}
-    </>
-  );
-}
-
-// A dramatic Draw!-check reveal for ANY check (Dynamite / Jail / Barrel /
-// Black Jack / Lucky Duke), staged over the centre of the table: the drawn card
-// rises and turns face-up with a result label, so players feel the draw. A
-// Dynamite blast adds a fireball. Reacts to the newest entry in view.checks.
-function CheckFx({ check, felt }: { check: CheckView | null; felt: number }) {
-  const [active, setActive] = useState<{ card: Card | null; blast: boolean; kind: string; outcome: string; name: string } | null>(null);
-  const lastKey = useRef<string | null>(null);
-  const t = useRef(0);
-  const divRef = useRef<HTMLDivElement>(null);
-  const blastRef = useRef<THREE.Mesh>(null);
-  const lightRef = useRef<THREE.PointLight>(null);
-  const cy = 0.3 + felt * 0.32; // stage height above the felt
-
-  useEffect(() => {
-    if (!check) return;
-    const key = check.card?.id ?? `${check.name}-${check.kind}-${check.outcome}`;
-    if (key === lastKey.current) return; // already showed this reveal
-    lastKey.current = key;
-    t.current = 0;
-    setActive({ card: check.card, blast: check.kind === "dynamite" && check.outcome === "blast", kind: check.kind, outcome: check.outcome, name: check.name });
-  }, [check]);
-
-  const HOLD_END = 4.6; // stay fully visible until here…
-  const DUR = 5.0; // …then fade out by 5s (or dismiss early via the Skip button)
-  const dismiss = () => {
-    if (lightRef.current) lightRef.current.intensity = 0;
-    setActive(null);
-  };
-  useFrame((_, dt) => {
-    if (!active) return;
-    t.current += dt;
-
-    // Card (HTML PlayingCard): pop in over the first 0.35s, HOLD until HOLD_END,
-    // then fade out over the last stretch.
-    const rise = Math.min(t.current / 0.35, 1);
-    const er = 1 - Math.pow(1 - rise, 3);
-    if (divRef.current) {
-      const op = t.current < HOLD_END ? 1 : Math.max(0, 1 - (t.current - HOLD_END) / (DUR - HOLD_END));
-      divRef.current.style.opacity = String(op);
-      divRef.current.style.transform = `scale(${(0.6 + er * 0.4).toFixed(3)})`;
-    }
-
-    // Blast: an expanding, fading fireball + a flash of light over a fixed window.
-    if (active.blast) {
-      const bp = (t.current - 0.4) / 1.4;
-      const eb = 1 - Math.pow(1 - Math.min(Math.max(bp, 0), 1), 2);
-      if (blastRef.current) {
-        blastRef.current.visible = bp > 0 && bp < 1;
-        blastRef.current.scale.setScalar(0.2 + eb * felt * 1.7);
-        (blastRef.current.material as THREE.MeshStandardMaterial).opacity = Math.max(0, 0.85 * (1 - eb));
-      }
-      if (lightRef.current) lightRef.current.intensity = Math.max(0, 45 * (1 - bp * 1.3));
-    }
-
-    if (t.current >= DUR) dismiss();
-  });
-
-  if (!active) return null;
-  return (
-    <group>
-      {active.card && (
-        <Html center position={[0, cy, 0]} distanceFactor={9} style={{ pointerEvents: "none" }} zIndexRange={[80, 70]}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-            <div ref={divRef} style={{ transform: "scale(0.6)", willChange: "transform, opacity" }}>
-              <PlayingCard card={active.card} />
-            </div>
-            {/* Skip button so players don't have to wait the full 5s. Laid out in
-                normal flow BELOW the card so it can never overlap it (no 3D
-                positioning to drift out of alignment). */}
-            <button
-              onClick={dismiss}
-              style={{
-                pointerEvents: "auto",
-                cursor: "pointer",
-                border: "1px solid rgba(240,226,192,0.6)",
-                background: "rgba(20,18,16,0.9)",
-                color: "#f0e2c0",
-                fontFamily: "system-ui, sans-serif",
-                fontWeight: 700,
-                fontSize: 13,
-                padding: "6px 14px",
-                borderRadius: 10,
-                whiteSpace: "nowrap",
-              }}
-            >
-              Bỏ qua ✕
-            </button>
-          </div>
-        </Html>
-      )}
-      {active.blast && (
-        <>
-          <mesh ref={blastRef} position={[0, cy, 0]} visible={false}>
-            <icosahedronGeometry args={[0.5, 2]} />
-            <meshStandardMaterial color="#ff8a2a" emissive="#ff4400" emissiveIntensity={2.5} transparent opacity={0.85} />
-          </mesh>
-          <pointLight ref={lightRef} position={[0, cy, 0]} color="#ff8a2a" intensity={0} distance={felt * 9} decay={2} />
-        </>
-      )}
-    </group>
-  );
-}
+import { FLOOR_Y, layout, seatPositions } from "./scene/geometry";
+import { ROOM_H, SaloonInner, TableInner, TableLampInner, StaticShadows } from "./scene/Saloon";
+import { Opponents, YourAvatar } from "./scene/Players";
+import { GUN_STOW_SEC } from "./scene/Avatars";
+import { TurnLight } from "./scene/TurnLight";
+import { DecorInner } from "./scene/Decor";
+import { CenterPiles, FlyingCards } from "./scene/Cards";
+import { CheckFx } from "./scene/CheckFx";
+import { ShotCam, ShotFx, useLatestShot, useShotOutcome } from "./scene/Gunfire";
+import { REACH_DUR, reachFor, useReaches } from "./scene/Draw";
+import { useLatestMotion } from "./scene/Reactions";
+import type { Card } from "@/lib/cards";
+import type { PlayerView, PlayerPublic } from "@/lib/types";
 
 interface SceneProps {
   view: PlayerView;
@@ -1519,25 +36,104 @@ interface SceneProps {
   onInspectPlayer?: (p: PlayerPublic) => void;
   pickCardMode?: boolean;
   onPickCard?: (ownerId: string, cardId: string) => void;
+  homeKey?: number; // bump to fly the camera back to the resting angle
+  // The draw pile IS the draw control: armed on your draw phase, clicked to draw.
+  canDraw?: boolean;
+  onDrawDeck?: () => void;
+  // And for Jesse Jones, so is another player's hand — his second draw option is a
+  // click on the cards he wants, not a button.
+  stealIds?: string[];
+  onSteal?: (playerId: string) => void;
   fx?: boolean; // advanced effects (bloom / vignette) — switchable off for weak devices
-  feeds?: Map<string, MediaStream>; // playerId -> webcam, painted onto that player's WANTED poster
+  shotCam?: boolean; // cut to a close shot on gunfire (see ShotCam)
+  models?: boolean; // 3D cowboys instead of the block avatars (see CowboyModel)
 }
 
-function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, fx, feeds }: SceneProps) {
+function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, homeKey, canDraw, onDrawDeck, stealIds, onSteal, fx, shotCam = true, models = true }: SceneProps) {
   const nOpp = Math.max(1, view.players.length - 1);
   const { ring, felt, arc, camY, camZ, fov } = layout(nOpp);
+  const controls = useRef<ElementRef<typeof OrbitControls> | null>(null);
+  // Memoised because the identity matters, not just the value: Scene re-renders on
+  // every broadcast, and a fresh [0,camY,camZ] each time would let r3f re-apply the
+  // prop and yank the camera back — undoing the player's zoom, and fighting ShotCam
+  // for the camera mid-cut.
+  const homePos = useMemo<[number, number, number]>(() => [0, camY, camZ], [camY, camZ]);
+  const homeTarget = useMemo<[number, number, number]>(() => [0, 0, -felt * 0.12], [felt]);
+  useGoHome(controls, homeKey, homePos, homeTarget);
+  const pickerOpen = view.pending?.kind === "store" || view.pending?.kind === "kit";
+  const dim = useRoomDim(!!pickerOpen);
+  // One shot, many reactors: the camera cut, the muzzle flash and the shooter's
+  // own arm all read this so they stay in lockstep.
+  const shot = useLatestShot(view.log, view.players, view.you.seat, arc, felt);
+  const outcome = useShotOutcome(view.log, shot);
+  // Whoever is holding a Bang! on someone who has not answered it yet. Taken from the
+  // shot we already resolved rather than looking the name up a second time — and only
+  // when the two agree, so a stale shot can never leave the wrong cowboy taking aim.
+  const aimingSeat =
+    view.pending?.kind === "bang" && shot?.shooter.name === view.pending.actorName
+      ? shot.shooter.seat
+      : null;
+  // Baked shadows have to be re-opened whenever something actually moves: a shooter's
+  // arm, a body rocking back, a body going over. All three are log entries, so the
+  // higher id is simply the more recent event and it brings its own duration.
+  // Where the turn light points. Memoised on the seating rather than rebuilt per frame:
+  // the map is only wrong when someone joins, leaves or the arc changes.
+  const seats = useMemo(
+    () => seatPositions(view.players, view.you.seat, arc, felt),
+    [view.players, view.you.seat, arc, felt]
+  );
+  const turnAt = (view.turnSeat != null && seats.get(view.turnSeat)) || null;
+  const motion = useLatestMotion(view.log);
+  const armKey = models && shot ? shot.key : -1;
+  // Who just drew. Shared by the arms that reach and the cards that come off the pile,
+  // so the two can never disagree about who is picking up what.
+  const reaches = useReaches(view.log, view.players, view.you.seat, arc, felt, ring);
+  const yourReach = reachFor(reaches, view.you.seat);
+  // Whichever of the three body movements is newest owns the live-shadow window. Ranked
+  // by log id — all three come off the same counter, so the bigger number is simply the
+  // later event. The identity handed to StaticShadows is the LEG's seq, not that id: a
+  // two-leg draw shares one log id, and reusing it would leave the shadow frozen through
+  // the second reach. Prefixed so a seq can never collide with a log id.
+  const newestReach = models ? reaches.reduce<typeof reaches[number] | null>((a, d) => (!a || d.seq > a.seq ? d : a), null) : null;
+  const moving =
+    newestReach && newestReach.logId >= Math.max(motion?.key ?? -1, armKey)
+      ? { key: `draw-${newestReach.seq}`, sec: REACH_DUR }
+      : (motion?.key ?? -1) >= armKey
+      ? motion
+      : null;
   return (
     <>
       <color attach="background" args={["#3a2a1a"]} />
       <fog attach="fog" args={["#3a2a1a", felt * 3, felt * 7]} />
-      <PerspectiveCamera makeDefault position={[0, camY, camZ]} fov={fov} />
-      {/* Fixed camera: keep it aimed at the table, no free orbit/zoom/pan. */}
+      <PerspectiveCamera makeDefault position={homePos} fov={fov} />
+      {/* Aim stays locked on the middle of the table — no pan — but you may walk the
+          camera around it and zoom. Zoom: a head is only ~31-42px in the resting view,
+          min felt*0.7 keeps the camera out of the table body, max felt*2.6 is a little
+          past the resting shot at felt*2.05.
+          Vertical travel is clamped both ways. Up, because the saloon is a box ROOM_H
+          tall and the camera would otherwise climb out through the roof — worst at the
+          far zoom stop, which is what this is derived from, and at a 7-player table
+          that bites as early as 42 degrees. Down, because below ~80 degrees the camera
+          drops under the players' heads and the felt goes edge-on. */}
       <OrbitControls
-        target={[0, 0, -felt * 0.12]}
-        enableRotate={false}
-        enableZoom={false}
+        ref={controls}
+        target={homeTarget}
+        enableRotate
+        enableZoom
         enablePan={false}
+        zoomSpeed={0.7}
+        rotateSpeed={0.5}
+        minDistance={felt * 0.7}
+        maxDistance={felt * 2.6}
+        minPolarAngle={Math.acos(Math.min(1, (FLOOR_Y + ROOM_H - 0.3) / (felt * 2.6)))}
+        maxPolarAngle={(80 * Math.PI) / 180}
       />
+      <ShotCam shot={shot} felt={felt} enabled={!!shotCam} standoff={aimingSeat != null} controls={controls} />
+      {/* Keyed by the shot so each one mounts fresh and tears itself down; the flash is
+          independent of the camera cut, so turning the cut off still leaves you a
+          visible gunshot. It waits for the outcome — the gun goes off at the moment the
+          standoff resolves, not while the table is still waiting for an answer. */}
+      {shot && outcome && <ShotFx key={shot.key} shot={shot} hit={outcome === "hit"} />}
       {/* Lighting: one warm lamp over the table doing the real work, everything
           else just lifting the shadows off black.
           Before, ambient 1.05 + hemisphere 0.85 + directional 1.0 + a "warehouse"
@@ -1546,9 +142,10 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
           as flat decals. It also left no bright spot for Bloom to catch and no
           dark corner for the Vignette to deepen, which is why neither effect was
           doing anything visible. */}
-      <ambientLight intensity={0.26} color="#ffeccd" />
-      <hemisphereLight args={["#ffe8c0", "#2a1c10", 0.22]} />
+      <ambientLight ref={dim(0)} intensity={0.26} color="#ffeccd" />
+      <hemisphereLight ref={dim(1)} args={["#ffe8c0", "#2a1c10", 0.22]} />
       <directionalLight
+        ref={dim(2)}
         position={[3.5, 7, 4]}
         intensity={0.45}
         color="#fff3e0"
@@ -1565,16 +162,21 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
         shadow-bias={-0.0006}
       />
       <TableLamp felt={felt} />
+      <TurnLight at={turnAt} />
       <StaticShadows
         trigger={`${view.turnSeat}|${view.players.map((p) => (p.alive ? 1 : 0)).join("")}|${view.players.length}`}
+        /* A body going over backwards moves for 1.5s, but the alive mask in `trigger`
+           changes the instant it starts — that would bake the shadow of a cowboy
+           still sitting upright and leave it there until the turn moved on. */
+        live={moving?.key ?? (armKey >= 0 ? armKey : undefined)}
+        liveSec={moving?.sec ?? (armKey >= 0 ? GUN_STOW_SEC : undefined)}
       />
       <Saloon felt={felt} />
-      <Table felt={felt} />
-      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} onInspect={onInspect} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} />
-      <WantedPosters players={view.players} youSeat={view.you.seat} youId={view.you.id} youName={view.you.name} feeds={feeds} felt={felt} />
-      {/* your own in-play cards, on the near edge of the felt */}
-      <FeltCards cards={view.you.equipment} ang={Math.PI / 2} radius={ring * 0.72} onInspect={onInspect} />
+      <Decor felt={felt} models={models} />
+      <Table felt={felt} models={models} />
+      <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} canDraw={canDraw} onDrawDeck={onDrawDeck} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} shot={shot} aimingSeat={aimingSeat} reaches={reaches} stealIds={stealIds} onSteal={onSteal} models={models} />
+      <YourAvatar you={view.you} players={view.players} count={view.players.length} ring={ring} felt={felt} shot={shot} aiming={aimingSeat === view.you.seat} reach={yourReach} onInspect={onInspect} onInspectPlayer={onInspectPlayer} models={models} />
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       <CheckFx check={view.checks.at(-1) ?? null} felt={felt} />
       {/* Cinematic pass: the lamp globe blooms, the corners fall away. Threshold
@@ -1599,25 +201,112 @@ export default function TableScene({
   onInspectPlayer,
   pickCardMode,
   onPickCard,
+  homeKey,
+  canDraw,
+  onDrawDeck,
+  stealIds,
+  onSteal,
   fx = true,
-  feeds,
+  shotCam = true,
+  models = true,
 }: SceneProps) {
-
   return (
     <div style={{ width: "100%", height: "100%", background: "#141210" }}>
       {/* dpr cap 1.5, not 2: at 2 a retina screen renders FOUR times the pixels of a
           1x screen every frame, and on a table of flat colours the difference is
           barely visible while the cost is not. 1.5 is 44% fewer pixels than 2. */}
       <Canvas shadows dpr={fx ? [1, 1.5] : [1, 1.25]}>
-        <Scene {...{ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, fx, feeds }} />
+        <Scene {...{ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pickCardMode, onPickCard, homeKey, canDraw, onDrawDeck, stealIds, onSteal, fx, shotCam, models }} />
       </Canvas>
     </div>
   );
 }
 
+// Flying the camera back to where it started, for the button in the HUD. Orbiting is
+// free — a player can end up under the table or staring at a wall — and there was no way
+// back short of reloading.
+//
+// A glide rather than a jump: the room the camera swings through on the way is what tells
+// you it is the same table you were already looking at. And it yields to the shot camera,
+// which takes the controls away for the length of a cut (`enabled = false`); pressing the
+// button mid-gunfight parks the request until the cut hands the camera back.
+const HOME_SEC = 0.55;
+const TO_P = new THREE.Vector3();
+const TO_T = new THREE.Vector3();
+
+function useGoHome(
+  controls: MutableRefObject<ElementRef<typeof OrbitControls> | null>,
+  key: number | undefined,
+  pos: [number, number, number],
+  target: [number, number, number]
+) {
+  const t = useRef(-1);
+  const from = useRef({ p: new THREE.Vector3(), t: new THREE.Vector3() });
+  const armed = useRef(false);
+  useEffect(() => {
+    // The first run is the mount, when the camera is already home.
+    if (!armed.current) {
+      armed.current = true;
+      return;
+    }
+    const c = controls.current;
+    if (!c) return;
+    from.current.p.copy(c.object.position);
+    from.current.t.copy(c.target);
+    t.current = 0;
+  }, [key, controls]);
+  useFrame((_, dt) => {
+    if (t.current < 0) return;
+    const c = controls.current;
+    if (!c) {
+      t.current = -1;
+      return;
+    }
+    if (!c.enabled) return; // the shot camera has it; wait rather than fight
+    t.current = Math.min(1, t.current + dt / HOME_SEC);
+    const k = t.current * t.current * (3 - 2 * t.current); // smoothstep, so it eases out
+    c.object.position.lerpVectors(from.current.p, TO_P.fromArray(pos), k);
+    c.target.lerpVectors(from.current.t, TO_T.fromArray(target), k);
+    c.update();
+    if (t.current >= 1) t.current = -1;
+  });
+}
+
+// The room drops back while a choice is staged over the table, so three cards read as a
+// lit moment rather than as more things on a busy table.
+//
+// Done by taking the fill lights down, NOT by laying a dark sheet over everything: the
+// lamp above the table is left alone, so the middle of the room keeps its light and only
+// the corners fall away. A flat overlay would have dimmed the lamp, the felt and the
+// cards equally, which is not dimming — it is fog.
+const DIM_TO = 0.5;
+const DIM_RATE = 6; // time constant; ~95% of the way in 0.5s
+
+function useRoomDim(active: boolean) {
+  const lights = useRef<(THREE.Light | null)[]>([]);
+  // Captured off the light itself the first time it mounts, so the numbers stay written
+  // once, up in the JSX where they are read.
+  const full = useRef<number[]>([]);
+  const k = useRef(1);
+  useFrame((_, dt) => {
+    const want = active ? DIM_TO : 1;
+    k.current += (want - k.current) * (1 - Math.exp(-DIM_RATE * dt));
+    lights.current.forEach((l, i) => {
+      if (l && full.current[i] !== undefined) l.intensity = full.current[i] * k.current;
+    });
+  });
+  return (i: number) => (l: THREE.Light | null) => {
+    lights.current[i] = l;
+    if (l && full.current[i] === undefined) full.current[i] = l.intensity;
+  };
+}
+
 // Scene re-renders on every broadcast — each play, each 850ms bot tick. These three
-// take only `felt`, so without memo the whole static room (a few hundred meshes:
-// piano keys, bottles, wheel spokes, table legs) is rebuilt to reconcile to nothing.
+// take only `felt`, so without memo the whole static room (walls, floor, wall decor,
+// table legs) is rebuilt to reconcile to nothing.
 const Saloon = memo(SaloonInner);
 const Table = memo(TableInner);
 const TableLamp = memo(TableLampInner);
+// Same reason as the three above: nothing here moves, so it must not be rebuilt on
+// every broadcast just to reconcile to itself.
+const Decor = memo(DecorInner);

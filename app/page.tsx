@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getSocket, saveIdentity, saveName, loadName, loadSeats } from "@/lib/socketClient";
+import { getSocket, saveIdentity, saveName, loadName, loadSeats, saveLook, loadLook } from "@/lib/socketClient";
+import type { Look } from "@/lib/types";
 import { L, useLocale, initLocale, setLocale, getLocale, tError } from "@/lib/i18n";
 import type { GameError } from "@/lib/errors";
 import { LangToggle } from "@/components/LangToggle";
@@ -11,6 +12,7 @@ export default function Home() {
   const router = useRouter();
   const locale = useLocale();
   const [name, setName] = useState("");
+  const [look, setLook] = useState<Look | null>(null);
   const [code, setCode] = useState("");
   const [error, setError] = useState<GameError | string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,6 +23,7 @@ export default function Home() {
   useEffect(() => {
     initLocale();
     setName(loadName());
+    setLook(loadLook());
   }, []);
 
   const noResponse = () => setError(L(getLocale(), "Máy chủ không phản hồi, thử lại", "Server didn't respond, try again"));
@@ -32,7 +35,7 @@ export default function Home() {
     saveName(name.trim());
     // .timeout() so a lost/slow connection surfaces an error instead of leaving
     // the button disabled forever. On success we navigate away (busy stays set).
-    getSocket().timeout(8000).emit("createRoom", { name: name.trim() }, (err, res) => {
+    getSocket().timeout(8000).emit("createRoom", { name: name.trim(), look: look ?? undefined }, (err, res) => {
       if (err || !res) { setBusy(false); return noResponse(); }
       saveIdentity(res.code, res.playerId);
       router.push(`/room/${res.code}`);
@@ -46,7 +49,7 @@ export default function Home() {
     setBusy(true);
     setError(null);
     saveName(name.trim());
-    getSocket().timeout(8000).emit("quickJoin", { name: name.trim(), seats: loadSeats() }, (err, res) => {
+    getSocket().timeout(8000).emit("quickJoin", { name: name.trim(), seats: loadSeats(), look: look ?? undefined }, (err, res) => {
       if (err || !res) { setBusy(false); return noResponse(); }
       saveIdentity(res.code, res.playerId);
       router.push(`/room/${res.code}`);
@@ -60,7 +63,7 @@ export default function Home() {
     setError(null);
     saveName(name.trim());
     const c = code.toUpperCase().trim();
-    getSocket().timeout(8000).emit("joinRoom", { code: c, name: name.trim() }, (err, res) => {
+    getSocket().timeout(8000).emit("joinRoom", { code: c, name: name.trim(), look: look ?? undefined }, (err, res) => {
       setBusy(false);
       if (err || !res) return noResponse();
       if (!res.ok || !res.playerId) return setError(res.error ?? L(getLocale(), "Không vào được phòng", "Couldn't join the room"));
@@ -81,6 +84,20 @@ export default function Home() {
       <div className="card">
         <label htmlFor="name">{L(locale, "Tên của bạn", "Your name")}</label>
         <input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Django" maxLength={20} onKeyDown={(e) => e.key === "Enter" && play()} />
+
+        <label>{L(locale, "Hình ngồi bàn", "Your figure")}</label>
+        <div className="row" style={{ marginBottom: 14 }}>
+          {([[null, "Tuỳ nhân vật", "By character"], ["m", "Nam", "Man"], ["f", "Nữ", "Woman"]] as const).map(([v, vi, en]) => (
+            <button
+              key={vi}
+              className={look === v ? "" : "ghost"}
+              style={{ padding: "10px 8px", fontSize: 14 }}
+              onClick={() => { setLook(v); saveLook(v); }}
+            >
+              {L(locale, vi, en)}
+            </button>
+          ))}
+        </div>
 
         <button onClick={play} disabled={busy}>
           {L(locale, "Vào chơi ngay", "Play now")}
