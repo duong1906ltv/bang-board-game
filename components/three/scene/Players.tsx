@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import { Avatar, Tombstone } from "./Avatars";
+import { CardMesh } from "../CardMesh";
 import { FeltCards } from "./Cards";
 import { Crosshair } from "./Crosshair";
 import { PickSpot } from "./PickSpot";
@@ -17,6 +18,7 @@ import { Lean, useReaction } from "./Reactions";
 import {
   AVATAR_COLORS,
   AVATAR_HEAD_Y,
+  CARD_LIFT,
   faceCentre,
   FELT_Y,
   FLOOR_Y,
@@ -102,11 +104,19 @@ function Nameplate({ p, position, onClick }: { p: PlayerPublic; position?: [numb
 // It was never the arrow that was wrong, it was the envelope. The room it needed was
 // never up there: the hat tops out at 1.05 and the plaque used to start at 1.20, so
 // there was a gap sitting directly ON the hat and the old arrow had gone looking for
-// space above the plaque instead. 0.17 of arrow measures 50px at the nearest seat and
-// 36px at the furthest a seven-player table has — a third of what got the old one
-// pulled, and still nothing you could miss.
-const MARK_H = 0.17;
-const MARK_W = 0.21;
+// space above the plaque instead.
+//
+// The first size fitted in that gap was 0.17, which read as small in play: 20px tall at
+// the far side of a seven-player table, on a 900px window. This is the original 0.62
+// back — 73px far side, 268px at the nearest seat — but ON the hat rather than above the
+// plaque, which is the half of the old attempt that was actually wrong.
+//
+// The width did NOT scale with it. 0.17x0.21 was wider than tall because a small mark
+// needs the silhouette; at 0.62 that ratio is 0.78 across, 449px at the near seat of a
+// four-player table, and it stops reading as an arrow at all. Taller than wide is what
+// a pointer looks like.
+const MARK_H = 0.62;
+const MARK_W = 0.42;
 // Clear of the hat, not perched on it: the tip stops this far short of the crown, which
 // is enough for the shape to read as pointing AT the head rather than growing out of it.
 const MARK_GAP = 0.07;
@@ -119,10 +129,11 @@ const markY = (models?: boolean) => (models ? 1.05 : 0.85) + MARK_GAP + MARK_H /
 // And the plaque moves up out of the way. Its height in WORLD units is not fixed:
 // <Html distanceFactor={f}> scales by f/(2·tan(fov/2)·dist), which works out to
 // `elementPx · f / viewportHeight` of world — so the shorter the browser window, the
-// bigger the plaque grows out here. The arrow now reaches 1.29, and a ~59px plaque is
+// bigger the plaque grows out here. The arrow now reaches 1.74, and a ~59px plaque is
 // half a world unit tall by the time the window is down to 700px, so it has to sit this
-// high to stay off it. Anything under 1.56 starts clipping the arrow on a laptop.
-const PLATE_Y = 1.56;
+// high to stay off it. Anything under 1.99 starts clipping the arrow on a laptop; this
+// keeps 0.047 of daylight there and 0.15 on a desktop.
+const PLATE_Y = 2.04;
 // It turns rather than bobbing. Bobbing spends vertical room and there are three
 // hundredths spare; turning spends none, and four flat facets take the lamp one at a
 // time, so it flares once a revolution without anything animating the material.
@@ -173,6 +184,45 @@ const SPOT_SQUASH = 0.54;
 // a flat thing drawn on a surface; there is no surface in mid-air, and a click target
 // that moves with a swivelling body is one you have to chase. The spot in front of a
 // seat reads as "that player", which is what stealing actually targets.
+// A face-down fan of an opponent's hand, lying on their patch of cloth.
+//
+// This is where every hand used to be. It moved into the figure's fist when the modelled
+// bodies arrived — but the BLOCK figures have no fists, so with the fan gone their hands
+// were nowhere in the scene at all, leaving the count on the plaque as the only trace of
+// a card. So it comes back for that look, and only for that look: drawn in both, one
+// hand would be on the table and in a fist at the same time.
+//
+// Capped at six, which is also the number SPOT_R was measured against — so the steal
+// ring that outlived the fan still frames it exactly, with nothing to re-measure.
+const FAN_MAX = 6;
+const FAN_STEP = 0.12;
+
+function FeltHand({ count }: { count: number }) {
+  const n = Math.min(count, FAN_MAX);
+  if (n <= 0) return null;
+  return (
+    <>
+      {Array.from({ length: n }).map((_, i) => {
+        const off = (i - (n - 1) / 2) * FAN_STEP;
+        return (
+          // ON the cloth, not over it. The old fan sat 0.10 above the felt — a third of
+          // a card's own width, and the reason the whole table read as hovering. These
+          // stack by the depth-buffer margin instead, like every other card lying flat:
+          // the z-rotation is applied BEFORE the -90° that lays them down, so it spins
+          // each card in its own plane and none of them tilts into the cloth.
+          <CardMesh
+            key={i}
+            faceDown
+            scale={0.5}
+            position={[off, FELT_Y + CARD_LIFT + i * 0.004, FAN_Z]}
+            rotation={[-Math.PI / 2, 0, off * 0.25]}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 function OpponentSpot({ stealable, onSteal }: { stealable?: boolean; onSteal?: () => void }) {
   if (!stealable || !onSteal) return null;
   return (
@@ -419,6 +469,10 @@ function Seat({
     <group>
       <group position={[x, 0, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
         <OpponentSpot stealable={stealable} onSteal={onSteal} />
+        {/* Same frame as the ring, so the one lands round the other. Your own seat has
+            no fan of its own: your hand is the real thing in DOM under the canvas, and a
+            second, differently-sized copy of it out here would contradict it. */}
+        {!models && <FeltHand count={p.handCount} />}
       </group>
       {p.alive || p.ghost || reaction?.kind === "fall" ? (
         <Lean ang={ang} seat={[ax, az]} reaction={reaction}>

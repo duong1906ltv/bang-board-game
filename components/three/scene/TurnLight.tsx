@@ -36,10 +36,11 @@ const ANGLE = Math.atan(COVER / HEIGHT);
 // Soft-edged, or the cone draws a hard ellipse on the felt and we are back to a decal.
 const PENUMBRA = 0.75;
 // Against the lamp's 26 at decay 1.4 — enough to read as a second source without
-// flattening the one light the room is built around. Measured at a seated chest it
-// lands at 3.3 against the lamp's 3.8, i.e. it makes its player 72% brighter than the
-// one beside them, which is not subtle at all. Brightness was never the problem.
-const INTENSITY = 17;
+// flattening the one light the room is built around. At 17 it measured 3.3 at a seated
+// chest against the lamp's 3.8, i.e. 87% brighter than the player beside them; 21 takes
+// that to 4.1 and 108%. Raised on the table's own reading of it, not on the maths —
+// 87% was plenty on paper and still read as flat in a lit saloon.
+const INTENSITY = 21;
 const DECAY = 1.5;
 // The colour was. This used to be #ffd79a — the lamp's colour, exactly. So 72% more of
 // the same light does not read as "a light on this player", it reads as "this player is
