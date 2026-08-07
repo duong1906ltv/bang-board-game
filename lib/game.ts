@@ -1295,7 +1295,34 @@ function openGeneralStore(room: Room, current: Player) {
   // A drained deck can yield fewer cards than players; trim the pick order to
   // match, otherwise the last players would have nothing to choose and the
   // pending would never resolve.
-  room.pending = { kind: "store", sourceId: current.id, cards, order: order.slice(0, cards.length) };
+  const pending: StorePending = { kind: "store", sourceId: current.id, cards, order: order.slice(0, cards.length) };
+  room.pending = pending;
+  settleStore(room, pending); // a one-card store off a drained deck needs no picking
+}
+
+type StorePending = Extract<Pending, { kind: "store" }>;
+
+// Close out a General Store as far as it will go on its own.
+//
+// The last picker is never asked: one card and one player left is not a choice, so
+// the card goes straight to them. Waiting on that tap held the whole table on a
+// foregone conclusion — and it is the one pick where the "reveal" shows nothing,
+// since everyone watched the other cards leave.
+//
+// Deliberately NOT a loop: picks are one card per picker, so settling one can only
+// ever empty the store. Fewer cards than pickers (somebody left mid-store) still
+// leaves a real choice and is left alone.
+function settleStore(room: Room, pending: StorePending) {
+  if (pending.order.length === 1 && pending.cards.length === 1) {
+    const last = room.players.find((p) => p.id === pending.order[0]);
+    if (last) {
+      last.hand.push(pending.cards.shift()!);
+      pending.order.shift();
+    }
+  }
+  if (pending.order.length > 0) return;
+  room.discard.push(...pending.cards);
+  clearPending(room);
 }
 
 function playGeneralStore(room: Room, current: Player, handIdx: number): Result {
@@ -1589,7 +1616,7 @@ function detachFromPending(room: Room, id: string) {
       break;
     case "store":
       p.order = p.order.filter((o) => o !== id);
-      if (p.order.length === 0) { room.discard.push(...p.cards); clearPending(room); }
+      settleStore(room, p);
       break;
     case "multi":
       if (p.sourceId === id) clearPending(room);
@@ -2137,10 +2164,7 @@ export function choose(code: string, playerId: string, cardId: string): Result {
     const picker = room.players.find((p) => p.id === playerId)!;
     picker.hand.push(pending.cards.splice(ci, 1)[0]);
     pending.order.shift();
-    if (pending.order.length === 0) {
-      room.discard.push(...pending.cards);
-      clearPending(room);
-    }
+    settleStore(room, pending);
     return { ok: true };
   }
 
