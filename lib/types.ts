@@ -144,6 +144,22 @@ export interface PendingView {
 import type { EventLevel, EventScope } from "./events";
 export type { EventLevel };
 
+// ─── Turn prediction ─────────────────────────────────────────────────────────
+
+import type { Prediction, PredictionKind, PredictionResult, TurnOutcome } from "./predictions";
+export type { Prediction, PredictionKind, PredictionResult };
+
+// The judged predictions for the turn that just ended. Carried on its own field rather
+// than in `log`: six players staking two questions each would flood a 40-entry log within
+// a few turns. `seq` is monotonic so a client can tell a NEW reveal from a re-render —
+// the same trick `eventFeed` uses.
+export interface PredictReveal {
+  seq: number;
+  targetId: string; // whose turn was just judged
+  outcome: TurnOutcome; // what actually happened
+  results: PredictionResult[];
+}
+
 // One active (or just-fired) event, as shown to clients. Every event is table-wide
 // (one per round, at the Sheriff's turn) and none singles out a player, so there is
 // no target to name. Names/descriptions are localized on the client (lib/i18n.ts).
@@ -243,6 +259,11 @@ export interface PlayerView {
     inbox: LogEntry[]; // what others did to you since your turn last ended
     wins: number; // your cumulative wins in this room
     rewardUrl: string | null; // escape reward, present only once you hit the threshold
+    // Guesses YOU have staked on the upcoming turn. Never anybody else's — that is the
+    // whole point of staking them quietly.
+    myPredictions: Prediction[];
+    canPredict: boolean; // may you stake anything at all right now
+    predictBlockReason: string | null; // why not, resolved server-side so the client never re-derives the rule
   };
   players: PlayerPublic[];
   turnSeat: number | null;
@@ -258,6 +279,12 @@ export interface PlayerView {
   eventLevel: EventLevel; // room setting: how often random events fire
   events: EventView[]; // events currently in force
   eventFeed: EventView[]; // recently fired events, oldest first — announce any `seq` you haven't shown
+  nextPlayerId: string | null; // the seat predictions are open on
+  // Rolling feed of verdicts, oldest first. A single action can produce more than one — a
+  // turn is judged and then the seat after it is skipped and voided — so a lone "latest
+  // reveal" field would silently drop the judged one, which is the one that moved cards.
+  // Same reason `eventFeed` is a feed. Show every `seq` you haven't, oldest first.
+  predictFeed: PredictReveal[];
 }
 
 // One entry in the action history. Formatted per-locale on the client.
@@ -341,6 +368,8 @@ export interface ClientToServerEvents {
   choose: (data: { code: string; cardId: string }) => void; // pick a card (General Store)
   discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;
+  // Stake a guess on what the NEXT player will do. Silent until their turn ends.
+  predict: (data: { code: string; targetId: string; kind: PredictionKind; value: string }) => void;
   surrender: (data: { code: string }) => void; // concede: remove yourself from the game
   restart: (data: { code: string }) => void; // back to lobby
   playAgain: (data: { code: string }) => void; // restart + immediately deal a new game

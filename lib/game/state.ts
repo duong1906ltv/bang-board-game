@@ -5,6 +5,8 @@
 // this is the bottom layer, and a arrow pointing back up would make the module graph
 // a cycle instead of a stack.
 
+import type { PredictReveal } from "../types";
+import type { Prediction } from "../predictions";
 import {
   Character,
   CheckView,
@@ -118,6 +120,17 @@ export interface Room {
   eventFeed: ActiveEvent[];
   eventSeq: number;
   usedEventIds: string[]; // every event already seen this game — drawn from like a deck
+
+  // --- turn prediction (see lib/predictions.ts) ---
+  // Guesses staked but not yet judged. Always about the seat that plays NEXT, so at most
+  // one turn's worth is ever outstanding.
+  predictions: Prediction[];
+  // Everyone the active player has aimed a Bang! at this turn, in order. Accumulated here
+  // rather than read back out of `log`, because a log entry carries a NAME (`a`) and two
+  // players may share one — the guess would then be judged against the wrong person.
+  turnShotIds: string[];
+  predictFeed: PredictReveal[]; // verdicts not yet shown, oldest first (see PlayerView.predictFeed)
+  predictSeq: number;
   turnCounter: number; // turns begun this game (telemetry / sim reporting only)
   turnDir: 1 | -1; // play direction (the "reverse" event flips it)
   // The direction to put back once this ROUND is over, or null when nothing is

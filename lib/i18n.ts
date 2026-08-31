@@ -373,6 +373,14 @@ const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
     "Event: only {n} card(s) playable this turn",
   ],
   "card-already-used-this-turn": ["Đã dùng {s} trong lượt này", "Already played {s} this turn"],
+  // turn prediction
+  "bad-predict-target": ["Không đoán được người này", "You cannot predict this player"],
+  "already-predicted": ["Bạn đã đoán câu này rồi", "You already staked that question"],
+  "predict-needs-a-card": [
+    "Cần ít nhất 1 lá trên tay để đoán (đoán sai thì mất 1 lá)",
+    "You need a card in hand to stake a guess (a wrong guess costs one)",
+  ],
+  "invalid-prediction": ["Dự đoán không hợp lệ", "Invalid prediction"],
 };
 
 export function tError(l: Locale, e: GameError | string | null | undefined): string {
@@ -381,3 +389,26 @@ export function tError(l: Locale, e: GameError | string | null | undefined): str
   const tpl = ERROR_TEXT[e.code]?.[l === "vi" ? 0 : 1] ?? e.code;
   return tpl.replace("{n}", String(e.n ?? "")).replace("{s}", e.s ?? "");
 }
+
+// --- turn prediction (lib/predictions.ts) ---
+
+// Why the panel's buttons are dead right now. The engine resolves the reason
+// (view.you.predictBlockReason) so the client never re-derives a rule; this only names it.
+const PREDICT_BLOCK: Record<string, [string, string]> = {
+  "no-seat": ["Bạn không ở bàn", "You are not seated"],
+  "not-playing": ["Ván chưa chạy", "No game in progress"],
+  "waiting-for-reaction": ["Đang chờ ai đó phản ứng", "Waiting on somebody's reaction"],
+  "bad-predict-target": ["Không đoán được lượt tới", "Nothing to predict on this turn"],
+  "already-predicted": ["Bạn đã đoán cả hai câu", "You staked both questions"],
+  "predict-needs-a-card": [
+    "Cần 1 lá trên tay cho mỗi câu (đoán sai mất 1 lá)",
+    "One card in hand per question (a miss costs one)",
+  ],
+  "invalid-prediction": ["Dự đoán không hợp lệ", "Invalid prediction"],
+};
+export const predictBlockText = (l: Locale, reason: string | null): string =>
+  reason && PREDICT_BLOCK[reason] ? PREDICT_BLOCK[reason][l === "vi" ? 0 : 1] : "";
+
+// The bucket labels for "how many cards will they play".
+export const playsBucketLabel = (l: Locale, b: string): string =>
+  b === "3+" ? L(l, "3 lá trở lên", "3 or more") : L(l, `${b} lá`, `${b} card${b === "1" ? "" : "s"}`);

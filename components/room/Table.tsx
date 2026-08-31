@@ -15,6 +15,9 @@ import { HandCard } from "./HandCard";
 import { DrawControls } from "./DrawControls";
 import { EventBanner } from "./EventBanner";
 import { EventChips } from "./EventChips";
+import type { PredictionKind } from "@/lib/predictions";
+import { PredictPanel } from "./PredictPanel";
+import { PredictReveal } from "./PredictReveal";
 import { HpPips } from "./HpPips";
 import { LogPanel } from "./LogPanel";
 import { ResultOverlay } from "./ResultOverlay";
@@ -35,6 +38,7 @@ export function Table({
   onRestart,
   onPlayAgain,
   onChoose,
+  onPredict,
 }: {
   view: PlayerView;
   onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
@@ -46,6 +50,7 @@ export function Table({
   onRestart: () => void;
   onPlayAgain: () => void;
   onChoose: (cardId: string) => void;
+  onPredict: (targetId: string, kind: PredictionKind, value: string) => void;
 }) {
   const locale = useLocale();
   const you = view.you;
@@ -88,7 +93,7 @@ export function Table({
 
   const inspectCard = (c: Card) => setInfoCard(c);
   const showRole = () => setBriefing(true);
-  const { marquee, clearMarquee, eventBatch, dismissEvents, justDrew, notice, flash } =
+  const { marquee, clearMarquee, eventBatch, dismissEvents, reveal, dismissReveal, justDrew, notice, flash } =
     useTableFeedback(view);
 
   // Escape dismisses any open popup and cancels aim / Sid-pick mode — the same
@@ -272,6 +277,10 @@ export function Table({
         <EventBanner key={eventBatch[0].seq} evs={eventBatch} onDone={dismissEvents} />
       )}
 
+      {reveal && (
+        <PredictReveal key={reveal.seq} reveal={reveal} view={view} onDone={dismissReveal} />
+      )}
+
       {notice && (
         <div
           style={{
@@ -411,6 +420,10 @@ export function Table({
         </div>
 
         <EventChips events={view.events} />
+        <PredictPanel
+          view={view}
+          onPredict={onPredict}
+        />
       </div>
 
       <LogPanel log={view.log} inbox={you.inbox} youName={you.name} onInspect={setInfoCard} />

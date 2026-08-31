@@ -29,17 +29,10 @@ import {
   shuffle,
 } from "./state";
 import { beersInHand, charEffect, drawInto, drawOne } from "./deck";
+import { judgePredictions, predict, voidPredictionsFor } from "./predictions";
 import { activeEffect, eventsUnlocked, resetEventState, tickEvents } from "./events-read";
 import { barrelAttempts, distanceBetween, hasEquip, rangeOf } from "./geometry";
-import {
-  bangBudget,
-  canUseAs,
-  handLimitOf,
-  isExemptPlay,
-  legalTargetIds,
-  playBlock,
-  targetProblem,
-} from "./rules";
+import { bangBudget, canUseAs, handLimitOf, isExemptPlay, legalTargetIds, nextSeatId, playBlock, targetProblem } from "./rules";
 import {
   addBot,
   addPlayer,
@@ -64,7 +57,7 @@ export type { Player, Room };
 export { DRAFT_PER_PLAYER };
 export { activeEffect };
 export { distanceBetween, rangeOf };
-export { bangBudget, canUseAs, handLimitOf, playBlock, targetProblem };
+export { bangBudget, canUseAs, handLimitOf, nextSeatId, playBlock, targetProblem };
 export {
   addBot,
   addPlayer,
@@ -78,6 +71,7 @@ export {
   roleSetupFor,
 };
 export { buildView };
+export { predict };
 
 
 export type { GameError, Result };
@@ -856,6 +850,11 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   room.bangsThisTurn += 1;
+  // Prediction: the shot is recorded where it was AIMED, after drunkAim has had its say.
+  // Whether the target then dodges is not the shooter's choice, and reading the choice is
+  // what a "who will they shoot" guess is about. Gatling/Indians never land here — they
+  // aim at nobody, which is why a turn spent on one reads as shooting nobody.
+  room.turnShotIds.push(target.id);
   const missedNeeded = Math.max(
     1,
     1 + (charEffect(current).missedNeededDelta ?? 0) + (eff.missedNeededDelta ?? 0)
@@ -929,6 +928,9 @@ export function endTurn(code: string, playerId: string): Result {
   // A ghost's turn ends with it back in the ground. handLimitOf already answered with
   // the whole hand for a ghost, so the check above never stood in the way of that.
   if (current.ghost) layGhostDown(room, current);
+  // Before the hand-off: this turn is over, so anything staked on it can be judged.
+  // playsThisTurn and turnShotIds are both still intact here — beginTurn clears them.
+  judgePredictions(room, current);
   if (!advanceToNextSeat(room)) return { ok: false };
   beginTurn(room);
   return { ok: true };
@@ -1005,10 +1007,22 @@ export function surrender(code: string, playerId: string): Result {
 // that is where it flips for a ghost turn (see beginTurn). Nothing else changes — a
 // seat that fails its flip is handed straight on, so from the living players' side the
 // order is exactly what it always was.
+// --- turn prediction (lib/predictions.ts, engine half in ./predictions) ---
+//
+// Two hooks carry the whole feature, because advanceToNextSeat is the ONE funnel every
+// hand-off runs through — a played turn, a Jail sentence, a ghost that failed its flip,
+// an upkeep death. So: endTurn JUDGES (and clears) the stakes on the seat it is closing,
+// and advanceToNextSeat VOIDS whatever is still outstanding for the seat it is leaving.
+// A played turn therefore finds nothing left to void, and a skipped turn can only reach
+// the void path — no "was this turn actually played" flag needed anywhere.
+
 function advanceToNextSeat(room: Room): boolean {
   const n = room.players.length;
   const leaving = room.players[room.turnIndex];
   if (n === 0) return false;
+  // Anything still staked on the seat we are leaving means its turn never resolved —
+  // endTurn would have judged and cleared it. Skipped seat: throw the stakes away.
+  if (leaving) voidPredictionsFor(room, leaving.id);
   const idx = (room.turnIndex + room.turnDir + n * n) % n;
   room.turnIndex = idx;
   // Cleared here rather than in endTurn: every hand-off funnels through this
@@ -1178,6 +1192,7 @@ function beginTurn(room: Room, resuming = false) {
     room.bangsThisTurn = 0;
     room.playsThisTurn = 0;
     room.playedDefsThisTurn = [];
+    room.turnShotIds = [];
     room.jailedTurn = false;
 
     // --- This round's event: rolled as the round opens (the Sheriff's turn), before
@@ -1754,6 +1769,8 @@ function checkWin(room: Room) {
 
   if (winner) {
     clearPending(room);
+    // No stake can be judged now — the turn it was about will never finish.
+    room.predictions = [];
     room.winner = winner;
     room.phase = "result";
     // A ghost whose own turn ended the game goes back in the ground with it. Without
@@ -1797,6 +1814,9 @@ export function restart(code: string): boolean {
   room.checks = [];
   room.deck = [];
   room.discard = [];
+  room.predictions = [];
+  room.turnShotIds = [];
+  room.predictFeed = [];
   resetEventState(room);
   room.players.forEach((p) => {
     p.role = null;

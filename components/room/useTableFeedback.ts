@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EventView, PlayerView } from "@/lib/types";
+import type { EventView, PlayerView, PredictReveal } from "@/lib/types";
 import { rankLabel, SUIT_SYMBOL } from "@/lib/cards";
 import { useLocale, checkText } from "@/lib/i18n";
 import { CHECK_ICON } from "./constants";
@@ -38,6 +38,26 @@ export function useTableFeedback(view: PlayerView) {
     setEventBatch(fresh);
   }, [view.eventFeed]);
 
+  // The verdict on the turn that just ended, but ONLY for somebody who staked a guess on
+  // it. A prediction opens every single turn, so popping this for the whole table would be
+  // 40-60 modals a game at people who chose not to play along — and choosing not to play
+  // along is supposed to cost nothing, including attention.
+  // A QUEUE, oldest first, not just the newest: one action can judge a turn and then void
+  // the skipped seat after it, and the judged verdict — the one that moved cards — is the
+  // older of the two. Showing the newest would drop exactly the one worth seeing.
+  const [revealQueue, setRevealQueue] = useState<PredictReveal[]>([]);
+  const seenPredictSeq = useRef(0);
+  useEffect(() => {
+    const fresh = view.predictFeed.filter(
+      (r) => r.seq > seenPredictSeq.current && r.results.some((x) => x.byId === view.you.id)
+    );
+    const highest = view.predictFeed.at(-1)?.seq;
+    if (highest !== undefined) seenPredictSeq.current = Math.max(seenPredictSeq.current, highest);
+    if (fresh.length) setRevealQueue((q) => [...q, ...fresh]);
+  }, [view.predictFeed, view.you.id]);
+  const reveal = revealQueue[0] ?? null;
+  const dismissReveal = useCallback(() => setRevealQueue((q) => q.slice(1)), []);
+
   const [justDrew, setJustDrew] = useState<Set<string>>(new Set());
   const prevHand = useRef<string[]>([]);
   useEffect(() => {
@@ -65,6 +85,8 @@ export function useTableFeedback(view: PlayerView) {
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
 
   return {
+    reveal,
+    dismissReveal,
     marquee,
     clearMarquee: () => setMarquee(null),
     eventBatch,

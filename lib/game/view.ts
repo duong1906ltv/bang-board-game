@@ -19,7 +19,7 @@ import {
 import { charEffect } from "./deck";
 import { toEventView } from "./events-read";
 import { distanceBetween, rangeOf } from "./geometry";
-import { bangBudget, blockedDefIdsFor, canUseAs, handLimitOf, legalTargetsFor } from "./rules";
+import { bangBudget, blockedDefIdsFor, canUseAs, handLimitOf, legalTargetsFor, nextSeatId, predictBlock } from "./rules";
 import { mayStart, roleSetupFor } from "./rooms";
 import { Player, Room } from "./state";
 
@@ -230,6 +230,13 @@ export function buildView(room: Room, playerId: string): PlayerView {
       inbox: me?.inbox ?? [],
       wins: me?.wins ?? 0,
       rewardUrl: me?.rewardTicket ?? null, // only the winner's own view carries the link
+      // Only ever YOUR stakes. A staked guess is secret until the turn it is about ends,
+      // so this must never be built from anybody else's — the same isolation `hand` has.
+      myPredictions: me ? room.predictions.filter((p) => p.byId === me.id) : [],
+      canPredict: predictBlock(room, me) === null,
+      // Resolved server-side, like legalTargets: the client had its own copy of a targeting
+      // rule once and greyed out the wrong things, so it no longer re-derives any of them.
+      predictBlockReason: predictBlock(room, me),
     },
     players: bySeat.map((p, seat) => toPublic(p, seat, room, me, turnId)),
     turnSeat: turnPlayer ? room.players.indexOf(turnPlayer) : null,
@@ -245,5 +252,7 @@ export function buildView(room: Room, playerId: string): PlayerView {
     eventLevel: room.eventLevel,
     events: room.roundEvents.map((ev) => toEventView(room, ev)),
     eventFeed: room.eventFeed.map((ev) => toEventView(room, ev)),
+    nextPlayerId: nextSeatId(room),
+    predictFeed: room.predictFeed,
   };
 }

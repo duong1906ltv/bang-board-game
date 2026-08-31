@@ -100,6 +100,10 @@ export function createRoom(
     turnCounter: 0,
     turnDir: 1,
     turnDirRestore: null,
+    predictions: [],
+    turnShotIds: [],
+    predictFeed: [],
+    predictSeq: 0,
   };
   rooms.set(code, room);
   return { room, player };

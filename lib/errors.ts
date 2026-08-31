@@ -50,7 +50,12 @@ export type ErrorCode =
   | "need-more-missed"
   | "event-bans-card"
   | "event-play-limit"
-  | "card-already-used-this-turn";
+  | "card-already-used-this-turn"
+  // turn prediction (lib/predictions.ts)
+  | "bad-predict-target"
+  | "already-predicted"
+  | "predict-needs-a-card"
+  | "invalid-prediction";
 
 export interface GameError {
   code: ErrorCode;

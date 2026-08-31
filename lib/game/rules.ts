@@ -11,6 +11,7 @@ import { GameError } from "../errors";
 import { activeEffect } from "./events-read";
 import { charEffect } from "./deck";
 import { distanceBetween, hasEquip, rangeOf } from "./geometry";
+import { predictionProblem, type PredictionKind } from "../predictions";
 import { Player, Room } from "./state";
 
 // Cards whose whole point is restoring life — suppressed together by `noHeal`.
@@ -174,4 +175,45 @@ export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
   if (card.defId === asDefId) return true;
   const swap = charEffect(player).useAs;
   return !!swap && swap.includes(card.defId) && swap.includes(asDefId);
+}
+
+// --- turn prediction (lib/predictions.ts) ---
+
+// The seat that plays after this one — the only seat predictions are ever open on.
+// Reads turnDir off the same expression advanceToNextSeat uses, and deliberately does
+// NOT skip the dead: every seat comes around every round under the ghost-turn house rule.
+//
+// Lives here rather than in the core because view.ts needs it and view.ts may not import
+// the core — that is the arrow the module split exists to prevent.
+export function nextSeatId(room: Room): string | null {
+  const n = room.players.length;
+  if (n === 0 || room.phase !== "playing") return null;
+  return room.players[(room.turnIndex + room.turnDir + n * n) % n]?.id ?? null;
+}
+
+// Why `me` may not stake any guess right now, or null if they may. Answered server-side
+// for the same reason legalTargets is: the client used to re-derive a rule and got it
+// wrong, so it no longer derives any of them.
+export function predictBlock(room: Room, me: Player | undefined): string | null {
+  if (!me) return "no-seat";
+  if (room.phase !== "playing") return "not-playing";
+  if (room.pending) return "waiting-for-reaction";
+  const nextId = nextSeatId(room);
+  const target = room.players.find((p) => p.id === nextId);
+  if (!target) return "bad-predict-target";
+  // Both questions are open, so being blocked means neither is available. Ask about the
+  // one already staked LAST, which is why "shoot" is probed with its own locked list.
+  const locked = room.predictions.filter((p) => p.byId === me.id && p.targetId === target.id);
+  const kinds: PredictionKind[] = ["shoot", "plays"];
+  const open = kinds.filter((k) => !locked.some((p) => p.kind === k));
+  if (open.length === 0) return "already-predicted";
+  const problem = predictionProblem({
+    by: me,
+    target,
+    kind: open[0],
+    value: "0", // a value every kind accepts, so this probes availability and not the value
+    alivePlayerIds: room.players.filter((p) => p.alive).map((p) => p.id),
+    locked,
+  });
+  return problem ?? null;
 }
