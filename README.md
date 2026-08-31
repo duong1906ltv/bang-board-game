@@ -13,6 +13,17 @@ npm run dev
 Mở http://localhost:3000. Để bạn bè cùng chơi trong LAN, họ vào
 `http://<IP-máy-bạn>:3000`.
 
+## Test
+
+```bash
+npm test
+```
+
+Test cho engine (`lib/game.ts`): hình học ghế, giải bài, Draw! check, vòng lượt và
+điều kiện thắng. Chạy bằng test runner sẵn có của Node, không thêm dependency.
+Engine xáo bài ngẫu nhiên nên test không đấu với shuffle — `lib/__tests__/helpers/table.ts`
+dựng ván rồi ghi đè thế bài cho xác định.
+
 ## Cấu trúc
 
 | File | Vai trò |
@@ -29,6 +40,7 @@ Mở http://localhost:3000. Để bạn bè cùng chơi trong LAN, họ vào
 | `app/room/[code]/page.tsx` | Phòng game |
 | `components/PlayingCard.tsx` | Mặt lá bài (CSS) |
 | `app/health/route.ts` | Health check cho deploy smoke test |
+| `lib/__tests__/` | Test engine + harness dựng bàn xác định |
 
 ## Deploy lên AWS (chơi online thật)
 
