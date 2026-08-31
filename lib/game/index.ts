@@ -156,6 +156,21 @@ export function disconnect(socketId: string): Room | null {
 
 // --- game start / character draft ---
 
+// Xáo lại chỗ ngồi cho ván mới. Thứ tự room.players CHÍNH LÀ vòng bàn — geometry.ts đo
+// cự ly bằng chỉ số ghế, view dựng lại `seat` từ chỉ số đó mỗi lần build, và client xoay
+// bàn quanh ghế người xem — nên đảo mảng ở đây là đảo ghế thật, không chỗ nào giữ ghế cũ.
+// Chỉ được gọi ở lobby: đảo giữa ván là đổi mọi cự ly ngay giữa lượt.
+//
+// Thử lại vài lần nếu shuffle trả về đúng thứ tự cũ — ván mới mà ai cũng ngồi y chỗ cũ
+// thì người chơi đọc thành "chưa đảo". Bàn tối thiểu 4 ghế nên luôn có hoán vị khác.
+function reseat(players: Player[]): Player[] {
+  let next = shuffle(players);
+  for (let i = 0; i < 4 && next.every((p, k) => p.id === players[k].id); i++) {
+    next = shuffle(players);
+  }
+  return next;
+}
+
 export function startGame(code: string): Result {
   const room = rooms.get(code);
   if (!room) return err("no-such-room");
@@ -166,6 +181,7 @@ export function startGame(code: string): Result {
   const setup = ROLE_SETUP[n];
   if (!setup) return err("bad-player-count");
 
+  room.players = reseat(room.players);
   const roles = shuffle(setup);
   // Draw n*2 characters from the pool and hand each player 2 to choose from.
   const pool = shuffle(CHARACTERS).slice(0, n * DRAFT_PER_PLAYER);
