@@ -79,7 +79,18 @@ export function Table({
   const tableChoice = view.pending?.kind === "store" || view.pending?.kind === "kit";
   const [sidPick, setSidPick] = useState<string[]>([]);
   const [sidPicking, setSidPicking] = useState(false);
-  const [discarding, setDiscarding] = useState(false);
+  // Hai chế độ bỏ bài, không phải một cờ. "forced" là bước bắt buộc trước khi hết lượt —
+  // đúng số lá vượt giới hạn, rồi lượt tự kết thúc. "free" là bỏ CHỦ ĐỘNG, bao nhiêu lá cũng
+  // được, và không kết thúc lượt.
+  //
+  // Trước đây chỉ có "forced", và đó là một lỗi im lặng: engine cho bỏ bài lúc nào cũng được
+  // (discardCard không kiểm giới hạn tay), nhiệm vụ "Ném đi" được viết dựa trên đúng khả năng
+  // đó — nó đòi `!forced` — nhưng UI không có đường nào tạo ra một lần bỏ không-bắt-buộc. Nên
+  // nhiệm vụ đó KHÔNG THỂ hoàn thành, và vì nhiệm vụ là bí mật nên người chơi mất nó cả ván
+  // mà không biết để mà cãi.
+  const [discardMode, setDiscardMode] = useState<null | "forced" | "free">(null);
+  const discarding = discardMode !== null;
+  const setDiscarding = (on: boolean) => setDiscardMode(on ? "forced" : null);
   // Which cards the end-of-turn discard has picked so far. Held here rather than thrown
   // one by one so the whole discard is a single decision the player can back out of.
   const [discardPick, setDiscardPick] = useState<string[]>([]);
@@ -121,13 +132,14 @@ export function Table({
 
 
   useEffect(() => {
-    if (discarding && overLimit === 0) {
+    // CHỈ "forced": bỏ chủ động về đúng giới hạn không được kéo lượt kết thúc theo.
+    if (discardMode === "forced" && overLimit === 0) {
       onEndTurn();
-      setDiscarding(false);
+      setDiscardMode(null);
     }
-  }, [discarding, overLimit, onEndTurn]);
+  }, [discardMode, overLimit, onEndTurn]);
   useEffect(() => {
-    if (!inPlayPhase && discarding) setDiscarding(false);
+    if (!inPlayPhase && discarding) setDiscardMode(null);
   }, [inPlayPhase, discarding]);
   // Discard mode is left from four places — the confirm, the cancel, Escape, and the turn
   // ending under it — so the selection is emptied HERE rather than at each of them, where
@@ -248,9 +260,19 @@ export function Table({
   // The discard fires as one act, in the order they were picked. The turn ends itself
   // once the hand is back at the limit — see the effect above that watches overLimit —
   // so there is nothing to chain onto the last one.
+  // Bao nhiêu lá được phép bỏ trong chế độ hiện tại. "forced" đòi ĐÚNG số vượt giới hạn;
+  // "free" nhận từ 1 lá trở lên nhưng phải chừa lại một lá — engine từ chối một lần bỏ chủ
+  // động làm tay trắng, vì Suzy Lafayette rút ngay khi hết bài và bỏ-rồi-rút là vòng bốc bài
+  // vô hạn. Kiểm ở đây chỉ để nút không mời người chơi bấm vào một lần bị từ chối.
+  const freeMax = Math.max(0, you.hand.length - 1);
+  const discardOk =
+    discardMode === "forced"
+      ? discardPick.length === overLimit
+      : discardPick.length >= 1 && discardPick.length <= freeMax;
   const confirmDiscard = () => {
-    if (discardPick.length !== overLimit) return;
+    if (!discardOk) return;
     for (const id of discardPick) onDiscard(id);
+    if (discardMode === "free") setDiscardMode(null);
   };
 
   // The engine resolves who each card may be aimed at (targetProblem in game.ts)
@@ -553,21 +575,23 @@ export function Table({
                work out that cards had to go first. */
             discarding ? (
               <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={confirmDiscard}
-                  disabled={discardPick.length !== overLimit}
-                  style={{ flex: 1 }}
-                >
-                  {L(
-                    locale,
-                    `Xác nhận bỏ ${discardPick.length}/${overLimit}`,
-                    `Confirm discard ${discardPick.length}/${overLimit}`
-                  )}
+                <button onClick={confirmDiscard} disabled={!discardOk} style={{ flex: 1 }}>
+                  {discardMode === "forced"
+                    ? L(
+                        locale,
+                        `Xác nhận bỏ ${discardPick.length}/${overLimit}`,
+                        `Confirm discard ${discardPick.length}/${overLimit}`
+                      )
+                    : L(
+                        locale,
+                        `Bỏ ${discardPick.length} lá`,
+                        `Throw away ${discardPick.length}`
+                      )}
                 </button>
                 <button
                   className="ghost"
                   style={{ width: "auto", padding: "12px 14px" }}
-                  onClick={() => setDiscarding(false)}
+                  onClick={() => setDiscardMode(null)}
                 >
                   {L(locale, "Huỷ", "Cancel")}
                 </button>
@@ -576,18 +600,40 @@ export function Table({
               /* Entering closes the two other things that own a tap. Leaving a crosshair
                  up behind the discard would have the aim banner still asking for a target
                  while every tap was quietly selecting a card to throw away. */
-              <button
-                onClick={() => {
-                  if (overLimit === 0) return onEndTurn();
-                  setAiming(null);
-                  setSidPicking(false);
-                  setDiscarding(true);
-                }}
-              >
-                {overLimit > 0
-                  ? L(locale, `Kết thúc lượt → bỏ ${overLimit} lá`, `End turn → discard ${overLimit}`)
-                  : L(locale, "Kết thúc lượt →", "End turn →")}
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    if (overLimit === 0) return onEndTurn();
+                    setAiming(null);
+                    setSidPicking(false);
+                    setDiscardMode("forced");
+                  }}
+                >
+                  {overLimit > 0
+                    ? L(locale, `Kết thúc lượt → bỏ ${overLimit} lá`, `End turn → discard ${overLimit}`)
+                    : L(locale, "Kết thúc lượt →", "End turn →")}
+                </button>
+                {/* Bỏ bài CHỦ ĐỘNG. Chỉ hiện khi chưa vượt giới hạn — vượt rồi thì nút kết
+                    thúc lượt bên cạnh đã là đường bỏ bài, và hai nút cùng làm một việc chỉ
+                    gây lưỡng lự. Cần ≥2 lá vì engine không cho bỏ tới tay trắng.
+                    Đây là đường duy nhất tạo ra được một lần bỏ KHÔNG bắt buộc, tức là đường
+                    duy nhất nhiệm vụ "Ném đi" hoàn thành được. */}
+                {overLimit === 0 && you.hand.length >= 2 && (
+                  <button
+                    className="ghost"
+                    style={{ width: "auto", padding: "12px 14px" }}
+                    title={L(locale, "Tự bỏ bài khỏi tay", "Throw cards away by choice")}
+                    onClick={() => {
+                      setAiming(null);
+                      setSidPicking(false);
+                      setDiscardMode("free");
+                    }}
+                  >
+                    🗑️
+                  </button>
+                )}
+              </div>
             )
           )}
         </div>
@@ -669,8 +715,12 @@ export function Table({
         <div style={{ position: "fixed", left: "50%", bottom: 176, transform: "translateX(-50%)", zIndex: 55, color: "rgba(240,226,192,0.85)", fontSize: 13, fontFamily: "system-ui, sans-serif", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", pointerEvents: "none" }}>
           {sidPicking
             ? L(locale, `Chạm 2 lá để bỏ (${sidPick.length}/2)`, `Tap 2 cards to discard (${sidPick.length}/2)`)
-            : discarding
+            : discardMode === "forced"
               ? L(locale, `Chọn ${overLimit} lá để bỏ (${discardPick.length}/${overLimit})`, `Pick ${overLimit} to discard (${discardPick.length}/${overLimit})`)
+              : discardMode === "free"
+              // Nói ra cái sàn, chứ không để người chơi tự phát hiện bằng một nút bị chặn:
+              // engine không cho bỏ chủ động tới tay trắng (vòng lặp rút của Suzy).
+              ? L(locale, `Chạm lá để tự bỏ — chừa lại ít nhất 1 lá (${discardPick.length}/${freeMax})`, `Tap cards to throw away — keep at least one (${discardPick.length}/${freeMax})`)
               : you.jailed
                 ? L(locale, "Bị giam — không đánh được · kết thúc lượt để bỏ bài", "In jail — nothing can be played · end turn to discard")
                 : L(locale, "Chạm để đánh · giữ để xem lá", "Tap to play · hold to read")}

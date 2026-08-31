@@ -36,9 +36,14 @@ test("13 nhiệm vụ, và mỗi cái đều có một test riêng ở file này
   assert.equal(MISSIONS.length, 13);
 });
 
-test("all-in — kết thúc lượt với tay trắng", () => {
+test("all-in — đánh sạch tay rồi kết thúc lượt", () => {
+  // `me.hand = []` là cách cũ, và nó không chứng minh gì: nó bỏ qua đúng câu hỏi đắt nhất —
+  // có ĐƯỜNG NÀO làm tay trắng không. Có, và chỉ một: đánh hết. Bỏ bài không bao giờ hạ tay
+  // xuống 0 vì handLimitOf sàn ở 1, và bỏ chủ động phải chừa lại một lá.
   const { t, me } = forMission("all-in");
-  me.hand = [];
+  hand(me, card("mustang", "hearts", 8), card("scope", "spades", 1), card("barrel", "spades", 12));
+  for (const c of [...me.hand]) assert.equal(game.playCard(t.code, me.id, c.id).ok, true);
+  assert.equal(me.hand.length, 0, "tay trắng, đạt được bằng đường người chơi đi");
   game.endTurn(t.code, me.id);
   doneWithReward(t, me, "all-in");
 });
@@ -54,12 +59,35 @@ test("no-shield — chịu trúng Bang! khi tay đang có Missed!", () => {
   doneWithReward(t, me, "no-shield");
 });
 
-test("throw-it-away — tự bỏ Missed! khi chưa quá giới hạn tay", () => {
+test("throw-it-away — tự bỏ Missed! qua chế độ bỏ bài chủ động", () => {
+  // Test này từng dựng một thế mà UI KHÔNG BAO GIỜ tạo ra được — tay dưới giới hạn rồi gọi
+  // discardCard — nên nó xanh suốt trong khi nhiệm vụ bất khả thi trên bàn thật. Giờ nó đi
+  // đúng đường người chơi đi: nút 🗑️ mở chế độ bỏ chủ động, và điều kiện duy nhất UI áp là
+  // phải chừa lại một lá.
+  const { t, me } = forMission("throw-it-away");
+  hand(me, card("missed", "hearts", 6), card("bang", "spades", 5));
+  assert.ok(me.hand.length <= game.handLimitOf(t.room, me), "chưa vượt giới hạn — bỏ là TỰ NGUYỆN");
+  assert.ok(me.hand.length >= 2, "chế độ bỏ chủ động cần ≥2 lá");
+  assert.equal(game.discardCard(t.code, me.id, me.hand[0].id), true);
+  doneWithReward(t, me, "throw-it-away");
+});
+
+test("bỏ chủ động không được để tay trắng, nhưng bỏ bắt buộc vẫn chạy", () => {
+  // Suzy Lafayette rút ngay khi hết bài và refillEmptyHands chạy sau MỌI hành động, nên
+  // bỏ-lá-cuối rồi rút rồi bỏ lại là một vòng bốc bài vô hạn: quay nọc tới khi ra lá muốn.
   const { t, me } = forMission("throw-it-away");
   hand(me, card("missed", "hearts", 6));
-  assert.ok(me.hand.length <= game.handLimitOf(t.room, me), "phải chưa quá giới hạn");
-  game.discardCard(t.code, me.id, me.hand[0].id);
-  doneWithReward(t, me, "throw-it-away");
+  assert.equal(game.discardCard(t.code, me.id, me.hand[0].id), false, "lá cuối: bị từ chối");
+  assert.equal(me.hand.length, 1, "và nó vẫn nằm trên tay");
+
+  // Đường BẮT BUỘC không bị điều kiện đó chắn: giới hạn tay sàn ở 1, nên một lần bỏ bắt buộc
+  // không bao giờ hạ tay xuống 0.
+  me.hp = 1; me.maxHp = 4;
+  hand(me, card("missed", "hearts", 6), card("bang", "spades", 5)); // hand() THAY THẾ, không thêm
+  assert.equal(me.hand.length, 2);
+  assert.equal(game.handLimitOf(t.room, me), 1, "giới hạn = máu, sàn ở 1");
+  assert.equal(game.discardCard(t.code, me.id, me.hand[0].id), true, "bỏ bắt buộc vẫn được");
+  assert.equal(me.hand.length, 1);
 });
 
 test("reckless — Gatling lúc đang 1 HP", () => {

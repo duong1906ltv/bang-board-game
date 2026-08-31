@@ -104,8 +104,19 @@ function nudge(room: game.Room, code: string) {
     me.hand.push({ id: `nudge-${Math.random()}`, defId: "barrel", name: "Barrel", suit: "hearts", rank: 6 });
   }
 
-  // throw-it-away: bỏ tự nguyện một Missed!/Beer khi CHƯA quá giới hạn tay.
-  if (Math.random() < 0.15 && me.hand.length <= game.handLimitOf(room, me)) {
+  // throw-it-away: bỏ tự nguyện một Missed!/Beer khi CHƯA quá giới hạn tay — tức nút 🗑️
+  // trong HUD, chế độ bỏ bài chủ động.
+  //
+  // Cái nudge này từng là một CẢNH BÁO bị đọc sai. Nó có ở đây vì bot không bao giờ tự nguyện
+  // bỏ bài, và tôi kết luận "bot thiếu chủ ý". Sự thật là UI cũng không có đường nào: chế độ
+  // bỏ bài chỉ mở khi tay ĐÃ vượt giới hạn, nên mọi lần bỏ người chơi tạo ra được đều
+  // forced=true và nhiệm vụ 100% bất khả thi. Nudge đã "chứng minh" nhiệm vụ chạy được suốt
+  // nhiều bản trong khi trên bàn thật nó chết. Giờ nút 🗑️ tồn tại nên nudge này mô phỏng một
+  // hành động THẬT — nhưng bài học thì giữ: phải nudge là dấu hiệu tính năng không tới được.
+  //
+  // `>= 2` khớp cả cổng UI và luật engine: bỏ chủ động phải chừa lại một lá (vòng lặp rút của
+  // Suzy Lafayette). Không có nó thì nudge sẽ bắn vào một lần bị từ chối và âm thầm đo số 0.
+  if (Math.random() < 0.15 && me.hand.length >= 2 && me.hand.length <= game.handLimitOf(room, me)) {
     const net = me.hand.find((c) => c.defId === "missed" || c.defId === "beer");
     if (net) { game.discardCard(code, me.id, net.id); return; }
   }

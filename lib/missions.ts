@@ -79,7 +79,11 @@ const mine = (s: MissionSignal, me: Player) =>
 export const MISSIONS: MissionDef[] = [
   // Tay trắng cuối lượt = không Missed!, không Beer, trần trụi đến hết vòng. Đường hoàn thành:
   // tay 4 lá, đánh Bang! + Beer + Panic! + Mustang trong một lượt là xong (4 defId khác nhau,
-  // luật once-per-turn cho phép). Hoặc đơn giản hơn: bỏ hết ở phase discard.
+  // luật once-per-turn cho phép).
+  //
+  // KHÔNG có đường "bỏ hết ở phase discard" — comment cũ ở đây nói thế và nó sai. handLimitOf
+  // sàn ở 1, nên bỏ bài không bao giờ hạ tay xuống 0; và bỏ CHỦ ĐỘNG cũng phải chừa lại một lá
+  // (vòng lặp rút của Suzy). Lá cuối cùng buộc phải được ĐÁNH ra.
   { id: "all-in", emoji: "🃏", tier: 1, weight: 8, goal: 1, reward: { cards: 2 },
     track: (s, me) => (s.t === "turnEnd" && mine(s, me) && me.hand.length === 0 ? 1 : 0) },
 
@@ -93,9 +97,15 @@ export const MISSIONS: MissionDef[] = [
     track: (s, me) =>
       s.t === "damage" && s.target.id === me.id && me.hand.some((c) => c.defId === "missed") ? 1 : 0 },
 
-  // Tự bỏ lưới an toàn của mình khi KHÔNG bị bắt bỏ. Missed! 12 bản + Beer 6 bản = 18 bản, và
-  // discardCard không kiểm giới hạn tay nên bỏ lúc nào cũng được. `forced` là thứ tạo ra hy
-  // sinh: bỏ vì quá giới hạn tay thì không phải tự nguyện.
+  // Tự bỏ lưới an toàn của mình khi KHÔNG bị bắt bỏ. Missed! 12 bản + Beer 6 bản = 18 bản.
+  // `forced` là thứ tạo ra hy sinh: bỏ vì quá giới hạn tay thì không phải tự nguyện.
+  //
+  // Đường hoàn thành đi qua nút 🗑️ trong HUD — chế độ bỏ bài CHỦ ĐỘNG. Nhiệm vụ này từng
+  // KHÔNG THỂ hoàn thành trong nhiều bản: engine cho bỏ bài lúc nào cũng được, nhưng UI chỉ mở
+  // chế độ bỏ bài khi tay đã vượt giới hạn, nên mọi lần bỏ mà người chơi tạo ra được đều có
+  // forced=true. Một nhiệm vụ bí mật bất khả thi là lỗi im lặng — người chơi mất nó cả ván mà
+  // không có cách nào biết. Nên test của nó phải đi ĐÚNG đường UI, không được tự dựng một thế
+  // tay-dưới-giới-hạn mà UI không bao giờ cho tồn tại.
   { id: "throw-it-away", emoji: "🗑️", tier: 1, weight: 7, goal: 1, reward: { cards: 2 },
     track: (s, me) =>
       s.t === "discard" && mine(s, me) && !s.forced && (s.defId === "missed" || s.defId === "beer") ? 1 : 0 },

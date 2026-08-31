@@ -962,6 +962,14 @@ export function discardCard(code: string, playerId: string, cardId: string): boo
   // Tính TRƯỚC khi splice: sau splice thì hand.length đã đổi và mọi lần bỏ bài đều trông như
   // tự nguyện. `forced` là thứ phân biệt hy sinh với việc bị luật giới hạn tay bắt bỏ.
   const forced = current.hand.length > handLimitOf(room, current);
+  // Bỏ TỰ NGUYỆN không được để tay trắng. Suzy Lafayette rút ngay khi hết bài, và
+  // refillEmptyHands chạy sau MỌI hành động — nên bỏ-lá-cuối rồi rút rồi bỏ lại là một vòng
+  // bốc bài vô hạn: cô ta quay nọc cho tới khi ra đúng lá muốn, mỗi lần một lá. Cùng loại
+  // vòng lặp mà handLimitOf phải sàn ở 1 để tránh (xem ghi chú ở đó).
+  //
+  // Không cần loại trừ đường BẮT BUỘC: giới hạn tay đã sàn ở 1, nên một lần bỏ bắt buộc
+  // không bao giờ hạ tay xuống 0 và điều kiện này không bao giờ chắn nó.
+  if (!forced && current.hand.length <= 1) return false;
   const [card] = current.hand.splice(idx, 1);
   room.discard.push(card);
   mission(room, { t: "discard", actor: current, defId: card.defId, forced });
