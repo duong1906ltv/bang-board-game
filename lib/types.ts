@@ -144,6 +144,31 @@ export interface PendingView {
 import type { EventLevel, EventScope } from "./events";
 export type { EventLevel };
 
+// ─── Side missions ───────────────────────────────────────────────────────────
+
+// Nhiệm vụ của CHÍNH BẠN, và chỉ của bạn. Không bao giờ nằm trong PlayerPublic khi còn ẩn.
+export interface MissionView {
+  id: string;
+  emoji: string;
+  progress: number;
+  goal: number;
+  done: boolean;
+}
+
+// Một nhiệm vụ vừa hoàn thành, cho modal cả bàn. Là FEED chứ không phải một field: hai nhiệm
+// vụ có thể chín trong cùng một action (một Gatling hạ hai người), và một field đơn sẽ âm thầm
+// bỏ mất cái đầu — đúng lỗi predictReveal đã mắc trước khi thành predictFeed.
+export interface MissionReveal {
+  seq: number;
+  playerId: string;
+  missionId: string;
+  cards: number; // số lá THỰC TẾ rút được
+  hp: number; // số máu THỰC TẾ hồi được
+  // Thưởng máu bị event cấm-hồi-máu quy đổi thành bài. Nói ra, chứ không âm thầm xoá công
+  // người chơi đã bỏ ra.
+  converted?: boolean;
+}
+
 // ─── Turn prediction ─────────────────────────────────────────────────────────
 
 import type { Prediction, PredictionKind, PredictionResult, TurnOutcome } from "./predictions";
@@ -202,6 +227,9 @@ export interface PlayerPublic {
   isTurn: boolean;
   distance: number | null; // distance from the viewing player (null for self / not playing)
   equipment: Card[]; // blue cards in play (guns, Mustang, Scope, Jail, Dynamite...)
+  // Chỉ đặt khi đã HOÀN THÀNH. Còn ẩn thì tuyệt đối không lộ ra đây — cùng lớp bug với
+  // General Store (f80434e: người không đang chọn vẫn thấy bài).
+  revealedMissionId?: string | null;
 }
 
 // Draft state, personalized: `choices` are only ever THIS player's two options.
@@ -262,6 +290,8 @@ export interface PlayerView {
     // Guesses YOU have staked on the upcoming turn. Never anybody else's — that is the
     // whole point of staking them quietly.
     myPredictions: Prediction[];
+    // Nhiệm vụ của bạn, hoặc null khi tắt toggle / là bot / chưa chia.
+    mission: MissionView | null;
     canPredict: boolean; // may you stake anything at all right now
     predictBlockReason: string | null; // why not, resolved server-side so the client never re-derives the rule
   };
@@ -279,6 +309,8 @@ export interface PlayerView {
   eventLevel: EventLevel; // room setting: how often random events fire
   events: EventView[]; // events currently in force
   eventFeed: EventView[]; // recently fired events, oldest first — announce any `seq` you haven't shown
+  missionsOn: boolean; // luật phòng: có chia nhiệm vụ phụ hay không
+  missionFeed: MissionReveal[]; // nhiệm vụ vừa xong, cũ trước — hiện mọi `seq` chưa thấy
   nextPlayerId: string | null; // the seat predictions are open on
   // Rolling feed of verdicts, oldest first. A single action can produce more than one — a
   // turn is judged and then the seat after it is skipped and voided — so a lone "latest
@@ -358,6 +390,8 @@ export interface ClientToServerEvents {
   ) => void;
   startGame: (data: { code: string }) => void;
   setEventLevel: (data: { code: string; level: EventLevel }) => void; // host: random-event frequency
+  // Luật phòng: có chia nhiệm vụ phụ hay không. Chỉ đổi được ở lobby.
+  setMissionsOn: (data: { code: string; on: boolean }) => void;
   addBot: (data: { code: string }) => void; // host: add an AI player (testing)
   removeBot: (data: { code: string }) => void; // host: remove the last AI player
   pickCharacter: (data: { code: string; characterId: string }) => void;

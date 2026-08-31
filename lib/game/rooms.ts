@@ -37,6 +37,10 @@ export function newPlayer(name: string, socketId: string, isHost: boolean): Play
     character: null,
     draftChoices: [],
     hasPicked: false,
+    missionId: null,
+    missionProgress: 0,
+    missionSeen: [],
+    missionDone: false,
     hp: 0,
     maxHp: 0,
     alive: true,
@@ -103,6 +107,10 @@ export function createRoom(
     predictions: [],
     turnShotIds: [],
     predictFeed: [],
+    missionsOn: true,
+    dealtMissionIds: [],
+    missionFeed: [],
+    missionSeq: 0,
     predictSeq: 0,
   };
   rooms.set(code, room);

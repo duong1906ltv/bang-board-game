@@ -1,7 +1,7 @@
 "use client";
 
 import { PlayerView, ROLE_EMOJI, type EventLevel, MAX_PLAYERS, MIN_PLAYERS } from "@/lib/types";
-import { L, useLocale, roleLabel, eventLevelLabel } from "@/lib/i18n";
+import { L, useLocale, roleLabel, eventLevelLabel, missionsOnLabel } from "@/lib/i18n";
 
 export function Lobby({
   view,
@@ -9,12 +9,14 @@ export function Lobby({
   onAddBot,
   onRemoveBot,
   onSetEventLevel,
+  onSetMissionsOn,
 }: {
   view: PlayerView;
   onStart: () => void;
   onAddBot: () => void;
   onRemoveBot: () => void;
   onSetEventLevel: (level: EventLevel) => void;
+  onSetMissionsOn: (on: boolean) => void;
 }) {
   const locale = useLocale();
   const n = view.players.length;
@@ -79,6 +81,30 @@ export function Lobby({
           locale,
           "Đầu MỖI VÒNG — đúng lúc tới lượt Cảnh Sát Trưởng — bàn nhận 2–4 sự kiện cùng lúc, áp cho TẤT CẢ mọi người cho tới hết vòng: cấm bắn, bão cát, mưa bài, đảo chiều… Có hiệu lực ngay từ vòng đầu. Các sự kiện xung đột nhau không bao giờ ra cùng nhau, và không sự kiện nào lặp lại trong một ván.",
           "EVERY round — as play returns to the Sheriff — the table draws 2–4 events at once, all applying to EVERYONE until the round ends: no shooting, sandstorm, card rain, reversed order… Live from the very first round. Conflicting events are never drawn together, and no event repeats within a game."
+        )}
+      </p>
+
+      {/* Nhiệm vụ phụ. Luật phòng như sự kiện — phải chốt TRƯỚC khi chia bài, nên nó ở đây chứ
+          không ở SettingsMenu (nơi chứa những thứ mỗi người tự chọn cho máy mình). */}
+      <label style={{ marginTop: 12 }}>{L(locale, "Nhiệm vụ phụ", "Side missions")}</label>
+      {view.you.isHost ? (
+        <button
+          className={view.missionsOn ? "" : "ghost"}
+          style={{ width: "auto", padding: "8px 18px", fontSize: "0.9rem", alignSelf: "flex-start" }}
+          onClick={() => onSetMissionsOn(!view.missionsOn)}
+        >
+          🎯 {missionsOnLabel(locale, view.missionsOn)}
+        </button>
+      ) : (
+        <span className="badge" style={{ alignSelf: "flex-start" }}>
+          🎯 {missionsOnLabel(locale, view.missionsOn)}
+        </span>
+      )}
+      <p className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
+        {L(
+          locale,
+          "Mỗi người nhận MỘT nhiệm vụ bí mật, chỉ mình thấy. Mọi nhiệm vụ đều đòi hy sinh thật — chịu trúng đòn khi đang có Missed! trong tay, bỏ trọn một lượt, từ chối uống Beer khi đang thiếu máu… Làm xong thì được thưởng bài và cả bàn biết bạn đã làm gì.",
+          "Everyone gets ONE secret mission, visible only to them. Every mission asks for a real sacrifice — taking a hit while holding a Missed!, spending a whole turn on nothing, refusing a Beer while wounded… Finish it and you draw cards, and the table learns what you did."
         )}
       </p>
 

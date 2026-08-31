@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EventView, PlayerView, PredictReveal } from "@/lib/types";
+import type { EventView, MissionReveal, PlayerView, PredictReveal } from "@/lib/types";
 import { rankLabel, SUIT_SYMBOL } from "@/lib/cards";
 import { useLocale, checkText } from "@/lib/i18n";
 import { CHECK_ICON } from "./constants";
@@ -63,6 +63,23 @@ export function useTableFeedback(view: PlayerView) {
   const reveal = revealQueue[0] ?? null;
   const dismissReveal = useCallback(() => setRevealQueue((q) => q.slice(1)), []);
 
+  // Nhiệm vụ vừa xong. QUEUE oldest-first, không phải "cái mới nhất": hai người có thể xong
+  // trong cùng một action và feed giữ cả hai — hiện cái mới nhất thì mất cái kia. Bật cho CẢ
+  // BÀN, khác PredictReveal: nhiệm vụ chỉ xong khi có người trả một cái giá, nên nó hiếm.
+  const [missionQueue, setMissionQueue] = useState<MissionReveal[]>([]);
+  const seenMissionSeq = useRef(0);
+  useEffect(() => {
+    // `?? []` vì view đến qua socket từ một process khác: trong mọi cửa sổ restart, một tab
+    // đang mở được phục vụ bởi code chưa có field này.
+    const feed = view.missionFeed ?? [];
+    const fresh = feed.filter((r) => r.seq > seenMissionSeq.current);
+    const highest = feed.at(-1)?.seq;
+    if (highest !== undefined) seenMissionSeq.current = Math.max(seenMissionSeq.current, highest);
+    if (fresh.length) setMissionQueue((q) => [...q, ...fresh]);
+  }, [view.missionFeed]);
+  const missionReveal = missionQueue[0] ?? null;
+  const dismissMission = useCallback(() => setMissionQueue((q) => q.slice(1)), []);
+
   const [justDrew, setJustDrew] = useState<Set<string>>(new Set());
   const prevHand = useRef<string[]>([]);
   useEffect(() => {
@@ -90,6 +107,8 @@ export function useTableFeedback(view: PlayerView) {
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
 
   return {
+    missionReveal,
+    dismissMission,
     reveal,
     dismissReveal,
     marquee,

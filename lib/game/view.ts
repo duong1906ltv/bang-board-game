@@ -16,6 +16,7 @@ import {
   PUBLIC_ROLES,
   Role,
 } from "../types";
+import { MISSION_BY_ID } from "../missions";
 import { charEffect } from "./deck";
 import { toEventView } from "./events-read";
 import { distanceBetween, rangeOf } from "./geometry";
@@ -31,7 +32,14 @@ export function visibleRole(p: Player, room: Room): Role | null {
   return null;
 }
 
-export function toPublic(p: Player, seat: number, room: Room, viewer: Player | undefined, turnId: string | null): PlayerPublic {
+export // Nhiệm vụ của một người, cho view của CHÍNH họ.
+function missionView(p: Player) {
+  const def = MISSION_BY_ID[p.missionId!];
+  if (!def) return null;
+  return { id: def.id, emoji: def.emoji, progress: p.missionProgress, goal: def.goal, done: p.missionDone };
+}
+
+function toPublic(p: Player, seat: number, room: Room, viewer: Player | undefined, turnId: string | null): PlayerPublic {
   // Characters are public once the game is underway; during the draft, nobody
   // sees anyone else's options or pick.
   const inGame = room.phase === "playing" || room.phase === "result";
@@ -60,6 +68,10 @@ export function toPublic(p: Player, seat: number, room: Room, viewer: Player | u
     isTurn: turnId != null && p.id === turnId,
     distance,
     equipment: inGame ? p.equipment : [],
+    // CHỈ khi đã hoàn thành. Nhiệm vụ còn ẩn không được rời khỏi view của chính chủ — đây là
+    // đúng chỗ bug General Store từng nằm (f80434e), nên nó phải đọc missionDone chứ không
+    // đọc missionId.
+    revealedMissionId: p.missionDone ? p.missionId : null,
   };
 }
 
@@ -233,6 +245,8 @@ export function buildView(room: Room, playerId: string): PlayerView {
       // Only ever YOUR stakes. A staked guess is secret until the turn it is about ends,
       // so this must never be built from anybody else's — the same isolation `hand` has.
       myPredictions: me ? room.predictions.filter((p) => p.byId === me.id) : [],
+      // Chỉ nhiệm vụ CỦA BẠN. Không bao giờ dựng từ của người khác — cùng lớp isolation với `hand`.
+      mission: me?.missionId ? missionView(me) : null,
       canPredict: predictBlock(room, me) === null,
       // Resolved server-side, like legalTargets: the client had its own copy of a targeting
       // rule once and greyed out the wrong things, so it no longer re-derives any of them.
@@ -252,6 +266,8 @@ export function buildView(room: Room, playerId: string): PlayerView {
     eventLevel: room.eventLevel,
     events: room.roundEvents.map((ev) => toEventView(room, ev)),
     eventFeed: room.eventFeed.map((ev) => toEventView(room, ev)),
+    missionsOn: room.missionsOn,
+    missionFeed: room.missionFeed,
     nextPlayerId: nextSeatId(room),
     predictFeed: room.predictFeed,
   };

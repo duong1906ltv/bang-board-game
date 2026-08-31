@@ -10,7 +10,8 @@
     "lint:fix": "next lint --fix --dir app --dir components --dir lib --dir scripts --file server.ts",
     "sim": "tsx scripts/sim-events.ts",
     "test": "node --import tsx --test 'lib/__tests__/**/*.test.ts'",
-    "sim:predict": "tsx scripts/sim-predictions.ts"
+    "sim:predict": "tsx scripts/sim-predictions.ts",
+    "sim:missions": "tsx scripts/sim-missions.ts"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

@@ -88,6 +88,10 @@ export function startTable(n = 4): Table {
   // rolls the opening round's events. Left on, that hands out random guns and reshuffles
   // the deck inside the harness — the tests would then pass or fail by the weather.
   game.setEventLevel(room.code, "off");
+  // Nhiệm vụ phụ tắt, cùng lý do và cùng chỗ với events: chúng hoàn thành một cách TÌNH CỜ
+  // trong lúc test làm việc khác, rồi phần thưởng drawInto ăn mất đúng lá bài mà test đã
+  // stack — và test sẽ pass hay fail theo thời tiết. Test nhiệm vụ bật lại bằng withMissions().
+  room.missionsOn = false;
   // startGame only reaches the draft. finalizeDraft — which deals the cards and flips
   // the phase to "playing" — runs off the last pick, so every seat has to choose.
   for (const p of room.players) game.pickCharacter(room.code, p.id, p.draftChoices[0].id);
@@ -128,4 +132,14 @@ export function kill(p: game.Player) {
   p.alive = false;
   p.hand = [];
   p.equipment = [];
+}
+
+// Bật nhiệm vụ và gán một nhiệm vụ CỤ THỂ cho một ghế. Gán tay chứ không qua dealMissions:
+// một test về `all-in` không được phụ thuộc vào việc pickMissions có bốc đúng nó hay không.
+export function withMission(room: game.Room, p: game.Player, missionId: string) {
+  room.missionsOn = true;
+  p.missionId = missionId;
+  p.missionProgress = 0;
+  p.missionSeen = [];
+  p.missionDone = false;
 }

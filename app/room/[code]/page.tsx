@@ -90,6 +90,7 @@ export default function RoomPage() {
   const respond = (type: "missed" | "beer" | "bang" | "pass", cardId?: string) =>
     socket.emit("respond", { code, type, cardId });
   const choose = (cardId: string) => socket.emit("choose", { code, cardId });
+  const setMissionsOn = (on: boolean) => socket.emit("setMissionsOn", { code, on });
   const predict = (targetId: string, kind: PredictionKind, value: string) =>
     socket.emit("predict", { code, targetId, kind, value });
   const discard = (cardId: string) => socket.emit("discardCard", { code, cardId });
@@ -117,7 +118,7 @@ export default function RoomPage() {
       <TurnAlert view={view} />
 
       {view.phase === "lobby" && (
-        <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} onSetEventLevel={setEventLevel} />
+        <Lobby view={view} onStart={start} onAddBot={addBot} onRemoveBot={removeBot} onSetEventLevel={setEventLevel} onSetMissionsOn={setMissionsOn} />
       )}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (

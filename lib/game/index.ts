@@ -30,6 +30,8 @@ import {
 } from "./state";
 import { beersInHand, charEffect, drawInto, drawOne } from "./deck";
 import { judgePredictions, predict, voidPredictionsFor } from "./predictions";
+import { dealMissions, signalMissions } from "./missions";
+import type { MissionSignal } from "../missions";
 import { activeEffect, eventsUnlocked, resetEventState, tickEvents } from "./events-read";
 import { barrelAttempts, distanceBetween, hasEquip, rangeOf } from "./geometry";
 import { bangBudget, canUseAs, handLimitOf, isExemptPlay, legalTargetIds, nextSeatId, playBlock, targetProblem } from "./rules";
@@ -240,6 +242,7 @@ function finalizeDraft(room: Room) {
   // first turn is entered straight from here, not through advanceToNextSeat, so
   // nothing else would ever set the boundary flag for it.
   resetEventState(room);
+  dealMissions(room);
   room.roundStarterId = room.players[room.turnIndex].id;
   room.roundEventDue = true;
   beginTurn(room); // Sheriff begins (runs upkeep if they somehow have blue cards)
@@ -252,6 +255,18 @@ function finalizeDraft(room: Room) {
 // of `activeEffect`, so adding an event never means touching the engine (lib/events.ts).
 
 // Host setting: how often events fire (persists across restart()).
+// Bật/tắt nhiệm vụ phụ. Luật phòng, sống qua restart() — như eventLevel.
+//
+// KHÁC eventLevel ở một chỗ, và đừng copy mù chỗ đó: đổi chỉ được phép ở LOBBY. Event roll lại
+// mỗi round nên bật giữa ván vô hại; nhiệm vụ thì chia đúng một lần ở finalizeDraft, nên bật
+// giữa ván để lại một bàn mà ai đã chia rồi thì không có và ai chưa thì có — hai luật cùng lúc.
+export function setMissionsOn(code: string, on: boolean): boolean {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "lobby") return false;
+  room.missionsOn = !!on;
+  return true;
+}
+
 export function setEventLevel(code: string, level: EventLevel): boolean {
   const room = rooms.get(code);
   if (!room) return false;
@@ -296,6 +311,35 @@ function rollRoundEvents(room: Room, opener: Player) {
   }
 }
 
+// Một chỗ duy nhất máu đi lên, và chỗ duy nhất trả lời "hồi được BAO NHIÊU".
+//
+// Trả về lượng hồi THỰC TẾ — 0 khi đã đầy máu, khi đã chết, hoặc khi một event đang cấm hồi
+// máu. Con số đó là thứ đáng giá: nó phân biệt "đã hồi" với "định hồi mà không được", và một
+// nhiệm vụ như dry-spell (sống qua 3 lượt thiếu máu mà không hồi điểm nào) chỉ ngắt chuỗi khi
+// máu THẬT SỰ lên.
+//
+// `noHeal` đặt được vào đây mà không đổi hành vi ở chỗ event tự hồi: healing-spring là event
+// duy nhất gọi healAll, và nó cùng `group: "heal"` với cả hai event noHeal (prohibition,
+// survival). eligible() chỉ cho một event mỗi group vào một batch, nên chúng không bao giờ
+// cùng hiệu lực.
+//
+// KHÔNG dùng cho cú Beer cứu người đang ở 0 HP — xem ghi chú tại chỗ đó trong respond().
+// Nhiệm vụ phụ: 5 chỗ gọi, và toàn bộ logic nằm ở ./missions. healPlayer truyền vào như một
+// callback vì ./missions không được import lên lõi — xem ghi chú đầu file đó.
+function mission(room: Room, s: MissionSignal) {
+  signalMissions(room, s, healPlayer);
+}
+
+function healPlayer(room: Room, p: Player, n: number): number {
+  if (n <= 0 || !p.alive) return 0;
+  if (activeEffect(room).noHeal) return 0;
+  const before = p.hp;
+  p.hp = Math.min(p.maxHp, p.hp + n);
+  const got = p.hp - before;
+  if (got > 0) signalMissions(room, { t: "heal", actor: p, n: got }, healPlayer);
+  return got;
+}
+
 // The narrow surface an event's `onFire` may touch. Everything that can hurt a
 // player routes through applyDamage (so Bart Cassidy, El Gringo, the death queue
 // and the win check all still fire) and event damage is UNSAVEABLE, which is what
@@ -309,10 +353,8 @@ function makeCtx(room: Room, opener: Player): EventCtx {
     applyDamage(room, p, n, null, false); // unsaveable, like Dynamite
   };
   const heal = (p: Player, n: number) => {
-    if (!p.alive || activeEffect(room).noHeal) return;
-    const before = p.hp;
-    p.hp = Math.min(p.maxHp, p.hp + n);
-    if (p.hp > before) pushLog(room, { kind: "heal", a: p.name, n: p.hp - before });
+    const got = healPlayer(room, p, n);
+    if (got) pushLog(room, { kind: "heal", a: p.name, n: got });
   };
   const draw = (p: Player, n: number) => {
     const got = drawInto(room, p.hand, n);
@@ -524,6 +566,7 @@ export function playCard(
     // reaching across the table while the victim is still looking at the dialog and the
     // card has not moved. respond() writes it once the acknowledgement lands. It also
     // reads truer — until then, the play has not actually happened to anybody.
+    if (actor && playedCard) mission(room, { t: "play", actor, defId: playedCard.defId, target });
     if (actor && cardName && room.pending?.kind !== "taken") {
       const entry = { kind: "play" as const, a: actor.name, card: cardName, b: targetName };
       pushLog(room, entry);
@@ -731,9 +774,7 @@ function playDraw(room: Room, current: Player, handIdx: number, n: number): Resu
 function playSaloon(room: Room, current: Player, handIdx: number): Result {
   if (activeEffect(room).noHeal) return err("event-forbids-heal");
   moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
-  for (const p of room.players) {
-    if (p.alive) p.hp = Math.min(p.maxHp, p.hp + 1);
-  }
+  for (const p of room.players) healPlayer(room, p, 1);
   return { ok: true };
 }
 
@@ -895,7 +936,7 @@ function playBeer(room: Room, current: Player, handIdx: number): Result {
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   // Happy Hour makes a Beer worth 2 life points.
-  current.hp = Math.min(current.maxHp, current.hp + (activeEffect(room).beerHeal ?? 1));
+  healPlayer(room, current, activeEffect(room).beerHeal ?? 1);
   return { ok: true };
 }
 
@@ -906,8 +947,12 @@ export function discardCard(code: string, playerId: string, cardId: string): boo
   if (!current || current.id !== playerId || room.turnPhase === "draw") return false;
   const idx = current.hand.findIndex((c) => c.id === cardId);
   if (idx < 0) return false;
+  // Tính TRƯỚC khi splice: sau splice thì hand.length đã đổi và mọi lần bỏ bài đều trông như
+  // tự nguyện. `forced` là thứ phân biệt hy sinh với việc bị luật giới hạn tay bắt bỏ.
+  const forced = current.hand.length > handLimitOf(room, current);
   const [card] = current.hand.splice(idx, 1);
   room.discard.push(card);
+  mission(room, { t: "discard", actor: current, defId: card.defId, forced });
   pushLog(room, { kind: "discard", a: current.name, n: 1 });
   return true;
 }
@@ -930,6 +975,14 @@ export function endTurn(code: string, playerId: string): Result {
   if (current.ghost) layGhostDown(room, current);
   // Before the hand-off: this turn is over, so anything staked on it can be judged.
   // playsThisTurn and turnShotIds are both still intact here — beginTurn clears them.
+  // Trước hand-off: beginTurn xoá playedDefsThisTurn và playsThisTurn, mà 6 nhiệm vụ đọc
+  // chính chúng. Sau advanceToNextSeat thì cả hai đã sạch và 6 nhiệm vụ đó chết âm thầm.
+  mission(room, {
+    t: "turnEnd",
+    actor: current,
+    plays: room.playsThisTurn,
+    playedDefIds: [...room.playedDefsThisTurn],
+  });
   judgePredictions(room, current);
   if (!advanceToNextSeat(room)) return { ok: false };
   beginTurn(room);
@@ -1440,6 +1493,10 @@ export function respond(
       const idx = hasHandCard(target, "beer", cardId);
       if (idx < 0) return err("card-not-in-hand");
       room.discard.push(target.hand.splice(idx, 1)[0]);
+      // NOT healPlayer: this is the one heal that must not clamp at maxHp, because it starts
+      // from 0 or below. deathQueue.needed already counted exactly how many Beers it takes to
+      // reach 1, so clamping here would leave a dying player unable to come back and strand
+      // the queue on a pending nothing can resolve.
       target.hp += 1;
       pushLog(room, { kind: "heal", a: target.name, n: 1 });
       pending.beersNeeded -= 1;
@@ -1563,7 +1620,7 @@ export function sidHeal(code: string, playerId: string, cardIds: string[]): Resu
     const i = sid.hand.findIndex((c) => c.id === id);
     room.discard.push(sid.hand.splice(i, 1)[0]);
   }
-  sid.hp = Math.min(sid.maxHp, sid.hp + 1);
+  healPlayer(room, sid, 1);
   pushLog(room, { kind: "heal", a: sid.name, n: 1 });
   // If he was dying and this brought him back above 0, he survives — resolve.
   if (room.pending?.kind === "dying" && room.pending.targetId === sid.id && sid.hp > 0) {
@@ -1656,6 +1713,7 @@ function dealDamage(room: Room, target: Player, amount: number, sourceId: string
   // Their own Dynamite or an event has no attacker to report, and self-inflicted
   // damage is not something anyone needs telling about.
   if (src && src.id !== target.id) notify(room, target, hit);
+  mission(room, { t: "damage", actor: src ?? null, target, n: amount });
   if (charEffect(target).drawOnDamage) drawInto(room, target.hand, amount);
   if (charEffect(target).stealOnDamage && src) {
     let took = 0;
@@ -1816,6 +1874,14 @@ export function restart(code: string): boolean {
   room.discard = [];
   room.predictions = [];
   room.turnShotIds = [];
+  room.dealtMissionIds = [];
+  room.missionFeed = [];
+  room.players.forEach((p) => {
+    p.missionId = null;
+    p.missionProgress = 0;
+    p.missionSeen = [];
+    p.missionDone = false;
+  });
   room.predictFeed = [];
   resetEventState(room);
   room.players.forEach((p) => {

@@ -247,6 +247,13 @@ app.prepare().then(() => {
 
     // Random-event frequency. Host only, and only between games: changing the
     // density mid-game would rewrite the odds a live board was built around.
+    socket.on("setMissionsOn", ({ code, on }) => {
+      if (!isHost(code, socket.id)) return;
+      // setMissionsOn tự chặn khi phase !== "lobby" — nhiệm vụ chia một lần ở finalizeDraft nên
+      // bật giữa ván là bàn chơi hai luật. Không nới chỗ này thành `!== "playing"` như events.
+      if (game.setMissionsOn(code, on)) broadcast(code);
+    });
+
     socket.on("setEventLevel", ({ code, level }) => {
       if (!isHost(code, socket.id)) return;
       const room = game.getRoom(code);

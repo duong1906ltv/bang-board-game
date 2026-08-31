@@ -18,6 +18,8 @@ import { EventChips } from "./EventChips";
 import type { PredictionKind } from "@/lib/predictions";
 import { PredictPanel } from "./PredictPanel";
 import { PredictReveal } from "./PredictReveal";
+import { MissionChip } from "./MissionChip";
+import { MissionReveal } from "./MissionReveal";
 import { HpPips } from "./HpPips";
 import { LogPanel } from "./LogPanel";
 import { ResultOverlay } from "./ResultOverlay";
@@ -93,8 +95,10 @@ export function Table({
 
   const inspectCard = (c: Card) => setInfoCard(c);
   const showRole = () => setBriefing(true);
-  const { marquee, clearMarquee, eventBatch, dismissEvents, reveal, dismissReveal, justDrew, notice, flash } =
-    useTableFeedback(view);
+  const {
+    marquee, clearMarquee, eventBatch, dismissEvents, reveal, dismissReveal,
+    missionReveal, dismissMission, justDrew, notice, flash,
+  } = useTableFeedback(view);
 
   // Escape dismisses any open popup and cancels aim / Sid-pick mode — the same
   // exits the click-outside overlays offer, but for keyboard users.
@@ -281,6 +285,10 @@ export function Table({
         <PredictReveal key={reveal.seq} reveal={reveal} view={view} onDone={dismissReveal} />
       )}
 
+      {missionReveal && (
+        <MissionReveal key={missionReveal.seq} reveal={missionReveal} view={view} onDone={dismissMission} />
+      )}
+
       {notice && (
         <div
           style={{
@@ -420,6 +428,7 @@ export function Table({
         </div>
 
         <EventChips events={view.events} />
+        <MissionChip view={view} />
         <PredictPanel
           view={view}
           onPredict={onPredict}

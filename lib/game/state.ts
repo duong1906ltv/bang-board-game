@@ -6,6 +6,7 @@
 // a cycle instead of a stack.
 
 import type { PredictReveal } from "../types";
+import type { MissionReveal } from "../types";
 import type { Prediction } from "../predictions";
 import {
   Character,
@@ -30,6 +31,13 @@ export interface Player {
   character: Character | null; // locked in after the draft
   draftChoices: Character[]; // the two candidates offered during the draft
   hasPicked: boolean; // draft: has locked a character
+
+  // --- nhiệm vụ phụ (xem lib/missions.ts) ---
+  // Lưu id, không lưu cả MissionDef — đúng như ActiveEvent.defId.
+  missionId: string | null;
+  missionProgress: number;
+  missionSeen: string[]; // khoá đã đếm, chống đếm trùng (chỉ two-birds dùng)
+  missionDone: boolean;
   hp: number;
   maxHp: number;
   alive: boolean;
@@ -130,6 +138,12 @@ export interface Room {
   // players may share one — the guess would then be judged against the wrong person.
   turnShotIds: string[];
   predictFeed: PredictReveal[]; // verdicts not yet shown, oldest first (see PlayerView.predictFeed)
+
+  // --- nhiệm vụ phụ ---
+  missionsOn: boolean; // luật phòng, sống qua restart() — như eventLevel
+  dealtMissionIds: string[]; // đã chia hoặc đã lộ; pool loại trừ danh sách này
+  missionFeed: MissionReveal[];
+  missionSeq: number;
   predictSeq: number;
   turnCounter: number; // turns begun this game (telemetry / sim reporting only)
   turnDir: 1 | -1; // play direction (the "reverse" event flips it)

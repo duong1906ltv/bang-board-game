@@ -390,6 +390,113 @@ export function tError(l: Locale, e: GameError | string | null | undefined): str
   return tpl.replace("{n}", String(e.n ?? "")).replace("{s}", e.s ?? "");
 }
 
+// --- nhiệm vụ phụ (lib/missions.ts) ---
+
+// Tên và mô tả, keyed by id — đúng khuôn CHAR_ABILITY. Mechanics ở lib/missions.ts, ở đây chỉ
+// có chữ. Mô tả PHẢI nói ra cái giá, không chỉ điều kiện: cả bảng này được thiết kế quanh việc
+// hy sinh, và một mô tả chỉ kể điều kiện thì làm người chơi tưởng đây là nhiệm vụ miễn phí.
+const MISSION_TEXT: Record<string, { name: [string, string]; desc: [string, string] }> = {
+  "all-in": {
+    name: ["Dốc sạch", "All In"],
+    desc: [
+      "Kết thúc một lượt với tay TRẮNG. Nghĩa là không Missed!, không Beer — trần trụi cho tới lượt sau.",
+      "End a turn with an EMPTY hand. No Missed!, no Beer — wide open until your next turn.",
+    ],
+  },
+  "no-shield": {
+    name: ["Không đỡ", "No Shield"],
+    desc: [
+      "Chịu trúng một phát Bang! trong khi tay ĐANG có Missed!. Cố ý ăn đòn: mất đúng 1 máu.",
+      "Take a Bang! while you are HOLDING a Missed!. Eat it on purpose: exactly one life point.",
+    ],
+  },
+  "throw-it-away": {
+    name: ["Ném đi", "Throw It Away"],
+    desc: [
+      "Tự bỏ một lá Missed! hoặc Beer khi CHƯA quá giới hạn tay. Bỏ lưới an toàn của mình đi, không ai bắt.",
+      "Discard a Missed! or a Beer while still UNDER your hand limit. Throw your own safety net away.",
+    ],
+  },
+  reckless: {
+    name: ["Liều", "Reckless"],
+    desc: [
+      "Đánh Gatling hoặc Indians! lúc đang 1 máu. Chọc cả bàn khi bạn cách cái chết đúng một đòn.",
+      "Play Gatling or Indians! at 1 life. Provoke the whole table while one hit from death.",
+    ],
+  },
+  "no-cover": {
+    name: ["Không núp", "No Cover"],
+    desc: [
+      "Kết thúc lượt ở 2 máu hoặc thấp hơn, không có Mustang/Barrel trên bàn, mà TRONG TAY đang giữ một lá. Từ chối lớp che đúng lúc cần nhất.",
+      "End a turn at 2 life or less with no Mustang/Barrel in play while HOLDING one. Refuse cover exactly when you need it.",
+    ],
+  },
+  mercy: {
+    name: ["Nương tay", "Mercy"],
+    desc: [
+      "Kết thúc lượt mà không đánh lá nào, trong khi tay có từ 3 lá. Cho không cả một lượt.",
+      "End a turn having played nothing, with 3 or more cards in hand. Give away a whole turn.",
+    ],
+  },
+  "last-bullet": {
+    name: ["Viên cuối", "Last Bullet"],
+    desc: [
+      "Đánh Bang! khi đó là lá CUỐI trên tay. Bắn xong là trắng tay.",
+      "Play a Bang! as the LAST card in your hand. Fire it and you are empty.",
+    ],
+  },
+  spendthrift: {
+    name: ["Tiêu hoang", "Spendthrift"],
+    desc: [
+      "Đánh 4 lá trong cùng một lượt. Luật mỗi loại một lần nghĩa là 4 loại khác nhau — và dốc gần sạch tay.",
+      "Play 4 cards in one turn. The once-per-type rule makes that four different types — and nearly your whole hand.",
+    ],
+  },
+  "duel-me": {
+    name: ["Thách đấu", "Duel Me"],
+    desc: [
+      "Đánh Duel vào người đang NHIỀU bài hơn bạn. Duel đốt Bang! lần lượt cả hai bên, nên đó là tự chọn kèo dưới.",
+      "Play a Duel on someone holding MORE cards than you. A Duel burns Bang!s from both sides in turn — you are picking the losing end.",
+    ],
+  },
+  "two-birds": {
+    name: ["Một lượt hai mạng", "Two Birds"],
+    desc: [
+      "Bắn trúng 2 người khác nhau trong CÙNG một lượt. Cần bỏ trần Bang!/lượt và đủ tầm — Gatling không tính, vì nó không nhắm riêng ai.",
+      "Hit 2 different people in ONE turn. Needs an unlimited Bang! and the range — Gatling does not count, it aims at nobody.",
+    ],
+  },
+  pacifist: {
+    name: ["Bất bạo động", "Pacifist"],
+    desc: [
+      "3 lượt liên tiếp không đánh Bang! nào. Nhường cả nhịp độ lẫn cơ hội hạ người.",
+      "Three turns in a row without a single Bang!. Give up the tempo and the kills.",
+    ],
+  },
+  "on-the-brink": {
+    name: ["Bên bờ", "On The Brink"],
+    desc: [
+      "Kết thúc 2 lượt liên tiếp ở đúng 1 máu. Nghĩa là KHÔNG uống Beer khi đang chết dở.",
+      "End two turns in a row at exactly 1 life. Meaning: no Beer while you are dying.",
+    ],
+  },
+  "dry-spell": {
+    name: ["Cơn khát", "Dry Spell"],
+    desc: [
+      "Sống qua 3 lượt của mình trong lúc thiếu máu mà không hồi một điểm nào. Từ chối Beer, Saloon, tất cả.",
+      "Survive three of your own turns wounded without healing a single point. Refuse the Beer, the Saloon, all of it.",
+    ],
+  },
+};
+
+export const missionName = (l: Locale, id: string) =>
+  MISSION_TEXT[id] ? MISSION_TEXT[id].name[l === "vi" ? 0 : 1] : id;
+export const missionDesc = (l: Locale, id: string) =>
+  MISSION_TEXT[id] ? MISSION_TEXT[id].desc[l === "vi" ? 0 : 1] : "";
+
+export const missionsOnLabel = (l: Locale, on: boolean) =>
+  on ? L(l, "Nhiệm vụ: BẬT", "Missions: ON") : L(l, "Nhiệm vụ: TẮT", "Missions: OFF");
+
 // --- turn prediction (lib/predictions.ts) ---
 
 // Why the panel's buttons are dead right now. The engine resolves the reason

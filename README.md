@@ -31,6 +31,8 @@ dựng ván rồi ghi đè thế bài cho xác định.
 | `server.ts` | Custom server: Next.js + Socket.IO transport |
 | `lib/game/index.ts` | Game engine in-memory (phòng, chia bài, lượt chơi) |
 | `lib/game/state.ts` | Kiểu Player/Room, Map phòng, hàm nguyên thuỷ |
+| `lib/game/missions.ts` | Nhiệm vụ phụ: chia, tiến độ, thưởng (nửa engine) |
+| `lib/missions.ts` | Nhiệm vụ phụ: registry 13 nhiệm vụ + invariant Tier (hàm thuần) |
 | `lib/game/predictions.ts` | Đoán lượt: chốt, phán, huỷ (nửa engine) |
 | `lib/predictions.ts` | Đoán lượt: luật & tính điểm (hàm thuần, dùng chung client/server) |
 | `lib/cards.ts` | Định nghĩa lá bài & hiệu ứng |
