@@ -37,7 +37,6 @@ import {
   pickBatch,
   GameEventDef,
   mergeEffect,
-  pickWeighted,
 } from "./events";
 
 // Wins needed (cumulative within one room) to unlock the cross-game reward.
@@ -1399,12 +1398,6 @@ export function targetProblem(room: Room, actor: Player, defId: string, target: 
 function legalTargetIds(room: Room, actor: Player, defId: string): string[] {
   if (!CARD_DEF_BY_ID[defId]?.target) return [];
   return room.players.filter((p) => !targetProblem(room, actor, defId, p)).map((p) => p.id);
-}
-
-// Remove and return the card a `pickTargetCard` result points at.
-function takePickedCard(target: Player, pick: { from: "hand" | "equipment"; index: number }): Card {
-  const pile = pick.from === "hand" ? target.hand : target.equipment;
-  return pile.splice(pick.index, 1)[0];
 }
 
 // Open the "somebody is taking your card" acknowledgement. Shared by Panic!, Cat Balou

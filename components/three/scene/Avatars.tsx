@@ -270,7 +270,7 @@ const RIG_DEBUG = typeof window !== "undefined" && new URLSearchParams(window.lo
 const rigLog = (seat: number, what: string, ws: number, scale: number) => {
   if (!RIG_DEBUG) return;
   const bad = ws < 10; // anything but the ~64 the rig actually carries
-  console.log(
+  console.info(
     `[rig] ghế ${seat} ${what.padEnd(10)} ws.x=${ws.toFixed(3)} → scale=${scale.toFixed(5)}` +
       (bad ? "  ‼️ ĐO HỤT — vật này đang to gấp ~64 lần" : "")
   );
@@ -762,7 +762,7 @@ function PersonModel({
     return () => {
       hand.remove(gun);
     };
-  }, [arms, gun, spec, dead, person.handScale]);
+  }, [arms, gun, spec, dead, person.handScale, seat]);
 
   useEffect(() => {
     const head = bone(body, "Head");
@@ -884,11 +884,11 @@ function PersonModel({
   // prints both sides of that comparison.
   useEffect(() => {
     if (!AIM_DEBUG) return;
-    console.log(
+    console.info(
       `[aim] ghế ${seat}: firingKey=${firingKey} aiming=${aiming} dead=${dead} armUp=${armUp}`
     );
     if (firingKey == null) return;
-    const t = setInterval(() => console.log(`[aim] ghế ${seat}: w=${aimW.current.toFixed(2)}`), 200);
+    const t = setInterval(() => console.info(`[aim] ghế ${seat}: w=${aimW.current.toFixed(2)}`), 200);
     const stop = setTimeout(() => clearInterval(t), 2200);
     return () => {
       clearInterval(t);

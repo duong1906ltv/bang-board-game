@@ -102,7 +102,7 @@ export function Table({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [dismissEvents]);
 
 
   useEffect(() => {

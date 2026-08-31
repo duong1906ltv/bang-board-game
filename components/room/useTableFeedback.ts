@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EventView, PlayerView } from "@/lib/types";
 import { rankLabel, SUIT_SYMBOL } from "@/lib/cards";
 import { useLocale, checkText } from "@/lib/i18n";
@@ -50,6 +50,10 @@ export function useTableFeedback(view: PlayerView) {
     return () => window.clearTimeout(t);
   }, [view.you.hand]);
 
+  // Stable identity: Table lists it in the deps of its Escape-key effect, and a new
+  // function each render would re-bind the listener every render.
+  const dismissEvents = useCallback(() => setEventBatch([]), []);
+
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>();
   const flash = (msg: string) => {
@@ -64,7 +68,7 @@ export function useTableFeedback(view: PlayerView) {
     marquee,
     clearMarquee: () => setMarquee(null),
     eventBatch,
-    dismissEvents: () => setEventBatch([]),
+    dismissEvents,
     justDrew,
     notice,
     flash,

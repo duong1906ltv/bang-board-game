@@ -123,7 +123,7 @@ export default function RoomPage() {
 
       {view.pending &&
         (view.pending.youMustRespond ? (
-          <ReactionPanel view={view} onRespond={respond} onChoose={choose} />
+          <ReactionPanel view={view} onRespond={respond} />
         ) : (
           <PendingNote view={view} />
         ))}

@@ -138,7 +138,7 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
           independent of the camera cut, so turning the cut off still leaves you a
           visible gunshot. It waits for the outcome — the gun goes off at the moment the
           standoff resolves, not while the table is still waiting for an answer. */}
-      {shot && outcome && <ShotFx key={shot.key} shot={shot} hit={outcome === "hit"} />}
+      {shot && outcome && <ShotFx key={shot.key} shot={shot} />}
       {/* Lighting: one warm lamp over the table doing the real work, everything
           else just lifting the shadows off black.
           Before, ambient 1.05 + hemisphere 0.85 + directional 1.0 + a "warehouse"

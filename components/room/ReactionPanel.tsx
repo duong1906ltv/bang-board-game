@@ -9,11 +9,9 @@ import { PENDING_EMOJI, CHECK_ICON } from "./constants";
 export function ReactionPanel({
   view,
   onRespond,
-  onChoose,
 }: {
   view: PlayerView;
   onRespond: (type: "missed" | "beer" | "bang" | "pass", cardId?: string) => void;
-  onChoose: (cardId: string) => void;
 }) {
   const locale = useLocale();
   const p = view.pending!;

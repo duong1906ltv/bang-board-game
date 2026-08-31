@@ -3,7 +3,7 @@
 // Everything drawn at a seat other than the body: the nameplate, the patch of cloth in
 // front of them, the aiming crosshair — and Opponents, which places one of each around
 // the far arc. The hand of cards itself is in the figure's fist, over in Avatars.tsx.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";

@@ -112,7 +112,7 @@ export default function VideoChat({
       setMicOn(true);
       setCamOn(true);
       setActive(true);
-    } catch (e) {
+    } catch {
       setError(L(locale, "Không truy cập được camera/mic", "Could not access camera/mic"));
     }
   }
@@ -158,6 +158,7 @@ export default function VideoChat({
   useEffect(() => {
     if (!active) return;
     const socket = getSocket();
+    const peers = peersRef.current;
 
     const send = (to: string, data: RtcSignalData) => socket.emit("rtcSignal", { code, to, data });
 
@@ -256,12 +257,12 @@ export default function VideoChat({
       socket.off("rtcPeerJoin", onPeerJoin);
       socket.off("rtcPeerLeave", onPeerLeave);
       socket.off("rtcSignal", onSignal);
-      peersRef.current.forEach((rec) => {
+      peers.forEach((rec) => {
         try {
           rec.pc.close();
         } catch {}
       });
-      peersRef.current.clear();
+      peers.clear();
       setTiles([]);
     };
   }, [active, code, upsertTile]);

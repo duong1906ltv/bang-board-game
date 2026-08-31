@@ -286,9 +286,6 @@ const MUZZLE_Y = AVATAR_SHOULDER_Y;
 // seats, so what you saw was a streak vanishing past a shoulder rather than a hit.
 const HIT_Y = AVATAR_HEAD_Y;
 
-const MISS_WIDE = 0.42; // how far past them a dodged shot flies
-const MISS_HIGH = 0.12;
-
 const FLASH_DUR = 0.07;
 const TRACER_DUR = 0.16;
 const SMOKE_DUR = 0.6;
@@ -296,7 +293,7 @@ const SMOKE_DUR = 0.6;
 // Muzzle flash, tracer and smoke for one shot, plus the report. Mounted with the
 // shot's key so every shot gets a fresh instance and needs no reset logic; it
 // unmounts itself once the smoke has cleared.
-export function ShotFx({ shot, hit }: { shot: Gunfire; hit: boolean }) {
+export function ShotFx({ shot }: { shot: Gunfire }) {
   const flash = useRef<THREE.Mesh>(null);
   const light = useRef<THREE.PointLight>(null);
   const tracer = useRef<THREE.Mesh>(null);
@@ -321,7 +318,7 @@ export function ShotFx({ shot, hit }: { shot: Gunfire; hit: boolean }) {
       span.clone().normalize(),
     );
     return { muzzle, len: span.length(), quat };
-  }, [shot, hit]);
+  }, [shot]);
 
   useEffect(() => {
     playGunshot();

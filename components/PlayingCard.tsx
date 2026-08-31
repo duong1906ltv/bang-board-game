@@ -96,6 +96,7 @@ export function PlayingCard({
         <div className={`pc-name${nameSizeClass(card.name)}`}>{card.name}</div>
         <div className="pc-center">
           {img ? (
+            // eslint-disable-next-line @next/next/no-img-element -- local art with an onError source fallback; next/image cannot rotate sources
             <img
               key={img}
               className={cardArtFillsPanel(img) ? "pc-art pc-art-full" : "pc-art"}

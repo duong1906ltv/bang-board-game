@@ -28,6 +28,7 @@ export function CharacterFace({ c }: { c: Character }) {
         <div className="pc-name" style={{ fontSize: "0.72rem" }}>{c.name}</div>
         <div className="pc-center" style={{ height: 132, flex: "0 0 auto" }}>
           {portrait ? (
+            // eslint-disable-next-line @next/next/no-img-element -- local portrait sized by CSS inside a fixed-height card
             <img className="pc-art pc-art-full" src={portrait} alt="" draggable={false} />
           ) : (
             <span className="pc-icon" style={{ fontSize: "2.6rem" }}>🤠</span>
