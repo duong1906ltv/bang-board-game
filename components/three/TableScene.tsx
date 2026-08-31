@@ -14,7 +14,14 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
-import { DISCARD_X, FELT_Y, FLOOR_Y, layout, seatPositions } from "./scene/geometry";
+import {
+  COWBOY_BODIES,
+  DISCARD_X,
+  FELT_Y,
+  FLOOR_Y,
+  layout,
+  seatPositions,
+} from "./scene/geometry";
 import { ROOM_H, SaloonInner, TableInner, TableLampInner, StaticShadows } from "./scene/Saloon";
 import { Opponents, YourAvatar } from "./scene/Players";
 import { GUN_STOW_SEC } from "./scene/Avatars";
@@ -89,7 +96,11 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
   );
   const turnAt = (view.turnSeat != null && seats.get(view.turnSeat)) || null;
   const motion = useLatestMotion(view.log);
-  const armKey = models && shot ? shot.key : -1;
+  // COWBOY_BODIES, không phải `models`: cái mở cửa sổ shadow động là THÂN có động hay
+  // không, mà tay giơ lên khi bắn chỉ tồn tại trong PersonModel. `models` vẫn bật cho
+  // bàn/ghế/đồ đạc, nên dùng nó ở đây là mở cửa sổ shadow cho một chuyển động không xảy ra.
+  // Thân block vẫn nghiêng khi bị bắn, nhưng đường đó đi qua `motion`/Lean chứ không qua đây.
+  const armKey = COWBOY_BODIES && shot ? shot.key : -1;
   // Who just drew. Shared by the arms that reach and the cards that come off the pile,
   // so the two can never disagree about who is picking up what.
   const reaches = useReaches(view.log, view.players, view.you.seat, arc, felt, ring);
@@ -99,7 +110,7 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
   // later event. The identity handed to StaticShadows is the LEG's seq, not that id: a
   // two-leg draw shares one log id, and reusing it would leave the shadow frozen through
   // the second reach. Prefixed so a seq can never collide with a log id.
-  const newestReach = models ? reaches.reduce<typeof reaches[number] | null>((a, d) => (!a || d.seq > a.seq ? d : a), null) : null;
+  const newestReach = COWBOY_BODIES ? reaches.reduce<typeof reaches[number] | null>((a, d) => (!a || d.seq > a.seq ? d : a), null) : null;
   const moving =
     newestReach && newestReach.logId >= Math.max(motion?.key ?? -1, armKey)
       ? { key: `draw-${newestReach.seq}`, sec: REACH_DUR }
@@ -184,7 +195,7 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <Table felt={felt} models={models} low={lowSpec} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} canDraw={canDraw} onDrawDeck={onDrawDeck} onZoomDiscard={discardZoom.toggle} />
       <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} shot={shot} aimingSeat={aimingSeat} reaches={reaches} stealIds={stealIds} onSteal={onSteal} models={models} />
-      <YourAvatar you={view.you} players={view.players} count={view.players.length} ring={ring} felt={felt} shot={shot} aiming={aimingSeat === view.you.seat} reach={yourReach} onInspect={onInspect} onInspectPlayer={onInspectPlayer} models={models} />
+      <YourAvatar you={view.you} players={view.players} count={view.players.length} ring={ring} felt={felt} shot={shot} aiming={aimingSeat === view.you.seat} reach={yourReach} onInspect={onInspect} models={models} />
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       <CheckFx check={view.checks.at(-1) ?? null} felt={felt} />
       {/* Cinematic pass: the lamp globe blooms, the corners fall away. Threshold

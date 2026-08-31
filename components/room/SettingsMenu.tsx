@@ -152,12 +152,12 @@ export function SettingsMenu({
             <Toggle
               on={models}
               onToggle={onToggleModels}
-              onLabel={L(locale, "🤠 Cao bồi 3D: BẬT", "🤠 3D cowboys: ON")}
-              offLabel={L(locale, "○ Cao bồi 3D: TẮT (hình khối)", "○ 3D cowboys: OFF (blocks)")}
+              onLabel={L(locale, "🪑 Đồ đạc 3D: BẬT", "🪑 3D props: ON")}
+              offLabel={L(locale, "○ Đồ đạc 3D: TẮT (hình khối)", "○ 3D props: OFF (blocks)")}
               hint={L(
                 locale,
-                "Nhân vật là model 3D có xương, ngồi vào ghế và cầm súng lục. Tắt đi để quay lại hình khối — nhẹ hơn cho máy yếu.",
-                "Rigged 3D figures that sit at the table holding a revolver. Turn off for the block avatars — lighter on weak machines."
+                "Bàn, ghế, chai lọ, thùng gỗ là model 3D. Tắt đi để vẽ bằng hình khối — nhẹ hơn cho máy yếu. Không liên quan tới hình người: người luôn là hình khối.",
+                "Table, chairs, bottles and crates as 3D models. Turn off to draw them as primitives — lighter on weak machines. Nothing to do with the figures: those are always blocks."
               )}
             />
             <Toggle

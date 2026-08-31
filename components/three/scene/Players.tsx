@@ -10,6 +10,7 @@ import { Html } from "@react-three/drei";
 import { Avatar, Tombstone } from "./Avatars";
 import { CardMesh } from "../CardMesh";
 import { FeltCards } from "./Cards";
+import { FeltGun } from "./FeltGun";
 import { Crosshair } from "./Crosshair";
 import { PickSpot } from "./PickSpot";
 import type { Gunfire } from "./Gunfire";
@@ -19,6 +20,7 @@ import {
   AVATAR_COLORS,
   AVATAR_HEAD_Y,
   CARD_LIFT,
+  crownY,
   faceCentre,
   FELT_Y,
   FLOOR_Y,
@@ -120,11 +122,11 @@ const MARK_W = 0.42;
 // Clear of the hat, not perched on it: the tip stops this far short of the crown, which
 // is enough for the shape to read as pointing AT the head rather than growing out of it.
 const MARK_GAP = 0.07;
-// Two heights, because the two figures wear their hats 0.2 apart: the modelled one puts
-// its brim 0.3 over a head bone at 0.62 and tops out at 1.05, the block one puts its
-// brim at 0.72 and tops out at 0.85. A single height would sit on one and float over
-// the other, which is the old bug in miniature.
-const markY = (models?: boolean) => (models ? 1.05 : 0.85) + MARK_GAP + MARK_H / 2;
+// Hai figure đội mũ lệch 0.2 nhau, nên độ cao này đọc từ crownY() ở geometry.ts. Trước
+// đây nó nhận cờ `models` — đúng khi kiểu thân và kiểu model là một chuyện, và SAI kể từ
+// khi thân tách ra: `models` vẫn bật cho bàn/ghế/đồ đạc, nên dấu sẽ treo ở 1.05 trên một
+// cái đầu hình khối cao 0.85 và bay lơ lửng cách 0.2. Chính là con bug cũ thu nhỏ.
+const markY = () => crownY() + MARK_GAP + MARK_H / 2;
 
 // And the plaque moves up out of the way. Its height in WORLD units is not fixed:
 // <Html distanceFactor={f}> scales by f/(2·tan(fov/2)·dist), which works out to
@@ -285,7 +287,6 @@ export function YourAvatar({
   aiming,
   reach,
   onInspect,
-  onInspectPlayer,
   models,
 }: {
   // Read off view.you, not the players array: the array hides roles from everyone,
@@ -299,7 +300,6 @@ export function YourAvatar({
   aiming?: boolean;
   reach?: ReachMotion | null;
   onInspect?: (c: Card) => void;
-  onInspectPlayer?: (p: PlayerPublic) => void;
   models?: boolean;
 }) {
   const reaction = useReaction(you.alive, you.hp);
@@ -322,14 +322,17 @@ export function YourAvatar({
     return (
       <>
         <Tombstone position={[x, FLOOR_Y, z]} />
-        {plaque && <Nameplate p={plaque} position={[x, PLATE_Y, z]} onClick={onInspectPlayer ? () => onInspectPlayer(plaque) : undefined} />}
       </>
     );
   return (
     <>
-      {plaque && <Nameplate p={plaque} position={[x, PLATE_Y, z]} onClick={onInspectPlayer ? () => onInspectPlayer(plaque) : undefined} />}
-      {plaque?.isTurn && <TurnMarker position={[x, markY(models), z]} />}
+      {/* Không có biển tên trên đầu CHÍNH BẠN. Tên, máu và vai của bạn đã nằm trong HUD
+          dưới canvas — cùng lý do quạt bài của bạn không được dựng trong scene: một bản
+          thứ hai của cùng thông tin, ở cỡ khác, chỉ làm che bàn. Đối thủ vẫn có biển,
+          vì với họ đó là bản DUY NHẤT. */}
+      {plaque?.isTurn && <TurnMarker position={[x, markY(), z]} />}
       <FeltCards cards={you.equipment} ang={YOUR_SEAT_ANG} radius={ring * 0.92} onInspect={onInspect} color={color} />
+      <FeltGun equipment={you.equipment} x={x} z={z} face={faceCentre(YOUR_SEAT_ANG)} models={models} />
       <Lean ang={YOUR_SEAT_ANG} seat={[x, z]} reaction={reaction}>
         <Avatar
           position={[x, 0, z]}
@@ -472,7 +475,11 @@ function Seat({
         {/* Same frame as the ring, so the one lands round the other. Your own seat has
             no fan of its own: your hand is the real thing in DOM under the canvas, and a
             second, differently-sized copy of it out here would contradict it. */}
-        {!models && <FeltHand count={p.handCount} />}
+        {/* Quạt bài úp bám vào việc thân người có nắm tay hay không, KHÔNG bám vào cờ
+            `models`. Hình khối không có nắm tay nên bài phải nằm trên nỉ; hồi trước hai
+            chuyện đó trùng nhau nên một điều kiện là đủ, giờ thân đã tách khỏi `models`
+            và điều kiện cũ sẽ làm bài không hiện ở đâu cả. */}
+        <FeltHand count={p.handCount} />
       </group>
       {p.alive || p.ghost || reaction?.kind === "fall" ? (
         <Lean ang={ang} seat={[ax, az]} reaction={reaction}>
@@ -499,8 +506,14 @@ function Seat({
         <Tombstone position={[ax, FLOOR_Y, az]} />
       )}
       <Nameplate p={p} position={[ax, PLATE_Y, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
-      {p.isTurn && (p.alive || p.ghost) && <TurnMarker position={[ax, markY(models), az]} />}
+      {p.isTurn && (p.alive || p.ghost) && <TurnMarker position={[ax, markY(), az]} />}
       <FeltCards cards={p.equipment} ang={ang} radius={ring * 0.92} onInspect={onInspect} color={color} pickable={!!pickCardMode && targetable} onPickCard={(cid) => onPickCard?.(p.id, cid)} />
+      {/* Gated on the seat still being occupied: killPlayer sends a corpse's equipment to
+          the discard, so heldGun would fall back to the free Colt .45 and stand a gun up at
+          an empty chair. FeltCards above needs no such guard — an empty array draws nothing. */}
+      {(p.alive || p.ghost) && (
+        <FeltGun equipment={p.equipment} x={ax} z={az} face={faceCentre(ang)} models={models} />
+      )}
       {targetable && onPickTarget && (
         // Right on the head — you are aiming at them, so the crosshair rings the
         // face. It used to float at y=1.6, above even the nameplate, which put it in

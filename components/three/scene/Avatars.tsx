@@ -8,14 +8,14 @@ import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
 import { useFrame } from "@react-three/fiber";
 import { useGLTF, useAnimations } from "@react-three/drei";
-import { AVATAR_HEAD_R, AVATAR_HEAD_Y, AVATAR_SHOULDER_Y, DISCARD_X, FELT_Y, FLOOR_Y, SEAT_GAP } from "./geometry";
+import { AVATAR_HEAD_R, AVATAR_HEAD_Y, AVATAR_SHOULDER_Y, COWBOY_BODIES, FLOOR_Y } from "./geometry";
 import { CARD_H, CARD_W, CardMesh } from "../CardMesh";
 import { Chair } from "./Furniture";
 import { ModelSlot } from "./ModelSlot";
 import { SHOT_DUR } from "./Gunfire";
 import { REACH_DUR, REACH_BACK, REACH_GRAB, REACH_OUT } from "./Draw";
-import { FELT_CARD_GAP } from "./Cards";
-import { feltQuat, heldGun, type GunSpec } from "./guns";
+
+import { feltGunPlacement, heldGun, type GunSpec } from "./guns";
 import { personFor } from "./people";
 import type { Look } from "@/lib/types";
 
@@ -190,21 +190,6 @@ const RIFLE_TUCK = 0.42;
 // if it falls outside this, so a long gun never pulls an arm straight.
 const OFF_ARM_SLACK = 0.88;
 
-// Where a gun waits when nobody is aiming it: beside the cards in play, on its owner's
-// right, within reach. Out from the seat by SEAT_GAP — the gap between a chair and the
-// felt rim — and this much again onto the cloth, which lands it just outside the row of
-// cards (those sit at 0.72-0.92 of the inner ring, about 0.37 further in).
-const GUN_REST_IN = 0.3;
-// And one card-slot to the owner's right, so it sits beside that row rather than on the
-// line of it. Not much more, either: shifting a gun sideways spends the clearance to
-// the next player's gun, which at a seven-seat table is only 2.16 across.
-const GUN_REST_RIGHT = FELT_CARD_GAP * 1.5;
-// The middle of the table is taken. DISCARD_X is the further of the two piles from the
-// centre and a 0.72-scale card's half-diagonal is 0.39, so nothing may reach inside this.
-const PILE_CLEAR = DISCARD_X + 0.39;
-// And the felt runs out at its rim, so stop a finger short of it.
-const GUN_REST_EDGE = 0.05;
-
 // ─── The hand of cards, carried in the left fist ─────────────────────────────
 // Sized against the fist that holds it, the way the guns are: the LEFT fist measures
 // 0.167, so a card a shade narrower than that reads as held rather than as a signboard
@@ -315,7 +300,6 @@ function bone(root: THREE.Object3D, name: string): THREE.Object3D | undefined {
 const FWD = new THREE.Vector3();
 const SPARE_Q = new THREE.Quaternion();
 const DOWN = new THREE.Vector3(0, -1, 0);
-const UP = new THREE.Vector3(0, 1, 0);
 const V = Array.from({ length: 8 }, () => new THREE.Vector3());
 // Kept out of the pool above: these are held across a call into solveArm, which reuses
 // every slot in it.
@@ -469,38 +453,14 @@ function restGun(
   face: number,
   w: number
 ) {
-  const s = spec.heldLen / spec.modelLen; // the gun's size in world units
-  // Lengthwise, muzzle towards the middle — the way the cards in play point, so the gun
-  // reads as part of that row rather than laid over it. Unless it will not fit: a gun
-  // laid this way spends the table's RADIUS, and the strip of clear cloth between the
-  // centre piles and the rim is only 1.19 wide at a two-player table. The long guns go
-  // back to lying across there, which spends the circumference instead.
-  const felt = Math.hypot(seat[0], seat[2]) - SEAT_GAP; // the seat is SEAT_GAP past the rim
-  // Measured from the middle of the table, not straight out from the seat. Sitting
-  // GUN_REST_RIGHT off to one side puts every end of the gun on a longer diagonal than
-  // the seat's own line, which is enough on its own to hang a Winchester over the rim.
-  const edge = felt - GUN_REST_EDGE;
-  const along = spec.heldLen <= Math.sqrt(edge ** 2 - GUN_REST_RIGHT ** 2) - PILE_CLEAR;
-  // Its far corner is half a gun further out on the seat's line when it lies lengthwise,
-  // and half a gun further sideways when it lies across. Either way that corner is what
-  // has to stay inside the rim, so it is what sets how far onto the cloth the gun goes —
-  // subject to a floor, so a short gun still comes out far enough to be beside the cards.
-  const side = GUN_REST_RIGHT + (along ? 0 : spec.heldLen / 2);
-  const out = SEAT_GAP + Math.max(GUN_REST_IN, felt - Math.sqrt(edge ** 2 - side ** 2) + (along ? spec.heldLen / 2 : 0));
-  // A figure looks down its own +z, so turned by `face` its forward is (sin, cos). Its
-  // RIGHT is local -x, not +x: the rig puts every .R bone at negative x and every .L
-  // bone at positive x, which is what a right-handed frame facing +z with +y up gives.
-  // Turned by `face` that direction is (-cos, sin).
-  REST_P.set(
-    seat[0] + Math.sin(face) * out - Math.cos(face) * GUN_REST_RIGHT,
-    FELT_Y + spec.drop * s,
-    seat[2] + Math.cos(face) * out + Math.sin(face) * GUN_REST_RIGHT
-  );
+  // The arithmetic lives in guns.ts, shared with the standalone gun on the felt
+  // (FeltGun.tsx) so there is one copy of it. All this adds is the conversion into the hand
+  // bone this gun is parented to — which is what lets it sit still on the cloth while the
+  // body above it swivels, leans and rocks.
+  const place = feltGunPlacement(spec, seat, face);
+  REST_P.copy(place.position);
   hand.worldToLocal(REST_P);
-  // feltQuat leaves the barrel along +x; the quarter turn off `face` swings it onto the
-  // seat's own forward.
-  REST_Q.copy(feltQuat(spec)).premultiply(Q[0].setFromAxisAngle(UP, along ? face - Math.PI / 2 : face));
-  REST_Q.premultiply(hand.getWorldQuaternion(Q[1]).invert());
+  REST_Q.copy(place.quaternion).premultiply(hand.getWorldQuaternion(Q[1]).invert());
   gun.position.lerp(REST_P, w);
   gun.quaternion.slerp(REST_Q, w);
 }
@@ -1101,7 +1061,7 @@ export function Avatar({
 }) {
   const blocks = <BlockAvatar position={position} color={color} dead={dead} sheriff={sheriff} faceAngle={faceAngle} models={models} />;
   return (
-    <ModelSlot enabled={models} fallback={blocks}>
+    <ModelSlot enabled={models && COWBOY_BODIES} fallback={blocks}>
       <PersonModel
         position={position}
         color={color}
@@ -1122,7 +1082,6 @@ export function Avatar({
     </ModelSlot>
   );
 }
-
 
 export function Tombstone({ position }: { position: [number, number, number] }) {
   return (

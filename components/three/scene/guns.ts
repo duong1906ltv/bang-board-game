@@ -9,6 +9,8 @@
 // survives the jump to a file with a different scale and different axes.
 import * as THREE from "three";
 import { useGLTF } from "@react-three/drei";
+import { FELT_CARD_GAP } from "./Cards";
+import { DISCARD_X, FELT_Y, SEAT_GAP } from "./geometry";
 
 export interface GunSpec {
   url: string;
@@ -178,4 +180,83 @@ export function heldGun(equipment: { defId: string }[], seat = 0): GunSpec {
   }
   if (forcedGuns()) return seat % 2 === 0 ? WINCHESTER : SCHOFIELD;
   return COLT;
+}
+
+// --- where a gun lies on the cloth ---
+//
+// The world half of the old restGun, lifted out of Avatars.tsx so there is ONE copy of
+// this arithmetic. It is read twice: by the standalone gun on the felt (FeltGun.tsx), and
+// — if the cowboy bodies are ever switched back on — by the held gun, which takes these
+// world values and converts them into the hand bone it is parented to.
+
+// Where a gun waits when nobody is aiming it: beside the cards in play, on its owner's
+// right, within reach. Out from the seat by SEAT_GAP — the gap between a chair and the
+// felt rim — and this much again onto the cloth, which lands it just outside the row of
+// cards (those sit at 0.72-0.92 of the inner ring, about 0.37 further in).
+const GUN_REST_IN = 0.3;
+// And one card-slot to the owner's right, so it sits beside that row rather than on the
+// line of it. Not much more, either: shifting a gun sideways spends the clearance to
+// the next player's gun, which at a seven-seat table is only 2.16 across.
+const GUN_REST_RIGHT = FELT_CARD_GAP * 1.5;
+// The middle of the table is taken. DISCARD_X is the further of the two piles from the
+// centre and a 0.72-scale card's half-diagonal is 0.39, so nothing may reach inside this.
+const PILE_CLEAR = DISCARD_X + 0.39;
+// And the felt runs out at its rim, so stop a finger short of it.
+const GUN_REST_EDGE = 0.05;
+
+const UP = new THREE.Vector3(0, 1, 0);
+const SPIN = new THREE.Quaternion();
+
+export interface FeltGunPlacement {
+  position: THREE.Vector3;
+  quaternion: THREE.Quaternion;
+  scale: number;
+}
+
+export function feltGunPlacement(
+  spec: GunSpec,
+  seat: [number, number, number],
+  face: number
+): FeltGunPlacement {
+  const scale = spec.heldLen / spec.modelLen; // the gun's size in world units
+  const felt = Math.hypot(seat[0], seat[2]) - SEAT_GAP; // the seat is SEAT_GAP past the rim
+  // Measured from the middle of the table, not straight out from the seat: sitting
+  // GUN_REST_RIGHT off to one side puts every end of the gun on a longer diagonal than the
+  // seat's own line, which is enough on its own to hang a Winchester over the rim.
+  const edge = felt - GUN_REST_EDGE;
+  // ALWAYS lengthwise, muzzle towards the middle — the way the cards in play point, so the
+  // gun reads as part of that row rather than laid over it.
+  //
+  // A long gun used to swing round and lie ACROSS instead, because lengthwise it does not
+  // fit: laid that way it spends the table's RADIUS, and the clear strip between the centre
+  // piles and the rim is 1.73 wide at seven seats and 1.33 at four, against a Winchester's
+  // 1.91. So something has to give, and lying across was the wrong thing to give up — one
+  // gun square to every other gun on the cloth reads as a mistake rather than as a rifle.
+  //
+  // What gives instead: the muzzle stops at PILE_CLEAR and the BUTT is allowed past the rim.
+  // A rifle butt overhanging a table edge is a thing that happens; a muzzle lying over the
+  // discard pile is not. Only the Winchester is long enough to reach that clamp, and there
+  // is exactly one in the deck.
+  const side = GUN_REST_RIGHT;
+  // Muzzle at PILE_CLEAR means a radial reach of sqrt(PILE_CLEAR² - side²), since the gun
+  // sits `side` off the seat's own line; the gun's centre is half a gun further out again.
+  const clear = Math.sqrt(Math.max(0, PILE_CLEAR ** 2 - side ** 2)) + spec.heldLen / 2;
+  // Otherwise sit just inside the rim, and never closer in than GUN_REST_IN so a short gun
+  // still comes out far enough to be beside the cards rather than under the seat.
+  const rim = felt - Math.sqrt(edge ** 2 - side ** 2) + spec.heldLen / 2;
+  const out = SEAT_GAP + Math.min(felt - clear, Math.max(GUN_REST_IN, rim));
+  // A figure looks down its own +z, so turned by `face` its forward is (sin, cos) and its
+  // right is (-cos, sin).
+  const position = new THREE.Vector3(
+    seat[0] + Math.sin(face) * out - Math.cos(face) * GUN_REST_RIGHT,
+    FELT_Y + spec.drop * scale,
+    seat[2] + Math.cos(face) * out + Math.sin(face) * GUN_REST_RIGHT
+  );
+  // feltQuat leaves the barrel along +x; the quarter turn off `face` swings it onto the
+  // seat's own forward, which is what puts every gun on the table parallel to the row of
+  // cards in front of its owner.
+  const quaternion = feltQuat(spec)
+    .clone()
+    .premultiply(SPIN.setFromAxisAngle(UP, face - Math.PI / 2));
+  return { position, quaternion, scale };
 }

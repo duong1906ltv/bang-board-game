@@ -103,3 +103,25 @@ export const AVATAR_SHOULDER_Y = 0.42; // torso top, just above the table rim (y
 export const AVATAR_HEAD_R = 0.15;
 export const AVATAR_HEAD_Y = AVATAR_SHOULDER_Y + AVATAR_HEAD_R + 0.05; // clear of the shoulders
 
+// --- kiểu thân người ---
+
+// Thân cao bồi 3D đã TẮT. Không vì hiệu năng — vì người chơi thấy nó đáng sợ, và nguyên
+// nhân là hình học chứ không phải model: một cái đầu vừa cỡ cho bảy ghế quanh bàn chỉ cao
+// ~35px trên màn hình, mà một cái mặt cần 70-100px mới đọc được, nên thân người VĨNH VIỄN
+// không có mặt. Thân gần-như-thật + mặt trống trong saloon tối là đúng công thức uncanny
+// valley; thân hình khối thì không, vì nó chẳng hứa hẹn cái mặt nào.
+//
+// Ở đây, không phải trong Avatars.tsx: Players.tsx cũng phải đọc nó để treo dấu chỉ lượt
+// đúng đỉnh mũ, và một hằng nằm hai nơi là một hằng sẽ lệch.
+//
+// Tách hẳn khỏi cờ `models`: cờ đó là công tắc chung "dùng .glb hay primitive" và còn phục
+// vụ bàn, ghế, chai lọ, thùng — tắt nó là lột cả căn phòng chứ không chỉ bỏ người.
+// Đảo lại bằng cách đổi đúng hằng này về true.
+export const COWBOY_BODIES = false;
+
+// Hai figure đội mũ lệch nhau 0.2: cao bồi đặt vành 0.3 trên xương đầu ở 0.62 và đỉnh tới
+// 1.05; hình khối đặt vành ở 0.72 và đỉnh 0.85. Bất cứ thứ gì treo trên đầu phải đọc đúng
+// một trong hai, nếu không nó sẽ đội lên figure này và bay lơ lửng trên figure kia.
+export const CROWN_Y_COWBOY = 1.05;
+export const CROWN_Y_BLOCK = 0.85;
+export const crownY = () => (COWBOY_BODIES ? CROWN_Y_COWBOY : CROWN_Y_BLOCK);
