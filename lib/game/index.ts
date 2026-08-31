@@ -7,7 +7,6 @@ import {
   MAX_PLAYERS,
   MIN_PLAYERS,
   Character,
-  CharacterEffect,
   CHARACTERS,
   DraftView,
   PendingAction,
@@ -19,7 +18,6 @@ import {
   Role,
   Winner,
   LogEntry,
-  EventView,
   LobbySummary,
   MySeat,
 } from "../types";
@@ -41,22 +39,24 @@ import {
   rooms,
   shuffle,
 } from "./state";
+import { beersInHand, charEffect, drawInto, drawOne } from "./deck";
+import { activeEffect, eventsUnlocked, resetEventState, tickEvents, toEventView } from "./events-read";
 
 // Re-exported because they were part of this module's public surface before the split:
-// server.ts, lib/bot.ts and every test still reach for them through `game.*`.
+// server.ts, lib/bot.ts and every test still reach for them through `game.*`. Moving an
+// exported function into a submodule shrinks that surface silently — tsc only catches it
+// at the caller, which may be a file this phase never opened.
 export type { Player, Room };
 export { DRAFT_PER_PLAYER };
+export { activeEffect };
 
 
 export type { GameError, Result };
 import {
-  EVENT_BY_ID,
   EventCtx,
-  EventEffect,
   EventLevel,
   pickBatch,
   GameEventDef,
-  mergeEffect,
 } from "../events";
 
 // Wins needed (cumulative within one room) to unlock the cross-game reward.
@@ -433,50 +433,10 @@ export function setEventLevel(code: string, level: EventLevel): boolean {
   return true;
 }
 
-// Wipe every per-game event field. `eventLevel` is a ROOM setting and survives,
-// so the host doesn't have to re-pick the frequency after every game.
-function resetEventState(room: Room) {
-  room.events = [];
-  room.roundEvents = [];
-  room.eventFeed = [];
-  room.eventSeq = 0;
-  room.usedEventIds = [];
-  room.turnCounter = 0;
-  room.turnDir = 1;
-  room.turnDirRestore = null;
-  room.roundStarterId = null;
-  room.roundEventDue = false;
-}
-
-// The effects in force right now. Every event applies to the whole table, so this
-// takes no player: there is deliberately no way to ask "what applies to HIM".
-export function activeEffect(room: Room): EventEffect {
-  const out: EventEffect = {};
-  for (const ev of room.events) {
-    const def = EVENT_BY_ID[ev.defId];
-    if (def?.effect) mergeEffect(out, def.effect);
-  }
-  return out;
-}
-
-// Every active effect ticks down one turn per turn started. Durations are set in
-// turns because that is what the engine can count: one round = one turn per living
-// player, so a round-long modifier expires exactly as the round closes.
-function tickEvents(room: Room) {
-  room.events = room.events.filter((ev) => {
-    ev.turnsLeft -= 1;
-    return ev.turnsLeft > 0;
-  });
-}
 
 
-// Events are live from the very first turn. There used to be a one-round grace
-// period, from back when events could single out one player: landing on somebody
-// before they had a weapon or a full hand was pure bad luck. Every event now applies
-// to the whole table equally, so there is nothing left to protect anyone from.
-function eventsUnlocked(room: Room): boolean {
-  return room.eventLevel !== "off";
-}
+
+
 
 // Fire one event: log it, run its one-shot effect, and register any modifier.
 function fireEvent(room: Room, def: GameEventDef, opener: Player) {
@@ -610,18 +570,6 @@ function makeCtx(room: Room, opener: Player): EventCtx {
   };
 }
 
-function toEventView(room: Room, ev: ActiveEvent): EventView {
-  const def = EVENT_BY_ID[ev.defId];
-  return {
-    seq: ev.seq,
-    id: ev.defId,
-    emoji: def?.emoji ?? "🎲",
-    scope: def?.scope ?? "instant",
-    // A countdown is meaningful for anything that persists: it says how many turns
-    // of this round the rule still covers. Instants have nothing to count.
-    turnsLeft: def && def.scope !== "instant" ? ev.turnsLeft : undefined,
-  };
-}
 
 // --- event-aware rule queries ----------------------------------------------
 // Single source of truth, used by BOTH the engine (to validate) and lib/bot.ts
@@ -733,38 +681,9 @@ function legalTargetsFor(room: Room, p: Player): Record<string, string[]> {
 
 // --- deck helpers ---
 
-function drawOne(room: Room): Card | null {
-  if (room.deck.length === 0) {
-    if (room.discard.length === 0) return null;
-    room.deck = shuffle(room.discard);
-    room.discard = [];
-  }
-  return room.deck.pop() ?? null;
-}
 
-// Draw n cards into a hand, returning how many were actually dealt: the deck can
-// run dry mid-draw (drawOne returns null once the discard pile is empty too).
-// A player's character ability, as data. Absent character (or a character with no
-// declarative effect) reads as "no modifiers", so every checkpoint below can be
-// written without a null check.
-function charEffect(p: Player | null | undefined): CharacterEffect {
-  return p?.character?.effect ?? {};
-}
 
-function beersInHand(p: Player): number {
-  return p.hand.filter((c) => c.defId === "beer").length;
-}
 
-function drawInto(room: Room, hand: Card[], n: number): number {
-  let got = 0;
-  for (let i = 0; i < n; i++) {
-    const c = drawOne(room);
-    if (!c) break;
-    hand.push(c);
-    got++;
-  }
-  return got;
-}
 
 // --- distance & range ---
 
