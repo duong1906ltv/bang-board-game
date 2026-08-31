@@ -6,8 +6,10 @@
     "dev": "tsx watch server.ts",
     "build": "next build",
     "start": "NODE_ENV=production tsx server.ts",
-    "lint": "next lint",
-    "sim": "tsx scripts/sim-events.ts"
+    "lint": "next lint --dir app --dir components --dir lib --dir scripts --file server.ts",
+    "lint:fix": "next lint --fix --dir app --dir components --dir lib --dir scripts --file server.ts",
+    "sim": "tsx scripts/sim-events.ts",
+    "test": "node --import tsx --test 'lib/__tests__/**/*.test.ts'"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
@@ -25,6 +27,9 @@
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "@types/three": "^0.185.0",
+    "@typescript-eslint/eslint-plugin": "^8.68.0",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.35",
     "tsx": "4.16.2",
     "typescript": "5.5.3"
   }

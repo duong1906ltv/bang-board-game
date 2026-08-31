@@ -1,0 +1,7 @@
+node_modules/
+.next/
+public/
+plans/
+infra/
+next-env.d.ts
+*.tsbuildinfo
