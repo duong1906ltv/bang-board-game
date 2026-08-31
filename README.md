@@ -19,7 +19,7 @@ Mở http://localhost:3000. Để bạn bè cùng chơi trong LAN, họ vào
 npm test
 ```
 
-Test cho engine (`lib/game.ts`): hình học ghế, giải bài, Draw! check, vòng lượt và
+Test cho engine (`lib/game/`): hình học ghế, giải bài, Draw! check, vòng lượt và
 điều kiện thắng. Chạy bằng test runner sẵn có của Node, không thêm dependency.
 Engine xáo bài ngẫu nhiên nên test không đấu với shuffle — `lib/__tests__/helpers/table.ts`
 dựng ván rồi ghi đè thế bài cho xác định.
@@ -29,7 +29,8 @@ dựng ván rồi ghi đè thế bài cho xác định.
 | File | Vai trò |
 |---|---|
 | `server.ts` | Custom server: Next.js + Socket.IO transport |
-| `lib/game.ts` | Game engine in-memory (phòng, chia bài, lượt chơi) |
+| `lib/game/index.ts` | Game engine in-memory (phòng, chia bài, lượt chơi) |
+| `lib/game/state.ts` | Kiểu Player/Room, Map phòng, hàm nguyên thuỷ |
 | `lib/cards.ts` | Định nghĩa lá bài & hiệu ứng |
 | `lib/cardArt.ts` | Ánh xạ ảnh/mặt bài |
 | `lib/types.ts` | Types & sự kiện socket dùng chung client/server |
