@@ -333,6 +333,20 @@ export function YourAvatar({
       {plaque?.isTurn && <TurnMarker position={[x, markY(), z]} />}
       <FeltCards cards={you.equipment} ang={YOUR_SEAT_ANG} radius={ring * 0.92} onInspect={onInspect} color={color} />
       <FeltGun equipment={you.equipment} x={x} z={z} face={faceCentre(YOUR_SEAT_ANG)} models={models} />
+      {/* Quạt bài úp cho ghế của CHÍNH BẠN, cùng khung với mọi đối thủ: ở VÀNH NỈ (ring), không
+          phải ở ghế (seatR — chỗ đó nằm ngoài mặt nỉ), quay -ang - π/2.
+
+          Chỗ này từng cố ý để trống, với lý do ghi ở Seat bên dưới: bài thật của bạn đã nằm
+          trong HUD dưới canvas nên một bản thứ hai khác cỡ sẽ mâu thuẫn với nó. Lý lẽ đó đúng
+          khi xét riêng ghế bạn và sai khi xét cả bàn — bàn 7 ghế có 6 quạt và một ghế trống trơ
+          đọc như thể người đó không có bài. Bản úp này không mâu thuẫn với HUD: nó nói SỐ bài
+          cho người khác thấy, đúng việc quạt của họ đang làm cho bạn. */}
+      <group
+        position={[ring * Math.cos(YOUR_SEAT_ANG), 0, ring * Math.sin(YOUR_SEAT_ANG)]}
+        rotation={[0, -YOUR_SEAT_ANG - Math.PI / 2, 0]}
+      >
+        <FeltHand count={you.hand.length} />
+      </group>
       <Lean ang={YOUR_SEAT_ANG} seat={[x, z]} reaction={reaction}>
         <Avatar
           position={[x, 0, z]}
@@ -472,9 +486,10 @@ function Seat({
     <group>
       <group position={[x, 0, z]} rotation={[0, -ang - Math.PI / 2, 0]}>
         <OpponentSpot stealable={stealable} onSteal={onSteal} />
-        {/* Same frame as the ring, so the one lands round the other. Your own seat has
-            no fan of its own: your hand is the real thing in DOM under the canvas, and a
-            second, differently-sized copy of it out here would contradict it. */}
+        {/* Same frame as the ring, so the one lands round the other. Your own seat has one of
+            these too now (see YourAvatar). It used to be left out because your hand is already
+            the real thing in DOM under the canvas — true for your seat alone, false for the
+            table, where six fans and one bare seat read as "that player has no cards". */}
         {/* Quạt bài úp bám vào việc thân người có nắm tay hay không, KHÔNG bám vào cờ
             `models`. Hình khối không có nắm tay nên bài phải nằm trên nỉ; hồi trước hai
             chuyện đó trùng nhau nên một điều kiện là đủ, giờ thân đã tách khỏi `models`
