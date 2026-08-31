@@ -8,6 +8,7 @@ import * as game from "../../game";
 import type { Card, Suit } from "../../cards";
 import { CARD_DEF_BY_ID } from "../../cards";
 import { CHARACTERS, type Character } from "../../types";
+import { predictWindowMs } from "../../predictions";
 
 // Every character in CHARACTERS has an ability, and the draft deals two of them at
 // random. Left alone, a Bang! test would fail whenever somebody happened to draw
@@ -67,6 +68,10 @@ export function turnTo(room: game.Room, p: game.Player) {
   room.bangsThisTurn = 0;
   room.playsThisTurn = 0;
   room.playedDefsThisTurn = [];
+  // A turn opening also opens the prediction window — beginTurn does this in the engine, in
+  // the same block as the resets above. Without it every test that hands the turn over would
+  // inherit a shut window and silently refuse any guess it then tried to stake.
+  room.predictEndsAt = Date.now() + predictWindowMs(room.players.filter((x) => !x.alive).length);
 }
 
 export interface Table {

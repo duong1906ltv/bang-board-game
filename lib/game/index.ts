@@ -29,12 +29,13 @@ import {
   shuffle,
 } from "./state";
 import { beersInHand, charEffect, drawInto, drawOne } from "./deck";
-import { judgePredictions, predict, voidPredictionsFor } from "./predictions";
+import { cancelPrediction, judgePredictions, predict, voidPredictionsFor } from "./predictions";
 import { dealMissions, signalMissions } from "./missions";
 import type { MissionSignal } from "../missions";
+import { predictWindowMs } from "../predictions";
 import { activeEffect, eventsUnlocked, resetEventState, tickEvents } from "./events-read";
 import { barrelAttempts, distanceBetween, hasEquip, rangeOf } from "./geometry";
-import { bangBudget, canUseAs, handLimitOf, isExemptPlay, legalTargetIds, nextSeatId, playBlock, targetProblem } from "./rules";
+import { bangBudget, canUseAs, handLimitOf, isExemptPlay, legalTargetIds, playBlock, targetProblem } from "./rules";
 import {
   addBot,
   addPlayer,
@@ -59,7 +60,7 @@ export type { Player, Room };
 export { DRAFT_PER_PLAYER };
 export { activeEffect };
 export { distanceBetween, rangeOf };
-export { bangBudget, canUseAs, handLimitOf, nextSeatId, playBlock, targetProblem };
+export { bangBudget, canUseAs, handLimitOf, playBlock, targetProblem };
 export {
   addBot,
   addPlayer,
@@ -73,7 +74,7 @@ export {
   roleSetupFor,
 };
 export { buildView };
-export { predict };
+export { predict, cancelPrediction };
 
 
 export type { GameError, Result };
@@ -907,11 +908,6 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   room.bangsThisTurn += 1;
-  // Prediction: the shot is recorded where it was AIMED, after drunkAim has had its say.
-  // Whether the target then dodges is not the shooter's choice, and reading the choice is
-  // what a "who will they shoot" guess is about. Gatling/Indians never land here — they
-  // aim at nobody, which is why a turn spent on one reads as shooting nobody.
-  room.turnShotIds.push(target.id);
   const missedNeeded = Math.max(
     1,
     1 + (charEffect(current).missedNeededDelta ?? 0) + (eff.missedNeededDelta ?? 0)
@@ -990,7 +986,7 @@ export function endTurn(code: string, playerId: string): Result {
   // the whole hand for a ghost, so the check above never stood in the way of that.
   if (current.ghost) layGhostDown(room, current);
   // Before the hand-off: this turn is over, so anything staked on it can be judged.
-  // playsThisTurn and turnShotIds are both still intact here — beginTurn clears them.
+  // playsThisTurn is still intact here — beginTurn clears it.
   // Trước hand-off: beginTurn xoá playedDefsThisTurn và playsThisTurn, mà 6 nhiệm vụ đọc
   // chính chúng. Sau advanceToNextSeat thì cả hai đã sạch và 6 nhiệm vụ đó chết âm thầm.
   mission(room, {
@@ -1261,8 +1257,13 @@ function beginTurn(room: Room, resuming = false) {
     room.bangsThisTurn = 0;
     room.playsThisTurn = 0;
     room.playedDefsThisTurn = [];
-    room.turnShotIds = [];
     room.jailedTurn = false;
+    // The staking window for guesses about this turn (lib/predictions.ts). Set with the
+    // other turn-scoped resets rather than at the three places a turn actually opens,
+    // because this loop runs the block again for every seat it hands past — so the deadline
+    // always ends up belonging to whoever really plays, and a seat that gets skipped never
+    // leaves a live window behind. Shrinks as the table empties.
+    room.predictEndsAt = Date.now() + predictWindowMs(room.players.filter((p) => !p.alive).length);
 
     // --- This round's event: rolled as the round opens (the Sheriff's turn), before
     // any upkeep, so it also colours that turn's Dynamite/Jail Draw! checks. ---
@@ -1889,7 +1890,7 @@ export function restart(code: string): boolean {
   room.deck = [];
   room.discard = [];
   room.predictions = [];
-  room.turnShotIds = [];
+  room.predictEndsAt = 0;
   room.dealtMissionIds = [];
   room.missionFeed = [];
   room.players.forEach((p) => {

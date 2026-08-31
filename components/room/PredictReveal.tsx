@@ -1,16 +1,16 @@
 "use client";
 
 import type { PlayerView, PredictReveal as Reveal } from "@/lib/types";
-import { NO_SHOT, playsBucket } from "@/lib/predictions";
+import { playsBucket } from "@/lib/predictions";
 import { L, useLocale, playsBucketLabel } from "@/lib/i18n";
 
 // The verdict on the turn that just ended. Shown only to somebody who actually staked a
 // guess on it (see useTableFeedback) — the results are public information, but a modal at
 // everybody every turn would punish the players who chose not to join in.
 //
-// Deliberately NOT routed through the action log: six players staking two questions each
-// is up to twelve verdicts a turn, which would push every shot, death and event out of a
-// 40-entry log inside three turns. It rides its own field with its own seq instead.
+// Deliberately NOT routed through the action log: six verdicts a turn would push every
+// shot, death and event out of a 40-entry log inside a few turns. It rides its own field
+// with its own seq instead.
 export function PredictReveal({
   reveal,
   view,
@@ -24,13 +24,6 @@ export function PredictReveal({
   const name = (id: string) => view.players.find((p) => p.id === id)?.name ?? "?";
   const target = name(reveal.targetId);
   const voided = reveal.results.some((r) => r.voided);
-
-  const said = (kind: string, value: string) =>
-    kind === "plays"
-      ? playsBucketLabel(locale, value)
-      : value === NO_SHOT
-        ? L(locale, "không bắn ai", "nobody")
-        : name(value);
 
   const mine = reveal.results.filter((r) => r.byId === view.you.id);
   const net = voided ? 0 : mine.reduce((n, r) => n + (r.correct ? 1 : -1), 0);
@@ -79,19 +72,14 @@ export function PredictReveal({
             <div style={{ marginTop: 8, fontSize: "0.86rem", opacity: 0.8 }}>
               {L(locale, "Thực tế", "What happened")}:{" "}
               <strong style={{ color: "#8fe0a8" }}>
-                {reveal.outcome.shotIds.length === 0
-                  ? L(locale, "không bắn ai", "shot nobody")
-                  : L(locale, `bắn ${reveal.outcome.shotIds.map(name).join(", ")}`,
-                       `shot ${reveal.outcome.shotIds.map(name).join(", ")}`)}
-                {" · "}
-                {playsBucketLabel(locale, playsBucket(reveal.outcome.plays))}
+                {L(locale, "đánh", "played")} {playsBucketLabel(locale, playsBucket(reveal.outcome.plays))}
               </strong>
             </div>
 
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 5 }}>
               {reveal.results.map((r, i) => (
                 <div
-                  key={`${r.byId}-${r.kind}-${i}`}
+                  key={`${r.byId}-${i}`}
                   style={{
                     fontSize: "0.85rem",
                     fontWeight: r.byId === view.you.id ? 700 : 400,
@@ -101,8 +89,7 @@ export function PredictReveal({
                   <span style={{ color: r.correct ? "#8fe0a8" : "#ffb0b0" }}>{r.correct ? "✓" : "✗"}</span>{" "}
                   {r.byId === view.you.id ? L(locale, "Bạn", "You") : name(r.byId)}
                   {" — "}
-                  {r.kind === "shoot" ? L(locale, "bắn", "shoots") : L(locale, "đánh", "plays")}{" "}
-                  {said(r.kind, r.value)}
+                  {playsBucketLabel(locale, r.value)}
                 </div>
               ))}
             </div>

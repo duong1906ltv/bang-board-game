@@ -375,11 +375,13 @@ const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
   "card-already-used-this-turn": ["Đã dùng {s} trong lượt này", "Already played {s} this turn"],
   // turn prediction
   "bad-predict-target": ["Không đoán được người này", "You cannot predict this player"],
-  "already-predicted": ["Bạn đã đoán câu này rồi", "You already staked that question"],
+  "already-predicted": ["Bạn đã đoán lượt này rồi", "You already staked this turn"],
   "predict-needs-a-card": [
     "Cần ít nhất 1 lá trên tay để đoán (đoán sai thì mất 1 lá)",
     "You need a card in hand to stake a guess (a wrong guess costs one)",
   ],
+  "predict-window-closed": ["Hết giờ đoán lượt này", "The window for this turn has closed"],
+  "no-prediction-to-cancel": ["Bạn chưa đoán gì để huỷ", "You have nothing staked to take back"],
   "invalid-prediction": ["Dự đoán không hợp lệ", "Invalid prediction"],
 };
 
@@ -505,12 +507,13 @@ const PREDICT_BLOCK: Record<string, [string, string]> = {
   "no-seat": ["Bạn không ở bàn", "You are not seated"],
   "not-playing": ["Ván chưa chạy", "No game in progress"],
   "waiting-for-reaction": ["Đang chờ ai đó phản ứng", "Waiting on somebody's reaction"],
-  "bad-predict-target": ["Không đoán được lượt tới", "Nothing to predict on this turn"],
-  "already-predicted": ["Bạn đã đoán cả hai câu", "You staked both questions"],
+  "bad-predict-target": ["Không đoán được lượt này", "Nothing to predict on this turn"],
+  "already-predicted": ["Bạn đã đoán lượt này", "You already staked this turn"],
   "predict-needs-a-card": [
-    "Cần 1 lá trên tay cho mỗi câu (đoán sai mất 1 lá)",
-    "One card in hand per question (a miss costs one)",
+    "Cần ít nhất 1 lá trên tay (đoán sai mất 1 lá)",
+    "You need a card in hand (a miss costs one)",
   ],
+  "predict-window-closed": ["Hết giờ đoán lượt này", "The window for this turn has closed"],
   "invalid-prediction": ["Dự đoán không hợp lệ", "Invalid prediction"],
 };
 export const predictBlockText = (l: Locale, reason: string | null): string =>

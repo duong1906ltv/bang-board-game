@@ -55,6 +55,8 @@ export type ErrorCode =
   | "bad-predict-target"
   | "already-predicted"
   | "predict-needs-a-card"
+  | "predict-window-closed"
+  | "no-prediction-to-cancel"
   | "invalid-prediction";
 
 export interface GameError {

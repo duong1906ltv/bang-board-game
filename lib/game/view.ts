@@ -20,7 +20,7 @@ import { MISSION_BY_ID } from "../missions";
 import { charEffect } from "./deck";
 import { toEventView } from "./events-read";
 import { distanceBetween, rangeOf } from "./geometry";
-import { bangBudget, blockedDefIdsFor, canUseAs, handLimitOf, legalTargetsFor, nextSeatId, predictBlock } from "./rules";
+import { bangBudget, blockedDefIdsFor, canUseAs, handLimitOf, legalTargetsFor, predictBlock, predictMsLeft, predictSubjectId } from "./rules";
 import { mayStart, roleSetupFor } from "./rooms";
 import { Player, Room } from "./state";
 
@@ -268,7 +268,10 @@ export function buildView(room: Room, playerId: string): PlayerView {
     eventFeed: room.eventFeed.map((ev) => toEventView(room, ev)),
     missionsOn: room.missionsOn,
     missionFeed: room.missionFeed,
-    nextPlayerId: nextSeatId(room),
+    predictSubjectId: predictSubjectId(room),
+    // Milliseconds, not the deadline: the client counts down from this locally, so a browser
+    // clock a few seconds off the server's cannot render a window that has already shut.
+    predictMsLeft: predictMsLeft(room),
     predictFeed: room.predictFeed,
   };
 }

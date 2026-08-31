@@ -1,14 +1,14 @@
-// Turn prediction — the house layer that gives everyone something to read while it is
-// NOT their turn.
+// Turn prediction — the house layer that gives everyone something to do while it is NOT
+// their turn.
 //
-// While the current player takes their turn, everybody else may quietly stake a guess on
-// what the NEXT player will do: who they will shoot, and how many cards they will play.
-// When that turn ends, every guess about it is revealed at once and paid out. Guessing is
-// always optional and costs nothing to skip.
+// While somebody takes their turn, everybody else may quietly stake a guess on ONE thing:
+// how many cards that player will end up playing this turn (0 / 1 / 2 / 3+). The window to
+// stake is short and closes on a clock; the verdict lands when their turn ends, +1 card for
+// a hit and -1 for a miss. Guessing is always optional and costs nothing to skip.
 //
-// Design: this file is PURE. It holds the definitions, the constants that carry the odds,
-// and the adjudication — and it never touches a Room. The engine feeds it a TurnOutcome
-// and applies whatever `settle` returns through the deck primitives, which is what keeps a
+// Design: this file is PURE. It holds the definitions, the constants that carry the odds
+// and the pacing, and the adjudication — and it never touches a Room. The engine feeds it a
+// TurnOutcome and applies the verdict through the deck primitives, which is what keeps a
 // prediction from ever bending a rule, the same way lib/events.ts keeps an event honest.
 //
 // Import discipline: `import type` ONLY, from ./game/state. lib/i18n.ts is a client module
@@ -16,49 +16,102 @@
 // escapeReward — a value import from the engine would drag that into the browser bundle.
 // lib/events.ts follows the same rule for the same reason.
 //
-// There is deliberately NO per-game cap. The ±1 symmetry IS the cap: blind accuracy is
-// ~20-25%, so a blind guess is worth 0.25*(+1) + 0.75*(-1) = -0.5 cards. Whoever stakes
-// every single turn bleeds cards; only somebody selective — staking on the reads that are
-// actually clear — comes out ahead. A cap would have taxed the careful player and the
-// reckless one alike, and it would have needed a counter plus refund bookkeeping on every
-// path that voids a prediction.
+// ─── Why ONE question, and why it is this one ─────────────────────────────────
+//
+// There used to be a second question, "who will they shoot". Measured over 14,118 real
+// turns (7 seats, events on), the two questions have very different shapes:
+//
+//   who will they shoot   nobody 41.2%  ·  any one named person 13.3% (avg, ~4.4 alive)
+//   how many cards        0: 21.6%   1: 41.9%   2: 22.5%   3+: 14.0%
+//
+// At a flat ±1 the break-even is 50%. So "shoot" had exactly one answer worth clicking
+// (nobody, 41.2%) and four-to-six answers worth -0.73 cards each — five of its seven
+// buttons were traps, and the rational line was to always click the same one, at which
+// point it stopped being a question. "How many cards" tops out at 41.9% for the laziest
+// possible strategy, close enough to 50% that actually reading the table (hand size, gun in
+// front of them, whether they must dump before the hand limit) is what decides it. That is
+// the whole reason a betting question exists.
+//
+// ─── Why the CURRENT player, and why there is a clock ─────────────────────────
+//
+// The subject is the player whose turn is running RIGHT NOW, so a stake is something you do
+// during somebody else's turn rather than during your own. That is the better seat for it —
+// you are watching the thing you bet on — and it is the shape the game was asked for.
+//
+// It costs something real, and the number is worth writing down. Betting on a turn already
+// in progress means waiting is informative:
+//
+//   stake before they play anything   best answer 41.9%   4 buckets live
+//   stake after 1 card played         best answer 53.5%   3 buckets live   ← past break-even
+//   stake after 2 cards played        best answer 61.7%   2 buckets live
+//   stake after 3 cards played        best answer 100.0%  1 bucket  live   ← free money
+//
+// The window is the countermeasure: PREDICT_WINDOW_MS from the moment the turn opens, and
+// nothing may be staked after it. It does NOT fully close the hole — a bot finishes a whole
+// turn inside 15 seconds, so on a bot's turn a patient player can still watch two cards go
+// down and then bet. That is a known, accepted trade: the alternative was a window short
+// enough (under a second) that nobody could ever use the feature at all. Against a human
+// who is thinking, 15 seconds really is early in their turn.
+//
+// The window SHRINKS as the game does — PREDICT_WINDOW_PER_DEATH_MS off for every player
+// already dead — so the late game, when turns are fast and the reads are sharp, gives less
+// time to sit on the decision.
+//
+// It is a TIMESTAMP, never a timer. Nothing in this engine uses setTimeout, on purpose: the
+// server only schedules the next bot action when the previous one succeeded, so anything
+// waiting on a callback that has not fired is how a table freezes permanently (see
+// scripts/sim-events.ts, which exists for that one bug class). A deadline that is only ever
+// compared needs nobody to fire it.
+//
+// There is deliberately NO per-game cap. The ±1 symmetry IS the cap: the best blind
+// strategy is 41.9%, so staking every single turn bleeds cards, and only somebody selective
+// comes out ahead. A cap would have taxed the careful player and the reckless one alike.
 
 import type { ErrorCode } from "./errors";
 import type { Player } from "./game/state";
 
-// What can be predicted. Two kinds on purpose: one reads the table socially (who is the
-// threat), one reads resources (how big is that hand). A third would not add an axis.
-export type PredictionKind = "shoot" | "plays";
-
 export const PLAYS_BUCKETS = ["0", "1", "2", "3+"] as const;
 
-// The `shoot` value meaning "they will not shoot anybody at all".
-export const NO_SHOT = "none";
+export const REWARD_CARDS = 1; // a hit pays this many
+export const PENALTY_CARDS = 1; // a miss costs this many
 
-export const REWARD_CARDS = 1; // per correct question
-export const PENALTY_CARDS = 1; // per wrong question
+// How long the staking window stays open, measured from the moment a turn opens.
+export const PREDICT_WINDOW_MS = 15_000;
+// Taken off the window for every player already dead, so the late game decides faster.
+export const PREDICT_WINDOW_PER_DEATH_MS = 2_000;
+// A floor, because the subtraction above would otherwise reach zero on a long game and
+// retire the feature without ever saying so. Three seconds is enough to open the panel and
+// press one bucket you had already decided on.
+export const PREDICT_WINDOW_MIN_MS = 3_000;
+
+export function predictWindowMs(deadCount: number): number {
+  return Math.max(
+    PREDICT_WINDOW_MIN_MS,
+    PREDICT_WINDOW_MS - PREDICT_WINDOW_PER_DEATH_MS * deadCount
+  );
+}
 
 // One staked guess. Stores IDs, never seat indices: disconnect and removeBot splice
-// players[], and every index after the gap shifts down one — an index would quietly
-// start pointing at somebody else.
+// players[], and every index after the gap shifts down one — an index would quietly start
+// pointing at somebody else.
+//
+// At most one of these per (staker, subject): the single question IS the whole stake, which
+// is why judging never has to group or sum anything.
 export interface Prediction {
   byId: string; // who staked it
   targetId: string; // whose turn it is about
-  kind: PredictionKind;
-  value: string; // shoot: a player id or NO_SHOT · plays: a PLAYS_BUCKETS entry
+  value: string; // a PLAYS_BUCKETS entry
 }
 
 // What the engine accumulated during the predicted turn, handed over to be judged.
 export interface TurnOutcome {
-  shotIds: string[]; // everyone a Bang! of theirs was aimed at, in order
   plays: number; // room.playsThisTurn as the turn ended
 }
 
-// One judged prediction, for the reveal. `voided` means the turn never happened the way
-// it needed to (they left, the ghost flip failed, the game ended) — neither paid nor punished.
+// One judged prediction, for the reveal. `voided` means the turn never resolved (they left,
+// they died holding it, the game ended) — neither paid nor punished.
 export interface PredictionResult {
   byId: string;
-  kind: PredictionKind;
   value: string;
   correct: boolean;
   voided?: boolean;
@@ -72,60 +125,40 @@ export function playsBucket(n: number): string {
 }
 
 export function isCorrect(p: Prediction, o: TurnOutcome): boolean {
-  if (p.kind === "plays") return playsBucket(o.plays) === p.value;
-  // `includes`, not shotIds[0]: Willy the Kid and a Volcanic both fire more than once in a
-  // turn, and naming ANY of the people who got shot is a correct read.
-  if (p.value === NO_SHOT) return o.shotIds.length === 0;
-  return o.shotIds.includes(p.value);
-}
-
-// Net cards for ONE predictor over their guesses about a single turn: +1 per hit, -1 per
-// miss. Two hits pay 2, a hit and a miss cancel to 0, two misses cost 2.
-export function settle(preds: Prediction[], o: TurnOutcome): number {
-  let net = 0;
-  for (const p of preds) net += isCorrect(p, o) ? REWARD_CARDS : -PENALTY_CARDS;
-  return net;
-}
-
-function validValue(kind: PredictionKind, value: string, alivePlayerIds: string[]): boolean {
-  if (kind === "plays") return (PLAYS_BUCKETS as readonly string[]).includes(value);
-  return value === NO_SHOT || alivePlayerIds.includes(value);
+  return playsBucket(o.plays) === p.value;
 }
 
 // Why this guess may not be staked, or null if it may. Covers only what belongs to the
-// prediction rules; the engine checks what belongs to the Room (phase, pending, whose turn).
+// prediction rules; the engine checks what belongs to the Room (phase, pending, whose turn
+// it is, whether the window is still open).
 export function predictionProblem(args: {
   by: Player;
-  target: Player;
-  kind: PredictionKind;
+  subject: Player;
   // Omitted when the caller is only asking "may I stake anything at all right now" rather
   // than offering a value — which is what predictBlock does to drive the panel. It used to
-  // pass a placeholder instead, and the placeholder was silently invalid for `shoot`
-  // (whose values are NO_SHOT or a living player id), so the panel greyed every button out
-  // on a turn the engine would have accepted.
+  // pass a placeholder instead, and the placeholder was silently invalid, so the panel
+  // greyed every button out on a turn the engine would have accepted.
   value?: string;
-  alivePlayerIds: string[];
-  locked: Prediction[]; // what `by` has already staked on this same target
+  locked: Prediction[]; // what `by` has already staked on this same subject
 }): ErrorCode | null {
-  const { by, target, kind, value, alivePlayerIds, locked } = args;
-  // You always know what you are about to do, so predicting yourself is not a read.
+  const { by, subject, value, locked } = args;
+  // You always know what you are about to do, so predicting yourself is not a read. This is
+  // also what makes the feature something you do on OTHER people's turns.
   //
-  // A BOT may be predicted, deliberately. Its strategy is a published algorithm — shoot the
-  // nearest enemy in range — so reading one runs maybe 60-70% against ~21% on a person, and
-  // whoever sits directly before a bot therefore earns more than the other seats. That is a
-  // real unfairness, and it is still the better trade: the rule that forbade it made the
-  // whole feature UNREACHABLE at the tables people actually sit at. One human plus bots is
-  // 0 legal predictions out of 8 turns — the next seat is either a bot or you — and bots
-  // fill empty seats in ordinary games too. A table padded with bots is already the bigger
-  // distortion; a table of nothing but bots is a practice table where farming yourself
-  // means nothing.
-  if (by.id === target.id || !target.alive) return "bad-predict-target";
+  // A BOT may be predicted, deliberately. Its strategy is a published algorithm, so reading
+  // one is easier than reading a person, and whoever watches a bot therefore earns more.
+  // That is a real unfairness, and it is still the better trade: the rule that forbade it
+  // made the whole feature UNREACHABLE at the tables people actually sit at — one human plus
+  // three bots was 0 legal predictions out of 8 turns.
+  if (by.id === subject.id || !subject.alive) return "bad-predict-target";
   if (!by.alive || by.ghost) return "bad-predict-target";
-  if (locked.some((p) => p.kind === kind)) return "already-predicted";
-  // Stake as many questions as you can pay for if every one of them misses. Without this,
-  // an empty-handed player predicts both questions every turn at pure profit — a miss takes
-  // a card they do not have — and refills for free at exactly their weakest moment.
-  if (by.hand.length <= locked.length) return "predict-needs-a-card";
-  if (value !== undefined && !validValue(kind, value, alivePlayerIds)) return "invalid-prediction";
+  if (locked.length > 0) return "already-predicted";
+  // You must be able to pay for a miss. Without this, an empty-handed player stakes every
+  // turn at pure profit — a miss takes a card they do not have — and refills for free at
+  // exactly their weakest moment.
+  if (by.hand.length < PENALTY_CARDS) return "predict-needs-a-card";
+  if (value !== undefined && !(PLAYS_BUCKETS as readonly string[]).includes(value)) {
+    return "invalid-prediction";
+  }
   return null;
 }

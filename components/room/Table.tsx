@@ -15,7 +15,6 @@ import { HandCard } from "./HandCard";
 import { DrawControls } from "./DrawControls";
 import { EventBanner } from "./EventBanner";
 import { EventChips } from "./EventChips";
-import type { PredictionKind } from "@/lib/predictions";
 import { PredictPanel } from "./PredictPanel";
 import { PredictReveal } from "./PredictReveal";
 import { MissionChip } from "./MissionChip";
@@ -41,6 +40,7 @@ export function Table({
   onPlayAgain,
   onChoose,
   onPredict,
+  onCancelPredict,
 }: {
   view: PlayerView;
   onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
@@ -52,7 +52,8 @@ export function Table({
   onRestart: () => void;
   onPlayAgain: () => void;
   onChoose: (cardId: string) => void;
-  onPredict: (targetId: string, kind: PredictionKind, value: string) => void;
+  onPredict: (subjectId: string, value: string) => void;
+  onCancelPredict: (subjectId: string) => void;
 }) {
   const locale = useLocale();
   const you = view.you;
@@ -491,10 +492,7 @@ export function Table({
 
         <EventChips events={view.events} />
         <MissionChip view={view} />
-        <PredictPanel
-          view={view}
-          onPredict={onPredict}
-        />
+        <PredictPanel view={view} onPredict={onPredict} onCancelPredict={onCancelPredict} />
       </div>
 
       <LogPanel log={view.log} inbox={you.inbox} youName={you.name} onInspect={setInfoCard} />

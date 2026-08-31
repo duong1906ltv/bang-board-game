@@ -171,13 +171,13 @@ export interface MissionReveal {
 
 // ─── Turn prediction ─────────────────────────────────────────────────────────
 
-import type { Prediction, PredictionKind, PredictionResult, TurnOutcome } from "./predictions";
-export type { Prediction, PredictionKind, PredictionResult };
+import type { Prediction, PredictionResult, TurnOutcome } from "./predictions";
+export type { Prediction, PredictionResult };
 
 // The judged predictions for the turn that just ended. Carried on its own field rather
-// than in `log`: six players staking two questions each would flood a 40-entry log within
-// a few turns. `seq` is monotonic so a client can tell a NEW reveal from a re-render —
-// the same trick `eventFeed` uses.
+// than in `log`: six players staking a guess each would flood a 40-entry log within a few
+// turns. `seq` is monotonic so a client can tell a NEW reveal from a re-render — the same
+// trick `eventFeed` uses.
 export interface PredictReveal {
   seq: number;
   targetId: string; // whose turn was just judged
@@ -287,7 +287,7 @@ export interface PlayerView {
     inbox: LogEntry[]; // what others did to you since your turn last ended
     wins: number; // your cumulative wins in this room
     rewardUrl: string | null; // escape reward, present only once you hit the threshold
-    // Guesses YOU have staked on the upcoming turn. Never anybody else's — that is the
+    // Guesses YOU have staked on the turn now running. Never anybody else's — that is the
     // whole point of staking them quietly.
     myPredictions: Prediction[];
     // Nhiệm vụ của bạn, hoặc null khi tắt toggle / là bot / chưa chia.
@@ -311,7 +311,11 @@ export interface PlayerView {
   eventFeed: EventView[]; // recently fired events, oldest first — announce any `seq` you haven't shown
   missionsOn: boolean; // luật phòng: có chia nhiệm vụ phụ hay không
   missionFeed: MissionReveal[]; // nhiệm vụ vừa xong, cũ trước — hiện mọi `seq` chưa thấy
-  nextPlayerId: string | null; // the seat predictions are open on
+  predictSubjectId: string | null; // whose turn guesses are open on — the seat playing NOW
+  // Milliseconds left to stake on the running turn, 0 when shut. Sent as a duration rather
+  // than a deadline so a client clock that disagrees with the server's cannot render a
+  // window that is already closed; the client counts down locally between views.
+  predictMsLeft: number;
   // Rolling feed of verdicts, oldest first. A single action can produce more than one — a
   // turn is judged and then the seat after it is skipped and voided — so a lone "latest
   // reveal" field would silently drop the judged one, which is the one that moved cards.
@@ -402,8 +406,12 @@ export interface ClientToServerEvents {
   choose: (data: { code: string; cardId: string }) => void; // pick a card (General Store)
   discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;
-  // Stake a guess on what the NEXT player will do. Silent until their turn ends.
-  predict: (data: { code: string; targetId: string; kind: PredictionKind; value: string }) => void;
+  // Stake a guess on how many cards the player now taking their turn will play. Silent
+  // until their turn ends.
+  predict: (data: { code: string; targetId: string; value: string }) => void;
+  // Take that guess back. Legal only while the staking window is still open, which is what
+  // makes the panel's confirm button safe to press.
+  cancelPredict: (data: { code: string; targetId: string }) => void;
   surrender: (data: { code: string }) => void; // concede: remove yourself from the game
   restart: (data: { code: string }) => void; // back to lobby
   playAgain: (data: { code: string }) => void; // restart + immediately deal a new game

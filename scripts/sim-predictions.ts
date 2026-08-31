@@ -12,7 +12,9 @@
 // The bots guess at RANDOM on purpose. That makes the accuracy figure a measurement of the
 // blind rate, and the net-cards figure a check on the calibration: if guessing blind is
 // PROFITABLE, then "±1, break-even at 50%, blind rate ~25%" is wrong somewhere and the
-// whole no-cap argument collapses. lib/bot.ts is deliberately not touched — a bot that
+// whole no-cap argument collapses. Uniform over four buckets, so ~25% is the number to
+// expect — a player who always picks the commonest bucket does better (41.9%) and a player
+// who reads the table is meant to do better still. lib/bot.ts is deliberately not touched — a bot that
 // understood predictions would stop measuring the blind rate.
 //
 //   npm run sim:predict              # 200 games, 7 players
@@ -20,7 +22,7 @@
 
 import * as game from "../lib/game";
 import * as bot from "../lib/bot";
-import { NO_SHOT, PLAYS_BUCKETS, type PredictionKind } from "../lib/predictions";
+import { PLAYS_BUCKETS } from "../lib/predictions";
 
 const GAMES = Number(process.argv[2] || 200);
 const PLAYERS = Number(process.argv[3] || 7);
@@ -70,23 +72,18 @@ function setupRoom(): string {
 // engine refuses most of these (wrong seat, no cards, already staked) and a refusal must
 // never stall anything — which is half of what this harness is checking.
 function stakeRandomGuesses(room: game.Room, code: string, stats: Stats) {
-  const nextId = game.nextSeatId(room);
-  const target = room.players.find((p) => p.id === nextId);
-  if (!target) return;
-  const alive = room.players.filter((p) => p.alive);
+  // Whoever is playing right now — read off the view, so the harness asks the same question
+  // the panel does rather than a lifted copy of it.
+  const subjectId = game.buildView(room, room.players[0].id).predictSubjectId;
+  const subject = room.players.find((p) => p.id === subjectId);
+  if (!subject) return;
 
   // No isBot juggling needed: the engine allows predicting a bot, so this harness exercises
   // exactly the rule a person plays under rather than a lifted version of it.
-  for (const p of alive) {
-    if (p.id === target.id || Math.random() > STAKE_CHANCE) continue;
-    const kind: PredictionKind = Math.random() < 0.5 ? "shoot" : "plays";
-    const value =
-      kind === "plays"
-        ? PLAYS_BUCKETS[Math.floor(Math.random() * PLAYS_BUCKETS.length)]
-        : Math.random() < 0.25
-          ? NO_SHOT
-          : alive[Math.floor(Math.random() * alive.length)].id;
-    if (game.predict(code, p.id, nextId!, kind, value).ok) stats.staked++;
+  for (const p of room.players.filter((x) => x.alive)) {
+    if (p.id === subject.id || Math.random() > STAKE_CHANCE) continue;
+    const value = PLAYS_BUCKETS[Math.floor(Math.random() * PLAYS_BUCKETS.length)];
+    if (game.predict(code, p.id, subject.id, value).ok) stats.staked++;
   }
 }
 
@@ -100,9 +97,9 @@ function auditViews(room: game.Room, stats: Stats) {
     const others = room.predictions.filter((p) => p.byId !== viewer.id);
     const blob = JSON.stringify({ players: v.players, log: v.log });
     for (const p of others) {
-      // A stake is only ever identifiable by the pairing of its kind and value; a bare id
-      // shows up all over a view legitimately, so match the pair.
-      if (blob.includes(`"kind":"${p.kind}","value":"${p.value}"`)) stats.viewLeak++;
+      // Matched on the serialised field, not the bare value: "2" shows up all over a view
+      // legitimately (ranks, counts), so only the shape a Prediction serialises to counts.
+      if (blob.includes(`"value":"${p.value}"`)) stats.viewLeak++;
     }
   }
 }
@@ -122,7 +119,9 @@ function runGame(stats: Stats): "done" | "frozen" | "cap" {
     }
     game.refillEmptyHands(room);
 
-    // A fresh turn opened: everybody gets one chance to stake on the seat after it.
+    // A fresh turn opened: everybody gets one chance to stake on the seat now playing. The
+    // window is wall-clock and the harness runs a whole game in milliseconds, so it never
+    // expires here — which is exactly what makes this a test of the rules and not the clock.
     if (room.turnCounter !== lastTurn) {
       lastTurn = room.turnCounter;
       stakeRandomGuesses(room, code, stats);
@@ -159,7 +158,7 @@ function report(code: string, room: game.Room, why: string) {
   console.error(`\n❌ ${why} in room ${code} · turns=${room.turnCounter}`);
   console.error(`   phase=${room.phase} turnPhase=${room.turnPhase} turn=${cur?.name}`);
   console.error(`   pending=${room.pending ? room.pending.kind : "none"} deck=${room.deck.length} discard=${room.discard.length}`);
-  console.error(`   nextSeat=${game.nextSeatId(room)} outstanding=${room.predictions.length}`);
+  console.error(`   subject=${room.players[room.turnIndex]?.name} outstanding=${room.predictions.length}`);
   console.error(`   predictions=${JSON.stringify(room.predictions)}`);
   console.error(`   alive=${room.players.filter((p) => p.alive).length}/${room.players.length}`);
   console.error(`   log tail:\n${room.log.slice(-8).map((e) => `     ${e.kind} ${e.a ?? ""} ${e.card ?? ""}`).join("\n")}`);

@@ -130,13 +130,15 @@ export interface Room {
   usedEventIds: string[]; // every event already seen this game — drawn from like a deck
 
   // --- turn prediction (see lib/predictions.ts) ---
-  // Guesses staked but not yet judged. Always about the seat that plays NEXT, so at most
+  // Guesses staked but not yet judged. Always about the seat playing RIGHT NOW, so at most
   // one turn's worth is ever outstanding.
   predictions: Prediction[];
-  // Everyone the active player has aimed a Bang! at this turn, in order. Accumulated here
-  // rather than read back out of `log`, because a log entry carries a NAME (`a`) and two
-  // players may share one — the guess would then be judged against the wrong person.
-  turnShotIds: string[];
+  // When the staking window for the running turn closes, as an epoch ms. A TIMESTAMP, never
+  // a timer: nothing in this engine uses setTimeout, because the bot scheduler only queues
+  // the next action after the previous one succeeded and a callback that never fires is how
+  // a table freezes for good. A deadline that is only ever compared needs nobody to fire it.
+  // Set in beginTurn alongside the other turn-scoped resets; 0 outside a live turn.
+  predictEndsAt: number;
   predictFeed: PredictReveal[]; // verdicts not yet shown, oldest first (see PlayerView.predictFeed)
 
   // --- nhiệm vụ phụ ---

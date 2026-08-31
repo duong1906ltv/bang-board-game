@@ -11,7 +11,7 @@ import { GameError } from "../errors";
 import { activeEffect } from "./events-read";
 import { charEffect } from "./deck";
 import { distanceBetween, hasEquip, rangeOf } from "./geometry";
-import { predictionProblem, type PredictionKind } from "../predictions";
+import { predictionProblem } from "../predictions";
 import { Player, Room } from "./state";
 
 // Cards whose whole point is restoring life — suppressed together by `noHeal`.
@@ -179,41 +179,42 @@ export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
 
 // --- turn prediction (lib/predictions.ts) ---
 
-// The seat that plays after this one — the only seat predictions are ever open on.
-// Reads turnDir off the same expression advanceToNextSeat uses, and deliberately does
-// NOT skip the dead: every seat comes around every round under the ghost-turn house rule.
+// Whose turn a guess is about: the seat playing RIGHT NOW. One line, but it is the whole
+// difference between this and the old design (which was open on the NEXT seat), so it is
+// named rather than inlined at its three call sites.
 //
 // Lives here rather than in the core because view.ts needs it and view.ts may not import
 // the core — that is the arrow the module split exists to prevent.
-export function nextSeatId(room: Room): string | null {
-  const n = room.players.length;
-  if (n === 0 || room.phase !== "playing") return null;
-  return room.players[(room.turnIndex + room.turnDir + n * n) % n]?.id ?? null;
+export function predictSubjectId(room: Room): string | null {
+  if (room.phase !== "playing") return null;
+  return room.players[room.turnIndex]?.id ?? null;
 }
 
-// Why `me` may not stake any guess right now, or null if they may. Answered server-side
-// for the same reason legalTargets is: the client used to re-derive a rule and got it
-// wrong, so it no longer derives any of them.
+// Milliseconds left on the staking window, floored at 0. Sent in the view rather than the
+// deadline itself: the client counts down locally from whatever the last view said, so a
+// clock that disagrees with the server's by a few seconds cannot show a window that is
+// already shut — and the server stays the only judge of whether a stake lands.
+export function predictMsLeft(room: Room): number {
+  if (room.phase !== "playing" || room.predictEndsAt === 0) return 0;
+  return Math.max(0, room.predictEndsAt - Date.now());
+}
+
+// Why `me` may not stake a guess right now, or null if they may. Answered server-side for
+// the same reason legalTargets is: the client used to re-derive a rule and got it wrong, so
+// it no longer derives any of them.
 export function predictBlock(room: Room, me: Player | undefined): string | null {
   if (!me) return "no-seat";
   if (room.phase !== "playing") return "not-playing";
   if (room.pending) return "waiting-for-reaction";
-  const nextId = nextSeatId(room);
-  const target = room.players.find((p) => p.id === nextId);
-  if (!target) return "bad-predict-target";
-  const locked = room.predictions.filter((p) => p.byId === me.id && p.targetId === target.id);
-  const kinds: PredictionKind[] = ["shoot", "plays"];
-  const open = kinds.filter((k) => !locked.some((p) => p.kind === k));
-  if (open.length === 0) return "already-predicted";
-  // No `value`: this asks whether ANY stake is possible, not whether one particular value
-  // is legal. Passing a placeholder was the bug — no single string is valid for both kinds,
-  // so the probe failed validation and the panel greyed out on turns the engine allowed.
-  const problem = predictionProblem({
-    by: me,
-    target,
-    kind: open[0],
-    alivePlayerIds: room.players.filter((p) => p.alive).map((p) => p.id),
-    locked,
-  });
-  return problem ?? null;
+  const subject = room.players.find((p) => p.id === predictSubjectId(room));
+  if (!subject) return "bad-predict-target";
+  // Checked here as well as in predict(), not instead of it: this drives the panel and
+  // predict() is the authority. Both read the same clock, so a window that shut while the
+  // panel sat open greys it out on the next view instead of failing at the press.
+  if (predictMsLeft(room) <= 0) return "predict-window-closed";
+  const locked = room.predictions.filter((p) => p.byId === me.id && p.targetId === subject.id);
+  // No `value`: this asks whether ANY stake is possible, not whether one particular value is
+  // legal. Passing a placeholder was the bug that greyed the panel out on every turn the
+  // engine would have accepted.
+  return predictionProblem({ by: me, subject, locked }) ?? null;
 }

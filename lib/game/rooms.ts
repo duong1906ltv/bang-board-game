@@ -105,7 +105,7 @@ export function createRoom(
     turnDir: 1,
     turnDirRestore: null,
     predictions: [],
-    turnShotIds: [],
+    predictEndsAt: 0,
     predictFeed: [],
     missionsOn: true,
     dealtMissionIds: [],

@@ -295,12 +295,19 @@ app.prepare().then(() => {
       applyResult(code, game.playCard(code, pid, cardId, targetId, targetCardId));
     });
 
-    // Stake a guess on the next player's turn. Silent to everyone else until that turn
-    // ends — the engine keeps it out of the view of anybody but the staker.
-    socket.on("predict", ({ code, targetId, kind, value }) => {
+    // Stake a guess on the running turn. Silent to everyone else until that turn ends —
+    // the engine keeps it out of the view of anybody but the staker.
+    socket.on("predict", ({ code, targetId, value }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      applyResult(code, game.predict(code, pid, targetId, kind, value));
+      applyResult(code, game.predict(code, pid, targetId, value));
+    });
+
+    // Take it back, while the staking window is still open.
+    socket.on("cancelPredict", ({ code, targetId }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (!pid) return;
+      applyResult(code, game.cancelPrediction(code, pid, targetId));
     });
 
     socket.on("respond", ({ code, type, cardId }) => {

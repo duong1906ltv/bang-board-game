@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity, loadLook } from "@/lib/socketClient";
 import { PlayerView, type EventLevel } from "@/lib/types";
-import type { PredictionKind } from "@/lib/predictions";
 import TurnAlert from "@/components/TurnAlert";
 import { L, useLocale, initLocale, tError } from "@/lib/i18n";
 import { LangToggle } from "@/components/LangToggle";
@@ -91,8 +90,9 @@ export default function RoomPage() {
     socket.emit("respond", { code, type, cardId });
   const choose = (cardId: string) => socket.emit("choose", { code, cardId });
   const setMissionsOn = (on: boolean) => socket.emit("setMissionsOn", { code, on });
-  const predict = (targetId: string, kind: PredictionKind, value: string) =>
-    socket.emit("predict", { code, targetId, kind, value });
+  const predict = (targetId: string, value: string) =>
+    socket.emit("predict", { code, targetId, value });
+  const cancelPredict = (targetId: string) => socket.emit("cancelPredict", { code, targetId });
   const discard = (cardId: string) => socket.emit("discardCard", { code, cardId });
   const endTurn = () => socket.emit("endTurn", { code });
   const surrender = () => socket.emit("surrender", { code });
@@ -122,7 +122,7 @@ export default function RoomPage() {
       )}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} onPredict={predict} />
+        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} onPredict={predict} onCancelPredict={cancelPredict} />
       )}
 
       {view.pending &&
