@@ -54,19 +54,24 @@ function Prop({ name, tall, x, z, on, spin = 0 }: { name: PropName; tall: number
 // with the player count, and a bottle left at a fixed radius would sit on the rim of a
 // two-player table and halfway to the middle of a seven-player one.
 //
-// The band it may use is narrow and both edges are real. Inside 0.84 are the draw and
-// discard piles; outside 0.92 of the inner ring is the row of cards each player has in
-// play, and past that the gun waiting by their right hand. The cluster sits between
-// them, off to one side of the near edge so it is not centred in front of anybody.
+// The band it may use is narrow and both edges are real. Inside are the draw and discard
+// piles; outside is the row of cards each player has in play — at equipRadius(ring), see
+// geometry.ts — and past that the gun waiting by their right hand. The cluster sits
+// between them, off to one side of the near edge so it is not centred in front of anybody.
+//
+// The outer edge moved IN when that row did (it used to sit at 0.92 of the ring and lay
+// over the face-down fan), so the cluster came in with it — every fraction here is the
+// old one times 0.9. Measured against a full five-card row at every seat: the nearest
+// approach is 0.09 at seven players and 0.16 at four, against 0.19-0.35 to the piles.
 export function DecorInner({ felt, models }: { felt: number; models?: boolean }) {
   return (
     <ModelSlot enabled={models} fallback={null}>
       {/* On the table. A bottle and its glasses read as a game in progress; a second
           bottle across the felt keeps the near edge from being the only dressed part. */}
-      <Prop name="bottleGreen" tall={0.3} x={felt * 0.3} z={felt * 0.42} on={FELT_Y} spin={0.6} />
-      <Prop name="shotGlass" tall={0.075} x={felt * 0.21} z={felt * 0.5} on={FELT_Y} />
-      <Prop name="shotGlass" tall={0.075} x={felt * 0.38} z={felt * 0.51} on={FELT_Y} spin={1.2} />
-      <Prop name="bottleRed" tall={0.31} x={-felt * 0.44} z={-felt * 0.16} on={FELT_Y} spin={-1.1} />
+      <Prop name="bottleGreen" tall={0.3} x={felt * 0.27} z={felt * 0.38} on={FELT_Y} spin={0.6} />
+      <Prop name="shotGlass" tall={0.075} x={felt * 0.19} z={felt * 0.45} on={FELT_Y} />
+      <Prop name="shotGlass" tall={0.075} x={felt * 0.34} z={felt * 0.46} on={FELT_Y} spin={1.2} />
+      <Prop name="bottleRed" tall={0.31} x={-felt * 0.4} z={-felt * 0.14} on={FELT_Y} spin={-1.1} />
 
       {/* Bottles on the bar's back shelf. The shelving is built in Saloon.tsx out of
           boxes; these are the same two models already standing on the table, so a stocked

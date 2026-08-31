@@ -67,6 +67,15 @@ export const discardTop = () => new THREE.Vector3(DISCARD_X, FELT_Y + CARD_LIFT 
 export const SEAT_GAP = 0.45; // seats sit this far out past the felt rim
 export const YOUR_SEAT_ANG = Math.PI / 2; // you are always on the near edge (+z), facing -z
 
+// Hàng bài trang bị lùi vào trong vành ghế một đoạn CỐ ĐỊNH, không phải một tỉ lệ của nó.
+// Đoạn cần lùi là nửa lá trang bị (0.202) + nửa quạt bài úp (0.220) − 0.10 mà quạt vốn đã
+// nhô ra ngoài ring = 0.322, và nó không đổi theo số người vì cả ba số hạng đều là kích
+// thước lá bài. Tỉ lệ 0.92 cũ thì đổi: nó chừa ra 0.92·ring, hụt 0.148 ở bàn 7 người và
+// 0.179 ở bàn 4 người — quạt đè lên bài trang bị ở mọi cỡ bàn, nặng nhất đúng ở bàn nhỏ
+// nhất. Lùi 0.34 thì hở 0.018 ở cả 4→7 người.
+export const EQUIP_SETBACK = 0.34;
+export const equipRadius = (ring: number) => ring - EQUIP_SETBACK;
+
 // Angle of opponent `i` of `count`, spread across the far arc — the far side first,
 // widening symmetrically. Mirrors the order Opponents draws them in.
 export function seatAngle(i: number, count: number, arc: number): number {
