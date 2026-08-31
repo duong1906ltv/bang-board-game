@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSocket, saveIdentity, saveName, loadName, loadSeats, saveLook, loadLook } from "@/lib/socketClient";
-import type { Look } from "@/lib/types";
-import { L, useLocale, initLocale, setLocale, getLocale, tError } from "@/lib/i18n";
+import type { Look, LobbySummary, MySeat } from "@/lib/types";
+import { L, useLocale, initLocale, getLocale, tError } from "@/lib/i18n";
 import type { GameError } from "@/lib/errors";
 import { LangToggle } from "@/components/LangToggle";
+import { RoomList } from "@/components/RoomList";
 
 export default function Home() {
   const router = useRouter();
@@ -16,8 +17,10 @@ export default function Home() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<GameError | string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Room codes are now an escape hatch (rejoining a specific game, playing with a
-  // group that already has a room), not the way in — so they stay folded away.
+  const [lobbies, setLobbies] = useState<LobbySummary[]>([]);
+  const [seats, setSeats] = useState<MySeat[]>([]);
+  // Room codes are an escape hatch (a private game with people you already know),
+  // not the way in — so they stay folded away.
   const [manual, setManual] = useState(false);
 
   useEffect(() => {
@@ -26,49 +29,90 @@ export default function Home() {
     setLook(loadLook());
   }, []);
 
-  const noResponse = () => setError(L(getLocale(), "Máy chủ không phản hồi, thử lại", "Server didn't respond, try again"));
+  // Re-entered on `connect`, not just on mount: a server restart drops the
+  // subscription while the page stays exactly where it is.
+  useEffect(() => {
+    const socket = getSocket();
+    const onList = (list: LobbySummary[]) => setLobbies(list);
+    const enter = () =>
+      socket.emit("enterHome", { seats: loadSeats() }, (res) => {
+        setLobbies(res.lobbies);
+        setSeats(res.seats);
+      });
+    socket.on("roomList", onList);
+    socket.on("connect", enter);
+    if (socket.connected) enter();
+    return () => {
+      socket.off("roomList", onList);
+      socket.off("connect", enter);
+      socket.emit("leaveHome");
+    };
+  }, []);
 
-  function create() {
-    if (!name.trim()) return setError(L(getLocale(), "Nhập tên trước đã", "Enter your name first"));
+  const noResponse = () => setError(L(getLocale(), "Máy chủ không phản hồi, thử lại", "Server didn't respond, try again"));
+  const cantJoin = () => L(getLocale(), "Không vào được phòng", "Couldn't join the room");
+
+  // Saves as a side effect, so the name they used is the one they get next time.
+  function takeName(): string | null {
+    const n = name.trim();
+    if (!n) {
+      setError(L(getLocale(), "Nhập tên trước đã", "Enter your name first"));
+      return null;
+    }
+    saveName(n);
+    return n;
+  }
+
+  // `isPrivate` decides whether the room shows up in everyone else's browser.
+  function create(isPrivate: boolean) {
+    const n = takeName();
+    if (!n) return;
     setBusy(true);
     setError(null);
-    saveName(name.trim());
     // .timeout() so a lost/slow connection surfaces an error instead of leaving
     // the button disabled forever. On success we navigate away (busy stays set).
-    getSocket().timeout(8000).emit("createRoom", { name: name.trim(), look: look ?? undefined }, (err, res) => {
+    getSocket().timeout(8000).emit("createRoom", { name: n, look: look ?? undefined, private: isPrivate }, (err, res) => {
       if (err || !res) { setBusy(false); return noResponse(); }
       saveIdentity(res.code, res.playerId);
       router.push(`/room/${res.code}`);
     });
   }
 
-  // The default way in: the server decides where you go (own seat > fullest open
-  // lobby > new lobby), so there is nothing to type and nothing to coordinate.
-  function play() {
-    if (!name.trim()) return setError(L(getLocale(), "Nhập tên trước đã", "Enter your name first"));
+  function join(target: string) {
+    const n = takeName();
+    if (!n) return;
+    const c = target.toUpperCase().trim();
+    if (c.length < 4) return setError(L(getLocale(), "Mã phòng gồm 4 ký tự", "Room code is 4 characters"));
     setBusy(true);
     setError(null);
-    saveName(name.trim());
-    getSocket().timeout(8000).emit("quickJoin", { name: name.trim(), seats: loadSeats(), look: look ?? undefined }, (err, res) => {
-      if (err || !res) { setBusy(false); return noResponse(); }
-      saveIdentity(res.code, res.playerId);
-      router.push(`/room/${res.code}`);
-    });
-  }
-
-  function join() {
-    if (!name.trim()) return setError(L(getLocale(), "Nhập tên trước đã", "Enter your name first"));
-    if (code.trim().length < 4) return setError(L(getLocale(), "Mã phòng gồm 4 ký tự", "Room code is 4 characters"));
-    setBusy(true);
-    setError(null);
-    saveName(name.trim());
-    const c = code.toUpperCase().trim();
-    getSocket().timeout(8000).emit("joinRoom", { code: c, name: name.trim(), look: look ?? undefined }, (err, res) => {
+    getSocket().timeout(8000).emit("joinRoom", { code: c, name: n, look: look ?? undefined }, (err, res) => {
       setBusy(false);
       if (err || !res) return noResponse();
-      if (!res.ok || !res.playerId) return setError(res.error ?? L(getLocale(), "Không vào được phòng", "Couldn't join the room"));
+      // The room filled up or started while the list was on screen. The server
+      // pushes a fresh list either way, so the error is all that has to be said.
+      if (!res.ok || !res.playerId) return setError(res.error ?? cantJoin());
       saveIdentity(c, res.playerId);
       router.push(`/room/${c}`);
+    });
+  }
+
+  // Back into a seat this browser still owns, mid-game. Nothing else offers this:
+  // a refresh during a game leaves a character at the table holding cards, and the
+  // room code is the only other way back to it.
+  function resume(seat: MySeat) {
+    setBusy(true);
+    setError(null);
+    getSocket().timeout(8000).emit("rejoin", { code: seat.code, playerId: seat.playerId, look: look ?? undefined }, (err, res) => {
+      setBusy(false);
+      if (err || !res) return noResponse();
+      if (!res.ok) {
+        // The seat was taken back or the room is gone — drop the offer rather than
+        // leave a button that cannot work.
+        setSeats((prev) => prev.filter((s) => s.code !== seat.code));
+        return setError(res.error ?? cantJoin());
+      }
+      saveIdentity(seat.code, seat.playerId);
+      router.push(`/room/${seat.code}`);
     });
   }
 
@@ -83,10 +127,10 @@ export default function Home() {
 
       <div className="card">
         <label htmlFor="name">{L(locale, "Tên của bạn", "Your name")}</label>
-        <input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Django" maxLength={20} onKeyDown={(e) => e.key === "Enter" && play()} />
+        <input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Django" maxLength={20} />
 
         <label>{L(locale, "Hình ngồi bàn", "Your figure")}</label>
-        <div className="row" style={{ marginBottom: 14 }}>
+        <div className="row" style={{ marginBottom: 18 }}>
           {([[null, "Tuỳ nhân vật", "By character"], ["m", "Nam", "Man"], ["f", "Nữ", "Woman"]] as const).map(([v, vi, en]) => (
             <button
               key={vi}
@@ -99,11 +143,13 @@ export default function Home() {
           ))}
         </div>
 
-        <button onClick={play} disabled={busy}>
-          {L(locale, "Vào chơi ngay", "Play now")}
+        <RoomList lobbies={lobbies} seats={seats} busy={busy} onJoin={join} onResume={resume} />
+
+        <button onClick={() => create(false)} disabled={busy}>
+          {L(locale, "Tạo phòng mới", "Open a new room")}
         </button>
         <p className="muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-          {L(locale, "Tự động vào sảnh chờ · không cần mã phòng", "Straight to the lobby · no room code needed")}
+          {L(locale, "Ai cũng thấy và vào được", "Anyone can see it and join")}
         </p>
 
         {!manual ? (
@@ -118,7 +164,7 @@ export default function Home() {
           <>
             <div style={{ height: 18 }} />
 
-            <button className="ghost" onClick={create} disabled={busy}>
+            <button className="ghost" onClick={() => create(true)} disabled={busy}>
               {L(locale, "Tạo phòng riêng", "Create a private room")}
             </button>
 
@@ -133,9 +179,9 @@ export default function Home() {
                 placeholder={L(locale, "MÃ PHÒNG", "ROOM CODE")}
                 maxLength={4}
                 style={{ marginBottom: 0, textTransform: "uppercase", letterSpacing: 3, textAlign: "center" }}
-                onKeyDown={(e) => e.key === "Enter" && join()}
+                onKeyDown={(e) => e.key === "Enter" && join(code)}
               />
-              <button className="ghost" style={{ width: 120 }} onClick={join} disabled={busy}>
+              <button className="ghost" style={{ width: 120 }} onClick={() => join(code)} disabled={busy}>
                 {L(locale, "Vào", "Join")}
               </button>
             </div>

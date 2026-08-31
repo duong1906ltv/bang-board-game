@@ -23,6 +23,8 @@ import {
   Winner,
   LogEntry,
   EventView,
+  LobbySummary,
+  MySeat,
 } from "./types";
 import { buildDeck, Card, CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL } from "./cards";
 import { buildEscapeRewardUrl } from "./escapeReward";
@@ -124,10 +126,9 @@ interface ActiveEvent {
 export interface Room {
   code: string;
   phase: Phase;
-  // Hidden from quick-join matchmaking: this room was opened deliberately for a
-  // specific group, who share its code. Without this, "create a private room"
-  // would be false advertising — the next stranger to tap Play would be seated
-  // in it, because to the matchmaker a fresh lobby is a fresh lobby.
+  // Kept out of the room browser: this room was opened deliberately for a specific
+  // group, who share its code. Without this, "create a private room" would be false
+  // advertising — it would sit in the public list like any other.
   unlisted: boolean;
   // Always in clockwise seat order — seat IS the index, so nothing re-sorts and
   // there is no separate field to keep in sync. Only removeBot/disconnect ever
@@ -368,6 +369,12 @@ export function removeBot(code: string): boolean {
   return true;
 }
 
+// Why a running game can't take a newcomer: roles are dealt from a fixed
+// distribution for the exact headcount (ROLE_SETUP), so a 6th player at a
+// 5-player table has no role to be given — inventing one retroactively rewrites
+// who wins. Seat order is also the distance metric every range check reads, so
+// splicing a seat in silently moves everyone's targets mid-round. A player whose
+// own seat is still open comes back through rejoin() instead.
 export function addPlayer(
   code: string,
   name: string,
@@ -376,79 +383,59 @@ export function addPlayer(
   const room = rooms.get(code);
   if (!room) return err("no-such-room");
   if (room.phase !== "lobby") return err("game-in-progress");
-  if (room.players.length >= MAX_PLAYERS) return err("room-full", { n: MAX_PLAYERS });
+
+  // A lobby that is "full" of bots is not full to a human: bots exist only to
+  // fill empty seats for testing, so a real arrival takes one back rather than
+  // being turned away from a table of machines. Replaced in place, because seat
+  // order is the distance metric and a push would move everyone else along.
   const player = newPlayer(name, socketId, false);
-  room.players.push(player);
+  if (room.players.length >= MAX_PLAYERS) {
+    const idx = room.players.findIndex((p) => p.isBot);
+    if (idx === -1) return err("room-full", { n: MAX_PLAYERS });
+    room.players.splice(idx, 1, player);
+  } else {
+    room.players.push(player);
+  }
   return { ok: true, player };
 }
 
-// ── matchmaking (no room codes) ─────────────────────────────────────────────
-// One button, no code to type: put the player wherever they belong.
-//
-// The order below is the whole design, and the priority matters more than the
-// matching does:
-//
-//  1. A seat they already own, even mid-game. This is the case the naive version
-//     gets wrong: refresh the page during a game and "join a room" would hand you
-//     a brand-new lobby while your character sits at the table, disconnected,
-//     holding cards nobody can play. Only DISCONNECTED seats are claimable, so a
-//     second tab can't yank the seat out from under the tab actually playing.
-//  2. The FULLEST open lobby. Emptiest would scatter arrivals one-per-room and
-//     nobody ever reaches the 4-player minimum.
-//  3. A fresh lobby.
-//
-// A game already in progress is deliberately NOT joinable, and neither is an
-// `unlisted` room — see the two comments below.
-type QuickSeat = { code: string; playerId: string };
+// ── the room browser ────────────────────────────────────────────────────────
 
-// Why a running game can't take a newcomer: roles are dealt from a fixed
-// distribution for the exact headcount (ROLE_SETUP), so a 6th player at a
-// 5-player table has no role to be given — inventing one retroactively rewrites
-// who wins. Seat order is also the distance metric every range check reads, so
-// splicing a seat in silently moves everyone's targets mid-round. Late arrivals
-// get a new lobby instead; they can also take over a disconnected seat via (1).
-export function quickJoin(
-  name: string,
-  socketId: string,
-  seats: QuickSeat[] = []
-): { code: string; playerId: string; kind: "rejoin" | "joined" | "created" } {
+// Every room a stranger may walk into. `unlisted` rooms are held back: someone
+// opened those for their own group and shares the code themselves.
+export function listLobbies(): LobbySummary[] {
+  return [...rooms.values()]
+    .filter((r) => r.phase === "lobby" && !r.unlisted)
+    // Fullest first. A room one player short of starting is the one worth joining;
+    // spreading arrivals across empty rooms is how nobody ever reaches MIN_PLAYERS.
+    .sort((a, b) => b.players.length - a.players.length)
+    .map((r) => {
+      const humans = r.players.filter((p) => !p.isBot);
+      return {
+        code: r.code,
+        players: humans.map((p) => p.name),
+        bots: r.players.length - humans.length,
+        max: MAX_PLAYERS,
+      };
+    });
+}
+
+// Which of the seats this browser remembers are still its own. A seat still held
+// by a live connection is skipped, so a second tab cannot pull the chair out from
+// under the tab that is actually playing.
+export function mySeats(seats: { code: string; playerId: string }[]): MySeat[] {
+  const out: MySeat[] = [];
   for (const s of seats) {
     const room = rooms.get((s.code || "").toUpperCase().trim());
     const seat = room?.players.find((p) => p.id === s.playerId);
     if (!room || !seat || seat.connected || seat.isBot) continue;
-    seat.socketId = socketId;
-    seat.connected = true;
-    return { code: room.code, playerId: seat.id, kind: "rejoin" };
+    out.push({ code: room.code, playerId: seat.id, name: seat.name, players: room.players.length });
   }
-
-  const lobbies = [...rooms.values()]
-    .filter((r) => r.phase === "lobby" && !r.unlisted)
-    .sort((a, b) => b.players.length - a.players.length);
-
-  const open = lobbies.find((r) => r.players.length < MAX_PLAYERS);
-  if (open) {
-    const player = newPlayer(name, socketId, false);
-    open.players.push(player);
-    return { code: open.code, playerId: player.id, kind: "joined" };
-  }
-
-  // A lobby that is "full" of bots is not full to a human: bots exist only to
-  // fill empty seats for testing, so a real arrival takes one back rather than
-  // being exiled to an empty room they have no way to invite anyone into.
-  const botted = lobbies.find((r) => r.players.some((p) => p.isBot));
-  if (botted) {
-    const idx = botted.players.findIndex((p) => p.isBot);
-    const player = newPlayer(name, socketId, false);
-    botted.players.splice(idx, 1, player);
-    return { code: botted.code, playerId: player.id, kind: "joined" };
-  }
-
-  const { room, player } = createRoom(name, socketId);
-  return { code: room.code, playerId: player.id, kind: "created" };
+  return out;
 }
 
 // Who may kick off a game. Host-only in an `unlisted` room: someone opened it for
-// their own group and picks the moment. In a matchmade room, anyone seated — being
+// their own group and picks the moment. In a public room, anyone seated — being
 // "host" there is an accident of arrival order, so tying the start button to it
 // hands one AFK tab the power to strand everyone else. Only the START of a game is
 // shared this way; restart (which discards a live game) and bot management stay

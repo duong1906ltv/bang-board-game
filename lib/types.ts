@@ -278,27 +278,53 @@ export interface LogEntry {
   event?: string; // random-event id (kind "event")
 }
 
+// ─── The room browser (home page) ────────────────────────────────────────────
+
+// One waiting room as an outsider sees it. Names rather than just a headcount:
+// "Bảo, Minh đang chờ" is a reason to tap in, "2 players" is not.
+export interface LobbySummary {
+  code: string;
+  players: string[]; // human players, in seat order
+  bots: number;
+  max: number; // = MAX_PLAYERS, so the browser needn't import the constant
+}
+
+// A seat this browser still owns in a running game. In the lobby phase a leaving
+// player is spliced out of the room entirely (see game.ts disconnect), so only a
+// game in progress can leave an empty seat behind with your name on it.
+export interface MySeat {
+  code: string;
+  playerId: string;
+  name: string; // the name you are seated under in that room
+  players: number; // how many are at that table
+}
+
 // ─── Socket.IO event payloads ────────────────────────────────────────────────
 
 export interface ClientToServerEvents {
   // `look` rides along with every way in, including rejoin: the server keeps it beside
   // the room rather than inside it, so a server restart or a reaped room forgets it and
   // the returning browser is the only thing that still knows.
+  // The flag is `private`, not `public`, so a caller that forgets it lands in the
+  // room browser rather than out of it: a room nobody can find is the worse failure.
   createRoom: (
-    data: { name: string; look?: Look },
+    data: { name: string; look?: Look; private?: boolean },
     cb: (res: { code: string; playerId: string }) => void
   ) => void;
   joinRoom: (
     data: { code: string; name: string; look?: Look },
     cb: (res: { ok: boolean; playerId?: string; error?: GameError }) => void
   ) => void;
-  // One-tap matchmaking: no code to type. `seats` are the (code, playerId) pairs
-  // this browser remembers, so a returning player is put back in their own seat
-  // instead of a stranger's lobby. Never fails — worst case it opens a new lobby.
-  quickJoin: (
-    data: { name: string; seats: { code: string; playerId: string }[]; look?: Look },
-    cb: (res: { code: string; playerId: string; kind: "rejoin" | "joined" | "created" }) => void
+  // The home page subscribes to the room browser. `seats` are the (code, playerId)
+  // pairs this browser remembers: the server is the only side that knows which of
+  // them are still sitting empty, waiting for their player to come back.
+  enterHome: (
+    data: { seats: { code: string; playerId: string }[] },
+    cb: (res: { lobbies: LobbySummary[]; seats: MySeat[] }) => void
   ) => void;
+  // Navigating into a room. Client-side routing keeps the socket open, so nothing
+  // else would take this listener off the broadcast.
+  leaveHome: () => void;
   rejoin: (
     data: { code: string; playerId: string; look?: Look },
     cb: (res: { ok: boolean; error?: GameError }) => void
@@ -346,6 +372,11 @@ export interface RtcPeer {
 export interface ServerToClientEvents {
   view: (view: PlayerView) => void;
   errorMsg: (e: GameError) => void;
+
+  // Pushed to everyone on the home page whenever the set of waiting rooms could
+  // have changed. Pushed rather than polled: a room browser that is one refresh
+  // out of date is the problem it exists to solve.
+  roomList: (lobbies: LobbySummary[]) => void;
 
   // --- WebRTC voice/video (mesh) signaling ---
   // Sent to the joiner right after `rtcJoin`: ICE servers to use and the peers

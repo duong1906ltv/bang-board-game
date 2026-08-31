@@ -24,7 +24,8 @@ Mở http://localhost:3000. Để bạn bè cùng chơi trong LAN, họ vào
 | `lib/types.ts` | Types & sự kiện socket dùng chung client/server |
 | `lib/i18n.ts` | Chuỗi ngôn ngữ (Tiếng Việt / English) |
 | `lib/socketClient.ts` | Socket singleton + lưu danh tính người chơi |
-| `app/page.tsx` | Trang tạo / vào phòng |
+| `app/page.tsx` | Trang chủ: danh sách phòng đang chờ, tạo phòng |
+| `components/RoomList.tsx` | Danh sách phòng chờ (hiển thị) |
 | `app/room/[code]/page.tsx` | Phòng game |
 | `components/PlayingCard.tsx` | Mặt lá bài (CSS) |
 | `app/health/route.ts` | Health check cho deploy smoke test |

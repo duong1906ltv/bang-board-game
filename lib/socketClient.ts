@@ -15,11 +15,12 @@ export function getSocket() {
 // localStorage helpers to remember the player's identity per room.
 const KEY = (code: string) => `bang:${code.toUpperCase()}`;
 
-// Most-recent-first list of room codes this browser has an identity for. Needed
-// because quick-join has no code to go on: it asks the server "is any of these
-// seats still mine?" before matchmaking. Server restarts wipe every room but not
-// localStorage, so this is capped — otherwise it grows forever and we'd offer the
-// server a pile of codes for rooms that stopped existing weeks ago.
+// Most-recent-first list of room codes this browser has an identity for. The home
+// page hands these to the server to ask "is any of these seats still mine?", which
+// is the only way back into a game you were dropped from without typing its code.
+// Server restarts wipe every room but not localStorage, so this is capped —
+// otherwise it grows forever and we'd offer the server a pile of codes for rooms
+// that stopped existing weeks ago.
 const RECENT = "bang:recent";
 const RECENT_MAX = 8;
 
@@ -40,7 +41,7 @@ function noteRecent(code: string) {
   } catch {}
 }
 
-// The seats to offer quick-join, newest first. A code with no stored playerId is
+// The seats to offer the room browser, newest first. A code with no stored playerId is
 // dropped rather than sent as an empty id, which would match nothing anyway.
 export function loadSeats(): { code: string; playerId: string }[] {
   return recentCodes()

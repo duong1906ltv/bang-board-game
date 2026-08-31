@@ -10,6 +10,9 @@ import * as bot from "./lib/bot";
 
 // How long between successive bot actions, so a human can follow along.
 const BOT_TICK_MS = 850;
+// The socket.io room every home-page listener sits in, so the room browser can be
+// pushed to exactly the people looking at it and nobody else.
+const HOME = "home";
 // How long a "somebody is taking your card" dialog waits before waving itself through.
 // Long enough to read a one-line sentence twice; short enough that an absent player is
 // an eight-second pause rather than a dead table.
@@ -44,6 +47,21 @@ app.prepare().then(() => {
     m.set(playerId, look);
   }
 
+  // Push the room browser to whoever is on the home page.
+  //
+  // Both guards exist because this hangs off broadcast(), which runs after every
+  // card played: without them a table mid-game would re-send an identical room
+  // list on every action, to an audience that is usually nobody.
+  let lastList = "";
+  function emitLobbies() {
+    if (!io.sockets.adapter.rooms.get(HOME)?.size) return;
+    const lobbies = game.listLobbies();
+    const json = JSON.stringify(lobbies);
+    if (json === lastList) return;
+    lastList = json;
+    io.to(HOME).emit("roomList", lobbies);
+  }
+
   // Send every connected player their OWN personalized (hidden-info-filtered) view.
   function broadcast(code: string) {
     const room = game.getRoom(code);
@@ -63,6 +81,7 @@ app.prepare().then(() => {
     }
     scheduleBots(room, code);
     scheduleAck(room, code);
+    emitLobbies();
   }
 
   // "Somebody is taking your card" waves itself through if nobody answers.
@@ -176,11 +195,11 @@ app.prepare().then(() => {
       else if (res.error) socket.emit("errorMsg", res.error);
     };
 
-    // Explicitly creating a room means "I have people to invite by code", so it is
-    // unlisted: quick-join must not drop a stranger into it. Public rooms come
-    // from quickJoin's own fallback instead.
-    socket.on("createRoom", ({ name, look }, cb) => {
-      const { room, player } = game.createRoom(name, socket.id, true);
+    // A room is listed in the browser unless the creator asked for a private one —
+    // "private" meaning they have people to invite by code and a stranger walking
+    // in would be a surprise, not a game.
+    socket.on("createRoom", ({ name, look, private: isPrivate }, cb) => {
+      const { room, player } = game.createRoom(name, socket.id, isPrivate === true);
       remember(room.code, player.id, look);
       socket.join(room.code);
       cb({ code: room.code, playerId: player.id });
@@ -197,12 +216,16 @@ app.prepare().then(() => {
       broadcast(code);
     });
 
-    socket.on("quickJoin", ({ name, seats, look }, cb) => {
-      const res = game.quickJoin(name, socket.id, (seats || []).slice(0, 8));
-      remember(res.code, res.playerId, look);
-      socket.join(res.code);
-      cb(res);
-      broadcast(res.code);
+    // The home page opens the room browser. The seat list is answered once here and
+    // not pushed afterwards: a seat only stops being yours when somebody takes it,
+    // and joinRoom/rejoin refuse that loudly enough on their own.
+    socket.on("enterHome", ({ seats }, cb) => {
+      socket.join(HOME);
+      cb({ lobbies: game.listLobbies(), seats: game.mySeats((seats || []).slice(0, 8)) });
+    });
+
+    socket.on("leaveHome", () => {
+      socket.leave(HOME);
     });
 
     socket.on("rejoin", ({ code, playerId, look }, cb) => {
@@ -341,6 +364,9 @@ app.prepare().then(() => {
       for (const code of looks.keys()) if (!game.getRoom(code)) looks.delete(code);
       const room = game.disconnect(socket.id);
       if (room) broadcast(room.code);
+      // Unconditional: the room this socket was the last one in has just been
+      // reaped, and a reaped room has no broadcast left to ride out on.
+      else emitLobbies();
     });
   });
 
