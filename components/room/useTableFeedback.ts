@@ -48,10 +48,15 @@ export function useTableFeedback(view: PlayerView) {
   const [revealQueue, setRevealQueue] = useState<PredictReveal[]>([]);
   const seenPredictSeq = useRef(0);
   useEffect(() => {
-    const fresh = view.predictFeed.filter(
+    // Defaulted, even though the type says it is always there: a view arrives off a socket
+    // from a SEPARATE process, and during any restart window — a dev hot-reload, a rolling
+    // deploy on EC2 — an already-open tab is served by code that predates this field. The
+    // type is the server's contract; this is the wire.
+    const feed = view.predictFeed ?? [];
+    const fresh = feed.filter(
       (r) => r.seq > seenPredictSeq.current && r.results.some((x) => x.byId === view.you.id)
     );
-    const highest = view.predictFeed.at(-1)?.seq;
+    const highest = feed.at(-1)?.seq;
     if (highest !== undefined) seenPredictSeq.current = Math.max(seenPredictSeq.current, highest);
     if (fresh.length) setRevealQueue((q) => [...q, ...fresh]);
   }, [view.predictFeed, view.you.id]);

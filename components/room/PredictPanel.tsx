@@ -24,7 +24,9 @@ export function PredictPanel({
   const next = view.players.find((p) => p.id === nextId);
   if (!next || view.phase !== "playing") return null;
 
-  const staked = view.you.myPredictions.filter((p) => p.targetId === next.id);
+  // Defaulted for the same reason as predictFeed in useTableFeedback: a tab open across a
+  // server restart is fed a view built by code that never had this field.
+  const staked = (view.you.myPredictions ?? []).filter((p) => p.targetId === next.id);
   const stakedKinds = new Set(staked.map((p) => p.kind));
   const blocked = predictBlockText(locale, view.you.predictBlockReason);
   // Who they could plausibly shoot: everyone alive but themselves. Range is not filtered
