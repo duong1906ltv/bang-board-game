@@ -205,7 +205,17 @@ export function predictMsLeft(room: Room): number {
 export function predictBlock(room: Room, me: Player | undefined): string | null {
   if (!me) return "no-seat";
   if (room.phase !== "playing") return "not-playing";
-  if (room.pending) return "waiting-for-reaction";
+  // Deliberately NOT blocked while the table waits on a reaction. It used to be, and that
+  // one line was the single biggest reason a player found the panel dead: measured over 150
+  // games, the table sits in a `pending` for 26% of all engine steps, and at some point
+  // during 64% of all (player, turn) pairs — so most turns had a stretch where everybody's
+  // panel was grey while the clock kept running.
+  //
+  // It also hid nothing. The bet is on a CARD COUNT, room.playsThisTurn is incremented in
+  // exactly one place (playCard), and the card that opened the pending was already counted
+  // before the pending existed. respond() never touches the counter, so resolving a Missed!,
+  // a Duel or a General Store reveals no new information about the number being guessed.
+  // Blocking it was pure lost window.
   const subject = room.players.find((p) => p.id === predictSubjectId(room));
   if (!subject) return "bad-predict-target";
   // Checked here as well as in predict(), not instead of it: this drives the panel and

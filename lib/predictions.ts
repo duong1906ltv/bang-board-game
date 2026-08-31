@@ -48,10 +48,15 @@
 //
 // The window is the countermeasure: PREDICT_WINDOW_MS from the moment the turn opens, and
 // nothing may be staked after it. It does NOT fully close the hole — a bot finishes a whole
-// turn inside 15 seconds, so on a bot's turn a patient player can still watch two cards go
-// down and then bet. That is a known, accepted trade: the alternative was a window short
-// enough (under a second) that nobody could ever use the feature at all. Against a human
-// who is thinking, 15 seconds really is early in their turn.
+// turn well inside the window, so on a bot's turn a patient player can still watch two cards
+// go down and then bet. That is a known, accepted trade: the alternative was a window short
+// enough (under a second) that nobody could ever use the feature at all.
+//
+// The number is a usability call, not a balance one. It started at 15s, which measured badly
+// in practice: the table sits in a `pending` — somebody owing a Missed!, a Duel, a General
+// Store, a Draw! to acknowledge — for about a quarter of all engine steps, and while a
+// player is reading that they are not deciding anything. 30s leaves room for a turn to be
+// interrupted once or twice and still be bettable.
 //
 // The window SHRINKS as the game does — PREDICT_WINDOW_PER_DEATH_MS off for every player
 // already dead — so the late game, when turns are fast and the reads are sharp, gives less
@@ -76,7 +81,7 @@ export const REWARD_CARDS = 1; // a hit pays this many
 export const PENALTY_CARDS = 1; // a miss costs this many
 
 // How long the staking window stays open, measured from the moment a turn opens.
-export const PREDICT_WINDOW_MS = 15_000;
+export const PREDICT_WINDOW_MS = 30_000;
 // Taken off the window for every player already dead, so the late game decides faster.
 export const PREDICT_WINDOW_PER_DEATH_MS = 2_000;
 // A floor, because the subtraction above would otherwise reach zero on a long game and

@@ -18,13 +18,17 @@ import { predictMsLeft, predictSubjectId } from "./rules";
 import { rooms, type Player, type Room } from "./state";
 
 // Stake a guess on the turn that is running right now. Thin on purpose: this checks what
-// belongs to the Room (phase, pending, whose seat is playing, whether the clock has run
-// out), predictionProblem checks what belongs to the prediction rules (who may stake, what
-// they can pay for, whether the value is a real bucket).
+// belongs to the Room (phase, whose seat is playing, whether the clock has run out),
+// predictionProblem checks what belongs to the prediction rules (who may stake, what they
+// can pay for, whether the value is a real bucket).
+//
+// A `pending` does NOT block this — see the long note in predictBlock (rules.ts) for the
+// measurement and the reason. In short: the counter this bets on moves in playCard only, the
+// card that opened the pending was already counted, and blocking here was the main reason a
+// player found the panel dead.
 export function predict(code: string, playerId: string, subjectId: string, value: string): Result {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return err("no-such-room");
-  if (room.pending) return err("waiting-for-reaction");
   const by = room.players.find((p) => p.id === playerId);
   const subject = room.players.find((p) => p.id === subjectId);
   if (!by || !subject) return err("player-not-found");

@@ -143,6 +143,51 @@ test("a new turn opens a fresh window, and it narrows as the table empties", () 
   );
 });
 
+test("a table waiting on a reaction does NOT block staking", () => {
+  // This used to be blocked, and it was the single biggest reason a player found the panel
+  // dead: measured over 150 games the table sits in a pending for 26% of all engine steps.
+  // It hid nothing either — playsThisTurn moves in playCard alone, and the Bang! that opened
+  // this pending was counted before the pending existed.
+  const t = tableReady(5);
+  const cur = t.room.players[t.room.turnIndex];
+  // The seat immediately clockwise: distance 1, so a default range-1 Bang! reaches it. Any
+  // other seat is out of range and playCard would simply refuse, leaving no pending at all.
+  const victim = t.room.players[(t.room.turnIndex + 1) % t.room.players.length];
+  const seer = t.room.players.find((p) => p !== cur && p !== victim && p.alive)!;
+
+  hand(cur, card("bang", "spades", 5));
+  game.playCard(t.code, cur.id, cur.hand.at(-1)!.id, victim.id);
+  assert.ok(t.room.pending, "the Bang! is waiting on an answer");
+  assert.equal(t.room.playsThisTurn, 1, "and the card was already counted");
+
+  const v = game.buildView(t.room, seer.id);
+  assert.equal(v.you.canPredict, true, "the panel stays live");
+  assert.equal(v.you.predictBlockReason, null);
+  assert.equal(game.predict(t.code, seer.id, cur.id, "1").ok, true);
+
+  // ...and it is judged normally once the turn actually ends.
+  game.respond(t.code, victim.id, "pass");
+  const before = seer.hand.length;
+  game.endTurn(t.code, cur.id);
+  assert.equal(seer.hand.length, before + 1, "one card played, bucket 1, paid");
+});
+
+test("a guess can be taken back while the table waits on a reaction", () => {
+  const t = tableReady(5);
+  const cur = t.room.players[t.room.turnIndex];
+  const victim = t.room.players[(t.room.turnIndex + 1) % t.room.players.length];
+  const seer = t.room.players.find((p) => p !== cur && p !== victim && p.alive)!;
+
+  game.predict(t.code, seer.id, cur.id, "0");
+  hand(cur, card("bang", "spades", 5));
+  game.playCard(t.code, cur.id, cur.hand.at(-1)!.id, victim.id);
+  assert.ok(t.room.pending);
+  // Seeing the Bang! go down is exactly when you want out of bucket "0". The clock is the
+  // only thing that closes the door, not the pending.
+  assert.equal(game.cancelPrediction(t.code, seer.id, cur.id).ok, true);
+  assert.equal(game.predict(t.code, seer.id, cur.id, "1").ok, true);
+});
+
 test("a guess can be taken back while the clock runs, and not after", () => {
   const t = tableReady();
   const cur = t.room.players[t.room.turnIndex];
