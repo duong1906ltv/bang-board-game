@@ -120,7 +120,7 @@ test("a turn spent only on Gatling counts as shooting nobody", () => {
   assert.equal(seer.hand.length, before + 1);
 });
 
-test("you may not predict yourself, the current player, a bot, or a corpse", () => {
+test("you may not predict yourself, the current player, or a corpse — a bot is fine", () => {
   const t = tableReady();
   const cur = t.room.players[t.room.turnIndex];
   const next = nextSeat(t);
@@ -130,9 +130,11 @@ test("you may not predict yourself, the current player, a bot, or a corpse", () 
   assert.equal(game.predict(t.code, other.id, cur.id, "shoot", NO_SHOT).error?.code, "bad-predict-target");
   // Yourself, when you happen to be next.
   assert.equal(game.predict(t.code, next.id, next.id, "shoot", NO_SHOT).error?.code, "bad-predict-target");
-  // A bot's play is a published algorithm, so reading it is not a read.
+  // A bot IS predictable, deliberately: forbidding it made the feature unreachable for one
+  // human at a table of bots, where the next seat is always a bot or yourself.
   next.isBot = true;
-  assert.equal(game.predict(t.code, other.id, next.id, "shoot", NO_SHOT).error?.code, "bad-predict-target");
+  assert.equal(game.predict(t.code, other.id, next.id, "shoot", NO_SHOT).ok, true);
+  t.room.predictions = [];
   next.isBot = false;
   kill(next);
   assert.equal(game.predict(t.code, other.id, next.id, "shoot", NO_SHOT).error?.code, "bad-predict-target");
@@ -288,4 +290,42 @@ test("one action that judges a turn AND skips the next keeps both verdicts", () 
   assert.equal(t.room.predictFeed.length >= 2, true, "and the feed kept both");
   assert.ok(t.room.predictFeed.some((rv) => rv.targetId === a.id && !rv.results[0].voided), "A judged");
   assert.ok(t.room.predictFeed.some((rv) => rv.targetId === b.id && rv.results[0].voided), "B voided");
+});
+
+test("you.canPredict never disagrees with what the engine will accept", () => {
+  // The gap that let a real bug ship: predictionProblem and predict were both tested, but
+  // nothing checked the view flag the panel actually reads. predictBlock probed availability
+  // with a placeholder value, that placeholder was invalid for `shoot`, and so every button
+  // greyed out on turns the engine would have taken. A disagreement here is invisible in the
+  // engine and total in the UI.
+  const t = tableReady(4);
+  for (let lap = 0; lap < t.room.players.length * 2; lap++) {
+    const v = game.buildView(t.room, t.sheriff.id);
+    const nextId = game.nextSeatId(t.room);
+    const res = game.predict(t.code, t.sheriff.id, nextId ?? "", "shoot", NO_SHOT);
+    assert.equal(
+      v.you.canPredict,
+      res.ok,
+      `turn ${lap}: view said canPredict=${v.you.canPredict} but the engine said ${res.ok ? "ok" : res.error?.code}`
+    );
+    t.room.predictions = [];
+    t.room.turnIndex = (t.room.turnIndex + 1) % t.room.players.length;
+  }
+});
+
+test("a bot in the next seat is predictable, so one human at a table of bots can still play", () => {
+  // The rule that forbade predicting a bot left exactly 0 legal predictions out of 8 turns
+  // for a lone human: the next seat is either a bot or yourself. That made the whole feature
+  // unreachable in the setup the game is actually tested in.
+  const t = tableReady(4);
+  for (const p of t.room.players) if (p !== t.sheriff) p.isBot = true;
+  let legal = 0;
+  for (let lap = 0; lap < t.room.players.length * 2; lap++) {
+    const nextId = game.nextSeatId(t.room);
+    if (game.predict(t.code, t.sheriff.id, nextId ?? "", "shoot", NO_SHOT).ok) legal++;
+    t.room.predictions = [];
+    t.room.turnIndex = (t.room.turnIndex + 1) % t.room.players.length;
+  }
+  // Every turn but the two where the lone human is themselves the next seat.
+  assert.equal(legal, 6);
 });

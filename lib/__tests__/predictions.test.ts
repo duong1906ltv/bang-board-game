@@ -105,16 +105,18 @@ test("settle pays one card per hit and takes one per miss", () => {
   assert.equal(settle([], o), 0);
 });
 
-test("you cannot predict yourself, a bot, or a dead player", () => {
+test("you cannot predict yourself or a dead player, but a bot is fair game", () => {
   const me = stub({ id: "me", hand: cards(3) });
   const alive = ["me", "T", "bot"];
   const problem = (target: Player) =>
     predictionProblem({ by: me, target, kind: "shoot", value: NO_SHOT, alivePlayerIds: alive, locked: [] });
 
   assert.equal(problem(me), "bad-predict-target");
-  assert.equal(problem(stub({ id: "bot", isBot: true })), "bad-predict-target");
   assert.equal(problem(stub({ id: "T", alive: false })), "bad-predict-target");
   assert.equal(problem(stub({ id: "T" })), null);
+  // Predicting a bot is ALLOWED on purpose. Forbidding it left one human at a table of bots
+  // with no legal prediction at all, because the next seat is then always a bot or yourself.
+  assert.equal(problem(stub({ id: "bot", isBot: true })), null);
 });
 
 test("a dead or ghosting player cannot stake a guess", () => {

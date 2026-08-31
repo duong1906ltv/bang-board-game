@@ -33,21 +33,30 @@ export function PredictPanel({
   // out on purpose — reading whether somebody will buy a gun to reach you is part of it.
   const victims = view.players.filter((p) => p.alive && p.id !== next.id);
 
+  // The chip has to SAY what it is. It used to be a bare 🔮 followed by the next player's
+  // name, which sat among eight other chips in the corner and read as decoration — two
+  // people in a row looked straight at it and asked where the feature was. Passive is not
+  // the same as unlabelled.
+  const ready = !blocked && staked.length < 2;
   const chip = (
     <button
       onClick={() => setOpen(true)}
-      title={L(locale, "Đoán lượt tới", "Predict the next turn")}
+      title={L(locale, "Đoán xem người kế tiếp sẽ làm gì", "Guess what the next player will do")}
       style={{
         width: "auto", padding: "3px 9px", fontSize: "0.82rem", fontWeight: 700,
         borderRadius: 8, color: "#f0e2c0", fontFamily: "system-ui, sans-serif",
-        background: "rgba(16,32,52,0.92)",
-        border: `1px solid ${staked.length ? "rgba(120,220,150,0.8)" : "rgba(91,155,213,0.7)"}`,
+        background: ready ? "rgba(40,28,64,0.95)" : "rgba(16,32,52,0.92)",
+        border: `1px solid ${
+          staked.length ? "rgba(120,220,150,0.85)" : ready ? "rgba(186,140,255,0.9)" : "rgba(91,155,213,0.55)"
+        }`,
         display: "flex", alignItems: "center", gap: 5,
+        opacity: blocked && staked.length === 0 ? 0.6 : 1,
       }}
     >
       <span style={{ fontSize: "0.95rem" }}>🔮</span>
-      <span style={{ opacity: 0.8, fontWeight: 600 }}>
-        {staked.length > 0 ? `${staked.length}/2` : next.name}
+      <span style={{ fontWeight: 700 }}>{L(locale, "Đoán", "Guess")}</span>
+      <span style={{ opacity: 0.75, fontWeight: 600 }}>
+        {staked.length > 0 ? `${staked.length}/2` : `· ${next.name}`}
       </span>
     </button>
   );

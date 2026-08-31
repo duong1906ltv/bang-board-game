@@ -201,17 +201,17 @@ export function predictBlock(room: Room, me: Player | undefined): string | null 
   const nextId = nextSeatId(room);
   const target = room.players.find((p) => p.id === nextId);
   if (!target) return "bad-predict-target";
-  // Both questions are open, so being blocked means neither is available. Ask about the
-  // one already staked LAST, which is why "shoot" is probed with its own locked list.
   const locked = room.predictions.filter((p) => p.byId === me.id && p.targetId === target.id);
   const kinds: PredictionKind[] = ["shoot", "plays"];
   const open = kinds.filter((k) => !locked.some((p) => p.kind === k));
   if (open.length === 0) return "already-predicted";
+  // No `value`: this asks whether ANY stake is possible, not whether one particular value
+  // is legal. Passing a placeholder was the bug — no single string is valid for both kinds,
+  // so the probe failed validation and the panel greyed out on turns the engine allowed.
   const problem = predictionProblem({
     by: me,
     target,
     kind: open[0],
-    value: "0", // a value every kind accepts, so this probes availability and not the value
     alivePlayerIds: room.players.filter((p) => p.alive).map((p) => p.id),
     locked,
   });

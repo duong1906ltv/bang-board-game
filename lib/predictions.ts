@@ -98,20 +98,34 @@ export function predictionProblem(args: {
   by: Player;
   target: Player;
   kind: PredictionKind;
-  value: string;
+  // Omitted when the caller is only asking "may I stake anything at all right now" rather
+  // than offering a value — which is what predictBlock does to drive the panel. It used to
+  // pass a placeholder instead, and the placeholder was silently invalid for `shoot`
+  // (whose values are NO_SHOT or a living player id), so the panel greyed every button out
+  // on a turn the engine would have accepted.
+  value?: string;
   alivePlayerIds: string[];
   locked: Prediction[]; // what `by` has already staked on this same target
 }): ErrorCode | null {
   const { by, target, kind, value, alivePlayerIds, locked } = args;
-  // You always know what you are about to do, and a bot's play is a published algorithm —
-  // predicting either one is free money rather than a read.
-  if (by.id === target.id || target.isBot || !target.alive) return "bad-predict-target";
+  // You always know what you are about to do, so predicting yourself is not a read.
+  //
+  // A BOT may be predicted, deliberately. Its strategy is a published algorithm — shoot the
+  // nearest enemy in range — so reading one runs maybe 60-70% against ~21% on a person, and
+  // whoever sits directly before a bot therefore earns more than the other seats. That is a
+  // real unfairness, and it is still the better trade: the rule that forbade it made the
+  // whole feature UNREACHABLE at the tables people actually sit at. One human plus bots is
+  // 0 legal predictions out of 8 turns — the next seat is either a bot or you — and bots
+  // fill empty seats in ordinary games too. A table padded with bots is already the bigger
+  // distortion; a table of nothing but bots is a practice table where farming yourself
+  // means nothing.
+  if (by.id === target.id || !target.alive) return "bad-predict-target";
   if (!by.alive || by.ghost) return "bad-predict-target";
   if (locked.some((p) => p.kind === kind)) return "already-predicted";
   // Stake as many questions as you can pay for if every one of them misses. Without this,
   // an empty-handed player predicts both questions every turn at pure profit — a miss takes
   // a card they do not have — and refills for free at exactly their weakest moment.
   if (by.hand.length <= locked.length) return "predict-needs-a-card";
-  if (!validValue(kind, value, alivePlayerIds)) return "invalid-prediction";
+  if (value !== undefined && !validValue(kind, value, alivePlayerIds)) return "invalid-prediction";
   return null;
 }

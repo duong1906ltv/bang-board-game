@@ -75,27 +75,18 @@ function stakeRandomGuesses(room: game.Room, code: string, stats: Stats) {
   if (!target) return;
   const alive = room.players.filter((p) => p.alive);
 
-  // Every seat here is a bot, and the engine refuses to let anybody predict a bot — a
-  // bot's play is a published algorithm, so in a real game that would be free money
-  // rather than a read. Lift it for the duration of the staking loop ONLY, so the
-  // harness can exercise the feature without a sim-only flag existing in the engine.
-  // bot.step() never runs inside this block, so nothing else can observe the change.
-  const wasBot = target.isBot;
-  target.isBot = false;
-  try {
-    for (const p of alive) {
-      if (p.id === target.id || Math.random() > STAKE_CHANCE) continue;
-      const kind: PredictionKind = Math.random() < 0.5 ? "shoot" : "plays";
-      const value =
-        kind === "plays"
-          ? PLAYS_BUCKETS[Math.floor(Math.random() * PLAYS_BUCKETS.length)]
-          : Math.random() < 0.25
-            ? NO_SHOT
-            : alive[Math.floor(Math.random() * alive.length)].id;
-      if (game.predict(code, p.id, nextId!, kind, value).ok) stats.staked++;
-    }
-  } finally {
-    target.isBot = wasBot;
+  // No isBot juggling needed: the engine allows predicting a bot, so this harness exercises
+  // exactly the rule a person plays under rather than a lifted version of it.
+  for (const p of alive) {
+    if (p.id === target.id || Math.random() > STAKE_CHANCE) continue;
+    const kind: PredictionKind = Math.random() < 0.5 ? "shoot" : "plays";
+    const value =
+      kind === "plays"
+        ? PLAYS_BUCKETS[Math.floor(Math.random() * PLAYS_BUCKETS.length)]
+        : Math.random() < 0.25
+          ? NO_SHOT
+          : alive[Math.floor(Math.random() * alive.length)].id;
+    if (game.predict(code, p.id, nextId!, kind, value).ok) stats.staked++;
   }
 }
 
