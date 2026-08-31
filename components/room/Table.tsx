@@ -7,7 +7,7 @@ import { type Card } from "@/lib/cards";
 import { getIntroSeen, setIntroSeen } from "@/lib/prefs";
 import { useDisplayPrefs } from "./useDisplayPrefs";
 import { useTableFeedback } from "./useTableFeedback";
-import { L, useLocale, roleLabel } from "@/lib/i18n";
+import { L, useLocale, roleLabel, tError } from "@/lib/i18n";
 import { Briefing } from "./Briefing";
 import { CardModal } from "./CardModal";
 import { CharacterFace } from "./CharacterFace";
@@ -66,6 +66,11 @@ export function Table({
   const overLimit = Math.max(0, you.hand.length - you.handLimit);
   const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
   const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null);
+  // Lá đang chờ bạn xác nhận đánh. Cùng họ với `aiming` ở trên, và cố ý nằm ngay cạnh nó:
+  // cả hai là "một nhát tap đã mở một nước đi nhưng nước đó CHƯA xảy ra", và giữa chúng là
+  // toàn bộ tay bài — lá cần ngắm thì lùi được bằng nút Hủy của thanh ngắm, lá không cần
+  // ngắm thì trước đây bay thẳng khỏi tay, không có đường lui nào. Đây là đường lui đó.
+  const [confirmPlay, setConfirmPlay] = useState<Card | null>(null);
   // A counter, not a boolean: every press has to reach the scene, including the second
   // press after you have orbited away again, and a boolean would only fire once.
   const [homeKey, setHomeKey] = useState(0);
@@ -107,7 +112,7 @@ export function Table({
       if (e.key !== "Escape") return;
       setInfoCard(null); setCharView(null); setPlayerInfo(null); closeBriefing(); dismissEvents();
       setConfirmSurrender(false); setDiscarding(false);
-      setAiming(null); setSidPicking(false);
+      setAiming(null); setSidPicking(false); setConfirmPlay(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -139,6 +144,13 @@ export function Table({
       return live.length === s.length ? s : live;
     });
   }, [you.hand]);
+  // Cùng lý do như trên, cho hộp xác nhận: lượt có thể kết thúc dưới chân nó (hết giờ, đầu
+  // hàng, Dynamite nổ chết) và lá có thể rời tay mà không do bạn bỏ. Một hộp còn mở trong hai
+  // trường hợp đó là một nút "Đánh lá này" chỉ dẫn tới lỗi của server. Trả về CHÍNH object cũ
+  // khi không có gì đổi để React bỏ qua lần set này — effect chạy mỗi lần tay bài đổi.
+  useEffect(() => {
+    setConfirmPlay((c) => (c && inPlayPhase && you.hand.some((h) => h.id === c.id) ? c : null));
+  }, [inPlayPhase, you.hand]);
 
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
   const canBurnToHeal = !!you.character?.effect.burnTwoToHeal;
@@ -161,6 +173,22 @@ export function Table({
     // one a jailed player hits on every single tap.
     if (you.jailed) {
       flash(L(locale, "Đang bị giam — chỉ bỏ bài rồi kết thúc lượt", "In jail — discard down, then end the turn."));
+      return true;
+    }
+    // Né/Missed! đánh chủ động thì engine LUÔN từ chối (missed-is-reaction-only). Chặn
+    // ngay ở đây vì Né là lá nhiều thứ hai trong nọc (12 lá) và cái tap đó là phản xạ của
+    // mọi người mới: không chặn thì nó thành một hộp xác nhận mà nút "Đánh" chỉ có đúng một
+    // kết cục là câu lỗi — đúng thứ hộp xác nhận sinh ra để loại bỏ.
+    //
+    // Đây là thuộc tính TĨNH của lá, cùng loại với `TARGETED` ngay trên, nên client biết nó
+    // là an toàn. Luật theo TRẠNG THÁI thì tuyệt đối không: Beer lúc máu đầy, Mustang đã có
+    // trên bàn — những cái đó vẫn để server trả lời, vì một bản sao luật ở client sẽ lệch
+    // ngay lần đầu có event nới luật đó ra.
+    //
+    // `!bangLike` là chỗ Calamity Janet đi qua: cô ta bắn Né như Bang!, và lá đó phải rơi
+    // xuống nhánh cần-mục-tiêu bên dưới thay vì bị chặn ở đây.
+    if (defId === "missed" && !bangLike(defId)) {
+      flash(tError(locale, { code: "missed-is-reaction-only" }));
       return true;
     }
     if (bangLike(defId) && !you.canBang) {
@@ -204,7 +232,16 @@ export function Table({
     if (needsTarget(card.defId)) {
       return setAiming({ id: card.id, defId: card.defId });
     }
-    onPlay(card.id);
+    // Không cần ngắm → phải xác nhận. Đó là cả luật, không có ngoại lệ nào trong 16 loại lá
+    // rơi vào đây (đếm bằng script trên CARD_DEFS: 22 loại = 16 xác nhận + 5 ngắm + Né).
+    //
+    // Lá cần ngắm đã có một nhịp thứ hai sẵn (chọn mục tiêu, kèm nút Hủy), nên tap nhầm
+    // chúng không mất gì. Lá không cần ngắm thì trước đây rời tay ngay tại nhát tap này —
+    // và trong đó có Dynamite tự gắn bom lên mình, có súng bỏ luôn cây đang cầm, có Gatling
+    // bắn cả bàn. Ranh giới "mất mát hay không" thì có thật, nhưng nó không đọc được từ mặt
+    // lá; một luật mà người chơi tự suy ra được từ hình ảnh trên tay đáng hơn vài nhát bấm
+    // tiết kiệm được ở Mustang với Stagecoach.
+    setConfirmPlay(card);
   };
 
   // The discard fires as one act, in the order they were picked. The turn ends itself
@@ -313,6 +350,31 @@ export function Table({
       )}
 
       {infoCard && <CardModal card={infoCard} onClose={() => setInfoCard(null)} showEffect />}
+      {/* Lá hiện TO, kèm chữ hiệu ứng — không phải một thanh xác nhận mỏng. Lỗi cần bắt ở đây
+          là bốc nhầm lá, và lá trên tay chỉ rộng 104px trên điện thoại: một câu "Đánh Gatling?"
+          thì vẫn phải tin vào cái tên, còn mặt lá cỡ này thì tự nó nói ra bạn vừa chạm vào cái
+          gì. Bấm ra ngoài = Hủy, vì hướng an toàn phải là hướng dễ bấm nhất.
+
+          `actions` của CardModal viết từ hồi tách modal ra dùng chung mà tới giờ chưa ai gọi;
+          đây đúng là chỗ nó được viết cho. */}
+      {confirmPlay && (
+        <CardModal
+          card={confirmPlay}
+          showEffect
+          onClose={() => setConfirmPlay(null)}
+          actions={[
+            {
+              label: L(locale, "Đánh lá này", "Play it"),
+              onClick: () => {
+                const c = confirmPlay;
+                setConfirmPlay(null); // đóng TRƯỚC khi đánh: onPlay có thể sinh pending (Indians!, Gatling, General Store)
+                onPlay(c.id);
+              },
+            },
+            { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmPlay(null), ghost: true },
+          ]}
+        />
+      )}
       {confirmSurrender && (
         <div
           onClick={() => setConfirmSurrender(false)}
