@@ -121,11 +121,19 @@ test("a new turn opens a fresh window, and it narrows as the table empties", () 
   // moves — which is how this test first passed while measuring nothing at all.
   const full = tableReady(5);
   const curFull = full.room.players[full.room.turnIndex];
+  // Kẹp giữa HAI mốc đồng hồ, không phải một. endTurn đặt predictEndsAt = Date.now() + cửa
+  // sổ, đọc tại một thời điểm t nằm đâu đó giữa atFull và afterFull. Đo từ mỗi mốc trước
+  // rồi so với đúng bề rộng cửa sổ là một cuộc đua: đồng hồ nhích 1ms trong lúc endTurn
+  // chạy thì kết quả thành `cửa sổ + 1` và khẳng định `<= cửa sổ` sai. Chập chờn ~1/4 lần
+  // chạy, và mỗi lần lại đổ tội cho một thứ khác.
   const atFull = Date.now();
   assert.equal(game.endTurn(full.code, curFull.id).ok, true);
-  const openMs = full.room.predictEndsAt - atFull;
-  assert.ok(openMs > 0, "the new turn re-opened the window");
-  assert.ok(openMs <= PREDICT_WINDOW_MS, `a fresh window is at most the full one, got ${openMs}`);
+  const afterFull = Date.now();
+  assert.ok(full.room.predictEndsAt > atFull, "the new turn re-opened the window");
+  assert.ok(
+    full.room.predictEndsAt <= afterFull + PREDICT_WINDOW_MS,
+    `a fresh window is at most the full one, got ${full.room.predictEndsAt - afterFull}`,
+  );
 
   // Same shape, two corpses already on the table: two steps off the clock. Measured against
   // the deadline rather than the view's remaining-ms so the assertion cannot race the wall
@@ -134,9 +142,9 @@ test("a new turn opens a fresh window, and it narrows as the table empties", () 
   const curThin = thin.room.players[thin.room.turnIndex];
   const heir = thin.room.players[(thin.room.turnIndex + 1) % thin.room.players.length];
   for (const p of thin.room.players.filter((p) => p !== curThin && p !== heir).slice(0, 2)) kill(p);
-  const atThin = Date.now();
   assert.equal(game.endTurn(thin.code, curThin.id).ok, true);
-  const narrowed = thin.room.predictEndsAt - atThin;
+  const afterThin = Date.now();
+  const narrowed = thin.room.predictEndsAt - afterThin;
   assert.ok(
     narrowed <= PREDICT_WINDOW_MS - 2 * PREDICT_WINDOW_PER_DEATH_MS,
     `two deaths should have taken ${2 * PREDICT_WINDOW_PER_DEATH_MS}ms off, got ${narrowed}`
