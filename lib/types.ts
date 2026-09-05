@@ -310,6 +310,7 @@ export interface PlayerView {
   events: EventView[]; // events currently in force
   eventFeed: EventView[]; // recently fired events, oldest first — announce any `seq` you haven't shown
   missionsOn: boolean; // luật phòng: có chia nhiệm vụ phụ hay không
+  dodgeCityOn: boolean; // luật phòng: có trộn bộ mở rộng Dodge City vào nọc hay không
   missionFeed: MissionReveal[]; // nhiệm vụ vừa xong, cũ trước — hiện mọi `seq` chưa thấy
   predictSubjectId: string | null; // whose turn guesses are open on — the seat playing NOW
   // Milliseconds left to stake on the running turn, 0 when shut. Sent as a duration rather
@@ -323,7 +324,7 @@ export interface PlayerView {
   predictFeed: PredictReveal[];
 }
 
-// One entry in the action history. Formatted per-locale on the client.
+// Formatted per-locale on the client.
 export interface LogEntry {
   id: number;
   kind:
@@ -396,6 +397,7 @@ export interface ClientToServerEvents {
   setEventLevel: (data: { code: string; level: EventLevel }) => void; // host: random-event frequency
   // Luật phòng: có chia nhiệm vụ phụ hay không. Chỉ đổi được ở lobby.
   setMissionsOn: (data: { code: string; on: boolean }) => void;
+  setDodgeCityOn: (data: { code: string; on: boolean }) => void;
   addBot: (data: { code: string }) => void; // host: add an AI player (testing)
   removeBot: (data: { code: string }) => void; // host: remove the last AI player
   pickCharacter: (data: { code: string; characterId: string }) => void;
@@ -433,7 +435,6 @@ export interface RtcSignalData {
   candidate?: RTCIceCandidateInit;
 }
 
-// A media-enabled peer in the room, identified by its socket id.
 export interface RtcPeer {
   id: string; // socket id — the signaling address
   playerId: string; // seat identity, so the client can put this feed on the right seat

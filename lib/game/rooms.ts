@@ -15,7 +15,7 @@ export function getRoom(code: string): Room | undefined {
   return rooms.get(code);
 }
 
-// Public preview of the role distribution for a given headcount (shown in lobby).
+// Shown in the lobby, so players know the odds before they start.
 export function roleSetupFor(n: number): { role: Role; count: number }[] {
   const setup = ROLE_SETUP[n];
   if (!setup) return [];
@@ -108,6 +108,7 @@ export function createRoom(
     predictEndsAt: 0,
     predictFeed: [],
     missionsOn: true,
+    dodgeCityOn: false,
     dealtMissionIds: [],
     missionFeed: [],
     missionSeq: 0,
@@ -117,7 +118,7 @@ export function createRoom(
   return { room, player };
 }
 
-// Host adds an AI-controlled player to the lobby (for testing / filling seats).
+// For testing and for filling seats.
 export function addBot(code: string): Result {
   const room = rooms.get(code);
   if (!room) return err("no-such-room");

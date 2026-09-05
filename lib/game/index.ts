@@ -1,7 +1,5 @@
-// In-memory game engine for Bang! — full game: room lifecycle, role dealing,
-// character draft (deal 2 per player, no time limit; auto-pick by tier rank only
-// as a safety net if a player leaves), the card deck, and combat resolution.
-// Rooms live in a Map for the lifetime of the server process (no DB).
+// The engine core. Rooms live in a Map for the lifetime of the server process — no DB,
+// so nothing survives a restart.
 
 import {
   MAX_PLAYERS,
@@ -50,7 +48,7 @@ import {
   removeBot,
   roleSetupFor,
 } from "./rooms";
-import { buildView } from "./view";
+import { viewFor } from "./view";
 
 // Re-exported because they were part of this module's public surface before the split:
 // server.ts, lib/bot.ts and every test still reach for them through `game.*`. Moving an
@@ -73,7 +71,7 @@ export {
   removeBot,
   roleSetupFor,
 };
-export { buildView };
+export { viewFor };
 export { predict, cancelPrediction };
 
 
@@ -88,26 +86,7 @@ import {
 // Wins needed (cumulative within one room) to unlock the cross-game reward.
 const REWARD_WIN_THRESHOLD = 3;
 
-// --- helpers ---
-
-
-
-
-
-
 // --- room lifecycle ---
-
-
-
-
-
-
-
-// ── the room browser ────────────────────────────────────────────────────────
-
-
-
-
 
 export function disconnect(socketId: string): Room | null {
   for (const room of rooms.values()) {
@@ -203,7 +182,6 @@ export function startGame(code: string): Result {
   return { ok: true };
 }
 
-// A player locks in one of their two offered characters.
 export function pickCharacter(code: string, playerId: string, characterId: string): boolean {
   const room = rooms.get(code);
   if (!room || room.phase !== "drafting") return false;
@@ -243,7 +221,7 @@ function finalizeDraft(room: Room) {
   });
   // Build and shuffle the draw pile, then deal each player a starting hand equal
   // to their life points (Bang! starting-hand rule).
-  room.deck = shuffle(buildDeck());
+  room.deck = shuffle(buildDeck({ dodgeCity: room.dodgeCityOn }));
   room.discard = [];
   room.players.forEach((p) => {
     p.hand = room.deck.splice(-p.hp, p.hp);
@@ -284,16 +262,21 @@ export function setMissionsOn(code: string, on: boolean): boolean {
   return true;
 }
 
+// Lobby-only như setMissionsOn: nọc dựng một lần ở finalizeDraft, bật giữa ván là bàn
+// đang cầm bài của bộ này mà chơi bằng luật của bộ kia.
+export function setDodgeCityOn(code: string, on: boolean): boolean {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "lobby") return false;
+  room.dodgeCityOn = !!on;
+  return true;
+}
+
 export function setEventLevel(code: string, level: EventLevel): boolean {
   const room = rooms.get(code);
   if (!room) return false;
   room.eventLevel = level;
   return true;
 }
-
-
-
-
 
 
 // Fire one event: log it, run its one-shot effect, and register any modifier.
@@ -456,30 +439,6 @@ function makeCtx(room: Room, opener: Player): EventCtx {
 }
 
 
-// --- event-aware rule queries ----------------------------------------------
-// Single source of truth, used by BOTH the engine (to validate) and lib/bot.ts
-// (to filter). If the bot used its own copy it would keep attempting plays the
-// engine rejects, and since a failed bot step stops the scheduler, the table
-// would freeze with no timeout to break it.
-
-
-
-
-
-
-
-// --- deck helpers ---
-
-
-
-
-
-// --- distance & range ---
-
-
-
-
-
 // --- turn flow ---
 
 // Draw phase. The count is event-driven (1 under Empty Pockets, 3-4 under Card Rain
@@ -555,7 +514,6 @@ export function drawCards(
   pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
   return true;
 }
-
 
 
 export function playCard(
@@ -680,7 +638,7 @@ function playCardImpl(
 // Gatling also lets a defender's Barrel help (it is a Bang! effect).
 function playMulti(room: Room, current: Player, handIdx: number, effect: "indians" | "gatling"): Result {
   const [played] = current.hand.splice(handIdx, 1);
-  moveToDiscard(room, played);
+  pushToDiscard(room, played);
   const targets = room.players.filter((p) => p.alive && p.id !== current.id);
   const responders = targets.map((p) => ({ id: p.id, done: false, safe: false }));
   // playCard's notify keys off a single targetId, which a multi doesn't have.
@@ -715,7 +673,7 @@ function playDuel(room: Room, current: Player, handIdx: number, targetId?: strin
   if (activeEffect(room).protectSheriff && target.role === "sheriff") {
     return err("truce-protects-sheriff");
   }
-  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   room.pending = { kind: "duel", aId: current.id, bId: target.id, turnId: target.id };
   return { ok: true };
 }
@@ -767,19 +725,18 @@ function settleStore(room: Room, pending: StorePending) {
 }
 
 function playGeneralStore(room: Room, current: Player, handIdx: number): Result {
-  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   openGeneralStore(room, current);
   return { ok: true };
 }
 
-// Callers splice the card out themselves; this only records where it went.
-function moveToDiscard(room: Room, c: Card) {
+function pushToDiscard(room: Room, c: Card) {
   room.discard.push(c);
 }
 
 // Stagecoach / Wells Fargo: draw N cards.
 function playDraw(room: Room, current: Player, handIdx: number, n: number): Result {
-  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   for (let k = 0; k < n; k++) {
     const c = drawOne(room);
     if (c) current.hand.push(c);
@@ -790,7 +747,7 @@ function playDraw(room: Room, current: Player, handIdx: number, n: number): Resu
 // Saloon: every living player heals 1 (capped at their max).
 function playSaloon(room: Room, current: Player, handIdx: number): Result {
   if (activeEffect(room).noHeal) return err("event-forbids-heal");
-  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   for (const p of room.players) healPlayer(room, p, 1);
   return { ok: true };
 }
@@ -806,7 +763,6 @@ function pickTargetCard(target: Player, targetCardId?: string): { from: "hand" |
   if (target.equipment.length > 0) return { from: "equipment", index: Math.floor(Math.random() * target.equipment.length) };
   return null;
 }
-
 
 
 // Open the "somebody is taking your card" acknowledgement. Shared by Panic!, Cat Balou
@@ -856,7 +812,7 @@ function playPanic(room: Room, current: Player, handIdx: number, targetId?: stri
   // Spend the played card first either way: it has been played, publicly, whatever the
   // victim does next. Only the card coming BACK waits on them.
   if (!openTaken(room, current, target, "take", CARD_DEF_BY_ID.panic.name, targetCardId)) return err("target-has-no-cards");
-  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   return { ok: true };
 }
 
@@ -867,7 +823,7 @@ function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: s
   const problem = targetProblem(room, current, "cat-balou", target);
   if (problem) return { ok: false, error: problem };
   if (!openTaken(room, current, target, "toss", CARD_DEF_BY_ID["cat-balou"].name, targetCardId)) return err("target-has-no-cards");
-  moveToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
   return { ok: true };
 }
 
@@ -882,7 +838,7 @@ function resolveTaken(room: Room, p: Extract<Pending, { kind: "taken" }>): Card 
   const i = pile.findIndex((c) => c.id === p.cardId);
   if (i < 0) return null;
   const card = pile.splice(i, 1)[0];
-  if (p.mode === "toss") moveToDiscard(room, card);
+  if (p.mode === "toss") pushToDiscard(room, card);
   else taker.hand.push(card);
   return card;
 }
@@ -942,7 +898,7 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   return { ok: true };
 }
 
-// Play Beer proactively (only on your own turn) to heal 1, capped at max HP.
+// The proactive Beer. A dying player drinks through respond() instead.
 function playBeer(room: Room, current: Player, handIdx: number): Result {
   if (current.hp >= current.maxHp) return err("hp-full");
   const [c] = current.hand.splice(handIdx, 1);
@@ -1931,10 +1887,3 @@ export function playAgain(code: string): Result {
   if (!restart(code)) return err("no-such-room");
   return startGame(code);
 }
-
-// --- view building (hidden-info filtering) ---
-
-
-
-
-

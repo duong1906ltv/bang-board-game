@@ -143,6 +143,7 @@ export interface Room {
 
   // --- nhiệm vụ phụ ---
   missionsOn: boolean; // luật phòng, sống qua restart() — như eventLevel
+  dodgeCityOn: boolean; // luật phòng: có trộn bộ Dodge City vào nọc không — như missionsOn
   dealtMissionIds: string[]; // đã chia hoặc đã lộ; pool loại trừ danh sách này
   missionFeed: MissionReveal[];
   missionSeq: number;
@@ -158,8 +159,6 @@ export interface Room {
   turnDirRestore: (1 | -1) | null;
 }
 
-// An unresolved reaction that locks the table until responded to. There is no
-// deadline: reactions never time out (players take as long as they need).
 // An unresolved reaction that locks the table until responded to. There is no
 // deadline: reactions never time out (players take as long as they need).
 export type Pending =
@@ -216,7 +215,6 @@ export function logCheck(room: Room, c: { name: string; card: Card | null; kind:
   });
 }
 
-// Each player is offered 2 characters to choose from (no time limit to pick).
 export const DRAFT_PER_PLAYER = 2;
 
 // Role distribution by player count (classic Bang! base game).

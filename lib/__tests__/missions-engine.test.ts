@@ -260,10 +260,10 @@ test("nhiệm vụ CÒN ẨN không rời khỏi view của chính chủ", () =>
   const { t, me } = forMission("all-in");
   const other = t.room.players.find((p) => p !== me)!;
 
-  const own = game.buildView(t.room, me.id);
+  const own = game.viewFor(t.room, me.id);
   assert.equal(own.you.mission?.id, "all-in", "chính chủ phải thấy");
 
-  const theirs = game.buildView(t.room, other.id);
+  const theirs = game.viewFor(t.room, other.id);
   assert.equal(theirs.you.mission, null, "người khác không có nhiệm vụ của mình để thấy");
   // Và không lọt ra qua players[] — đúng chỗ bug General Store từng nằm.
   assert.ok(
@@ -278,7 +278,7 @@ test("xong rồi thì lộ công khai qua revealedMissionId", () => {
   const other = t.room.players.find((p) => p !== me)!;
   me.hand = [];
   game.endTurn(t.code, me.id);
-  const theirs = game.buildView(t.room, other.id);
+  const theirs = game.viewFor(t.room, other.id);
   assert.equal(theirs.players.find((p) => p.id === me.id)?.revealedMissionId, "all-in");
 });
 
@@ -309,7 +309,7 @@ test("tắt toggle thì không ai được chia nhiệm vụ", () => {
   const t = startTable(4);
   // startTable đã tắt sẵn; đây là kiểm rằng finalizeDraft tôn trọng cờ đó.
   assert.ok(t.room.players.every((p) => p.missionId === null), "tắt thì không chia");
-  assert.equal(game.buildView(t.room, t.sheriff.id).you.mission, null);
+  assert.equal(game.viewFor(t.room, t.sheriff.id).you.mission, null);
 });
 
 test("bot không nhận nhiệm vụ", () => {
@@ -391,7 +391,7 @@ test("tắt rồi bắt đầu ván thì không ai có nhiệm vụ, và view b�
   for (const p of room.players) game.pickCharacter(room.code, p.id, p.draftChoices[0].id);
   assert.ok(room.players.every((p) => p.missionId === null));
   for (const p of room.players) {
-    const v = game.buildView(room, p.id);
+    const v = game.viewFor(room, p.id);
     assert.equal(v.you.mission, null);
     assert.equal(v.missionsOn, false, "view phải mang cờ để UI ẩn chip");
   }

@@ -9,7 +9,7 @@ import { card, hand, kill, startTable, stackDeck, turnTo, type Table } from "./h
 
 // Whose turn guesses are open on: the seat playing right now.
 function subjectOf(t: Table): game.Player {
-  const id = game.buildView(t.room, t.sheriff.id).predictSubjectId;
+  const id = game.viewFor(t.room, t.sheriff.id).predictSubjectId;
   return t.room.players.find((p) => p.id === id)!;
 }
 
@@ -109,7 +109,7 @@ test("the staking window closes on the clock, and a late press is refused", () =
 
   // ...and the panel is told the same thing, so it greys out rather than letting somebody
   // press into a refusal.
-  const v = game.buildView(t.room, seer.id);
+  const v = game.viewFor(t.room, seer.id);
   assert.equal(v.you.canPredict, false);
   assert.equal(v.you.predictBlockReason, "predict-window-closed");
   assert.equal(v.predictMsLeft, 0);
@@ -160,7 +160,7 @@ test("a table waiting on a reaction does NOT block staking", () => {
   assert.ok(t.room.pending, "the Bang! is waiting on an answer");
   assert.equal(t.room.playsThisTurn, 1, "and the card was already counted");
 
-  const v = game.buildView(t.room, seer.id);
+  const v = game.viewFor(t.room, seer.id);
   assert.equal(v.you.canPredict, true, "the panel stays live");
   assert.equal(v.you.predictBlockReason, null);
   assert.equal(game.predict(t.code, seer.id, cur.id, "1").ok, true);
@@ -378,11 +378,11 @@ test("only the staker sees their own prediction before the reveal", () => {
   const seer = watcherIn(t, cur);
   game.predict(t.code, seer.id, cur.id, "3+");
 
-  const mine = game.buildView(t.room, seer.id);
+  const mine = game.viewFor(t.room, seer.id);
   assert.equal(mine.you.myPredictions.length, 1);
   assert.equal(mine.you.myPredictions[0].value, "3+");
 
-  const theirs = game.buildView(t.room, cur.id);
+  const theirs = game.viewFor(t.room, cur.id);
   assert.equal(theirs.you.myPredictions.length, 0);
   // ...and the value is not reachable anywhere else in a view that is not the staker's.
   assert.ok(
@@ -395,7 +395,7 @@ test("only the staker sees their own prediction before the reveal", () => {
 test("the view names the subject and the time left", () => {
   const t = tableReady();
   const cur = t.room.players[t.room.turnIndex];
-  const v = game.buildView(t.room, cur.id);
+  const v = game.viewFor(t.room, cur.id);
   assert.equal(v.predictSubjectId, cur.id);
   assert.ok(v.predictMsLeft > 0 && v.predictMsLeft <= PREDICT_WINDOW_MS);
 });
@@ -433,7 +433,7 @@ test("you.canPredict never disagrees with what the engine will accept", () => {
   // total in the UI.
   const t = tableReady(4);
   for (let lap = 0; lap < t.room.players.length * 2; lap++) {
-    const v = game.buildView(t.room, t.sheriff.id);
+    const v = game.viewFor(t.room, t.sheriff.id);
     const res = game.predict(t.code, t.sheriff.id, v.predictSubjectId ?? "", "1");
     assert.equal(
       v.you.canPredict,
@@ -450,7 +450,7 @@ test("canPredict agrees with the engine once the window has shut, too", () => {
   // it gets its own agreement check rather than riding on the lap above.
   const t = tableReady(4);
   t.room.predictEndsAt = Date.now() - 1;
-  const v = game.buildView(t.room, t.sheriff.id);
+  const v = game.viewFor(t.room, t.sheriff.id);
   const res = game.predict(t.code, t.sheriff.id, v.predictSubjectId ?? "", "1");
   assert.equal(v.you.canPredict, false);
   assert.equal(res.ok, false);
@@ -464,7 +464,7 @@ test("a lone human at a table of bots can stake on every turn but their own", ()
   for (const p of t.room.players) if (p !== t.sheriff) p.isBot = true;
   let legal = 0;
   for (let lap = 0; lap < t.room.players.length * 2; lap++) {
-    const subjectId = game.buildView(t.room, t.sheriff.id).predictSubjectId;
+    const subjectId = game.viewFor(t.room, t.sheriff.id).predictSubjectId;
     if (game.predict(t.code, t.sheriff.id, subjectId ?? "", "1").ok) legal++;
     t.room.predictions = [];
     turnTo(t.room, t.room.players[(t.room.turnIndex + 1) % t.room.players.length]);

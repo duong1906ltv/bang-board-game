@@ -73,8 +73,8 @@ app.prepare().then(() => {
     // scheduleAck); every real human choice waits indefinitely.
     for (const p of room.players) {
       if (p.socketId && p.connected) {
-        const view = game.buildView(room, p.id);
-        // Painted on afterwards, so buildView never learns the field exists.
+        const view = game.viewFor(room, p.id);
+        // Painted on afterwards, so viewFor never learns the field exists.
         if (chosen) for (const q of view.players) q.look = chosen.get(q.id);
         io.to(p.socketId).emit("view", view);
       }
@@ -252,6 +252,11 @@ app.prepare().then(() => {
       // setMissionsOn tự chặn khi phase !== "lobby" — nhiệm vụ chia một lần ở finalizeDraft nên
       // bật giữa ván là bàn chơi hai luật. Không nới chỗ này thành `!== "playing"` như events.
       if (game.setMissionsOn(code, on)) broadcast(code);
+    });
+
+    socket.on("setDodgeCityOn", ({ code, on }) => {
+      if (!isHost(code, socket.id)) return;
+      if (game.setDodgeCityOn(code, on)) broadcast(code);
     });
 
     socket.on("setEventLevel", ({ code, level }) => {

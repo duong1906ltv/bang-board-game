@@ -1,7 +1,7 @@
 "use client";
 
 import { PlayerView, ROLE_EMOJI, type EventLevel, MAX_PLAYERS, MIN_PLAYERS } from "@/lib/types";
-import { L, useLocale, roleLabel, eventLevelLabel, missionsOnLabel } from "@/lib/i18n";
+import { L, useLocale, roleLabel, eventLevelLabel, missionsOnLabel, dodgeCityOnLabel } from "@/lib/i18n";
 
 export function Lobby({
   view,
@@ -10,6 +10,7 @@ export function Lobby({
   onRemoveBot,
   onSetEventLevel,
   onSetMissionsOn,
+  onSetDodgeCityOn,
 }: {
   view: PlayerView;
   onStart: () => void;
@@ -17,6 +18,7 @@ export function Lobby({
   onRemoveBot: () => void;
   onSetEventLevel: (level: EventLevel) => void;
   onSetMissionsOn: (on: boolean) => void;
+  onSetDodgeCityOn: (on: boolean) => void;
 }) {
   const locale = useLocale();
   const n = view.players.length;
@@ -59,6 +61,29 @@ export function Lobby({
           </div>
         </>
       )}
+
+      {/* Đứng trước hai luật kia: nó quyết định bộ bài, chúng chỉ phủ lên trên. */}
+      <label style={{ marginTop: 12 }}>{L(locale, "Bộ mở rộng", "Expansion")}</label>
+      {view.you.isHost ? (
+        <button
+          className={view.dodgeCityOn ? "" : "ghost"}
+          style={{ width: "auto", padding: "8px 18px", fontSize: "0.9rem", alignSelf: "flex-start" }}
+          onClick={() => onSetDodgeCityOn(!view.dodgeCityOn)}
+        >
+          🤠 {dodgeCityOnLabel(locale, view.dodgeCityOn)}
+        </button>
+      ) : (
+        <span className="badge" style={{ alignSelf: "flex-start" }}>
+          🤠 {dodgeCityOnLabel(locale, view.dodgeCityOn)}
+        </span>
+      )}
+      <p className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
+        {L(
+          locale,
+          "Trộn thêm 40 lá của bộ mở rộng Dodge City vào nọc: dày hơn, nhiều Bang! và Beer hơn, thêm Riparo và Binocolo để giấu mình hoặc nhìn xa. Chỉ đổi được ở phòng chờ — nọc chia đúng một lần lúc bắt đầu ván.",
+          "Shuffle Dodge City's 40 extra cards into the deck: a thicker pile, more Bang!s and Beers, plus Hideout and Binocular for hiding or seeing farther. Lobby only — the deck is dealt once, when the game starts."
+        )}
+      </p>
 
       {/* Random events: the house layer on top of the base rules. Host picks the
           density; everyone else just sees what the room is set to. */}

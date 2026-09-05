@@ -133,7 +133,7 @@ function nudge(room: game.Room, code: string) {
 // và đây là chỗ duy nhất nó có thể tái xuất.
 function auditViews(room: game.Room, stats: Stats) {
   for (const viewer of room.players) {
-    const v = game.buildView(room, viewer.id);
+    const v = game.viewFor(room, viewer.id);
     if (v.you.mission && viewer.missionId !== v.you.mission.id) stats.viewLeak++;
     const hidden = room.players.filter((p) => p.id !== viewer.id && p.missionId && !p.missionDone);
     const blob = JSON.stringify({ players: v.players, log: v.log, feed: v.missionFeed });

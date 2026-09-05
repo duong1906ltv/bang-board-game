@@ -499,6 +499,9 @@ export const missionDesc = (l: Locale, id: string) =>
 export const missionsOnLabel = (l: Locale, on: boolean) =>
   on ? L(l, "Nhiệm vụ: BẬT", "Missions: ON") : L(l, "Nhiệm vụ: TẮT", "Missions: OFF");
 
+export const dodgeCityOnLabel = (l: Locale, on: boolean) =>
+  on ? L(l, "Dodge City: BẬT", "Dodge City: ON") : L(l, "Dodge City: TẮT", "Dodge City: OFF");
+
 // --- turn prediction (lib/predictions.ts) ---
 
 // Why the panel's buttons are dead right now. The engine resolves the reason

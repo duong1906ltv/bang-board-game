@@ -16,7 +16,7 @@ test("you.mission khớp state engine suốt một vòng tiến độ", () => {
   const def = MISSION_BY_ID["pacifist"];
 
   for (let lap = 0; lap < def.goal; lap++) {
-    const before = game.buildView(t.room, me.id).you.mission;
+    const before = game.viewFor(t.room, me.id).you.mission;
     assert.equal(before?.progress, me.missionProgress, `lượt ${lap}: view lệch engine`);
     assert.equal(before?.goal, def.goal);
     assert.equal(before?.done, me.missionDone);
@@ -27,7 +27,7 @@ test("you.mission khớp state engine suốt một vòng tiến độ", () => {
     game.endTurn(t.code, me.id);
   }
 
-  const after = game.buildView(t.room, me.id).you.mission;
+  const after = game.viewFor(t.room, me.id).you.mission;
   assert.equal(after?.done, true, "xong rồi view phải báo xong");
   assert.equal(after?.progress, def.goal);
   assert.equal(after?.done, me.missionDone, "và vẫn khớp engine");
@@ -36,14 +36,14 @@ test("you.mission khớp state engine suốt một vòng tiến độ", () => {
 test("you.mission mang emoji để chip vẽ được mà không phải tra registry", () => {
   const t = startTable(4);
   withMission(t.room, t.sheriff, "no-shield");
-  const m = game.buildView(t.room, t.sheriff.id).you.mission;
+  const m = game.viewFor(t.room, t.sheriff.id).you.mission;
   assert.equal(m?.id, "no-shield");
   assert.equal(m?.emoji, MISSION_BY_ID["no-shield"].emoji);
 });
 
 test("you.mission là null khi tắt toggle, và view mang cờ để UI ẩn chip", () => {
   const t = startTable(4); // startTable tắt sẵn nhiệm vụ
-  const v = game.buildView(t.room, t.sheriff.id);
+  const v = game.viewFor(t.room, t.sheriff.id);
   assert.equal(v.you.mission, null);
   assert.equal(v.missionsOn, false);
 });
@@ -56,7 +56,7 @@ test("you.mission là null với bot", () => {
   game.startGame(room.code);
   for (const p of room.players) game.pickCharacter(room.code, p.id, p.draftChoices[0].id);
   for (const bot of room.players.filter((p) => p.isBot)) {
-    assert.equal(game.buildView(room, bot.id).you.mission, null);
+    assert.equal(game.viewFor(room, bot.id).you.mission, null);
   }
 });
 
@@ -66,7 +66,7 @@ test("nhiệm vụ của người khác không lọt vào view của mình, kể
   withMission(t.room, a, "all-in");
   withMission(t.room, b, "mercy");
 
-  const mine = game.buildView(t.room, a.id);
+  const mine = game.viewFor(t.room, a.id);
   assert.equal(mine.you.mission?.id, "all-in");
   // Nhiệm vụ của b còn ẩn → không được xuất hiện ở đâu trong view của a.
   assert.ok(!JSON.stringify(mine.players).includes("mercy"), "players[] không được mang id còn ẩn");
@@ -83,7 +83,7 @@ test("missionFeed chỉ mang nhiệm vụ ĐÃ xong, và mang đủ số thưở
   me.hand = [];
   game.endTurn(t.code, me.id);
 
-  const v = game.buildView(t.room, t.room.players.find((p) => p !== me)!.id);
+  const v = game.viewFor(t.room, t.room.players.find((p) => p !== me)!.id);
   assert.equal(v.missionFeed.length, 1, "người khác cũng thấy màn lộ — nó là sự kiện của bàn");
   const r = v.missionFeed[0];
   assert.equal(r.missionId, "all-in");
@@ -94,7 +94,7 @@ test("missionFeed chỉ mang nhiệm vụ ĐÃ xong, và mang đủ số thưở
 test("chip không có gì để vẽ khi chưa chia nhiệm vụ", () => {
   const t = startTable(4);
   t.room.missionsOn = true; // bật nhưng chưa chia (ván đã bắt đầu với toggle tắt)
-  assert.equal(game.buildView(t.room, t.sheriff.id).you.mission, null, "missionId null → không chip");
+  assert.equal(game.viewFor(t.room, t.sheriff.id).you.mission, null, "missionId null → không chip");
 });
 
 test("hand() không phá liên kết view↔engine", () => {
@@ -105,7 +105,7 @@ test("hand() không phá liên kết view↔engine", () => {
   turnTo(t.room, me);
   stackDeck(t.room, card("beer", "hearts", 8), card("beer", "hearts", 9));
   game.endTurn(t.code, me.id);
-  const m = game.buildView(t.room, me.id).you.mission;
+  const m = game.viewFor(t.room, me.id).you.mission;
   assert.equal(m?.done, true);
   assert.equal(m?.done, me.missionDone);
 });

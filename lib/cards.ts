@@ -1,9 +1,13 @@
 // Bang! card catalog + deck builder.
 //
-// Each card type carries an explicit `spec` listing the exact cards in the deck
-// (suit + rank), transcribed from the provided card-value list. Range notation
-// like "2D-AD" mirrors the source and expands over the rank order
+// Each card type carries an explicit `spec` per printed set listing the exact cards it
+// contributes (suit + rank), transcribed from the published card-value list. Range
+// notation like "2D-AD" mirrors the source and expands over the rank order
 // 2,3,…,10,J,Q,K,A (Ace high within ranges; stored as rank 1).
+//
+// Dodge City deviates from the publisher's list in ONE place: it prints Whisky as Q♦,
+// which Pony Express already holds. Q♥ is the value that leaves no duplicate and balances
+// the suits — see plans/260902-1204-dodge-city-expansion/card-spec.md.
 
 import { CARD_ART, CARD_PHOTO } from "./cardArt";
 
@@ -52,100 +56,183 @@ export interface TargetRule {
   shoots?: boolean; // counts as a shot, so Truce protects the Sheriff from it
 }
 
+// A card printed in both sets (Bang!, Beer, Barrel, …) carries one entry per set rather
+// than a second CardDef with a duplicate id.
+export type CardSet = "base" | "dodgeCity";
+
+// Which sets a room is playing with. `base` is always in — it is the game.
+export interface DeckSets {
+  dodgeCity?: boolean;
+}
+
+export interface CardSetEntry {
+  count: number; // copies this set contributes (sanity check against `spec`)
+  spec: string; // exact card values, e.g. "AS 2D-AD 2C-9C QH-AH"
+}
+
 export interface CardDef {
   id: string; // stable slug
   it: string; // Italian name (as printed)
   name: string; // English name
   kind: CardKind;
-  count: number; // total copies in the deck (sanity check against `spec`)
-  spec: string; // exact card values, e.g. "AS 2D-AD 2C-9C QH-AH"
+  sets: Partial<Record<CardSet, CardSetEntry>>; // copies contributed per printed set
   range?: number; // weapon range (guns only)
   effect: string;
   target?: TargetRule; // present only for cards that are aimed at somebody
   notes?: string[];
+  seenFartherBy?: number; // others see the holder this much farther away (Mustang, Hideout)
+  seesCloserBy?: number; // the holder sees everyone this much closer (Scope, Binocular)
 }
 
 export const CARD_DEFS: CardDef[] = [
-  { id: "bang", it: "Bang!", name: "Bang!", kind: "brown", count: 25, spec: "AS 2D-AD 2C-9C QH-AH",
+  { id: "bang", it: "Bang!", name: "Bang!", kind: "brown",
+    sets: {
+      base: { count: 25, spec: "AS 2D-AD 2C-9C QH-AH" },
+      dodgeCity: { count: 4, spec: "8S 5C 6C KC" },
+    },
     effect: "Bắn 1 mục tiêu trong tầm bắn của bạn.",
     target: { maxDistance: "range", shoots: true } },
-  { id: "missed", it: "Mancato!", name: "Missed!", kind: "brown", count: 12, spec: "10C-AC 2S-8S",
+  { id: "missed", it: "Mancato!", name: "Missed!", kind: "brown",
+    sets: {
+      base: { count: 12, spec: "10C-AC 2S-8S" },
+      dodgeCity: { count: 1, spec: "8D" },
+    },
     effect: "Hủy hiệu ứng của một lá Bang! nhắm vào bạn.",
     notes: ["Không dùng được trong Duel."] },
-  { id: "beer", it: "Birra", name: "Beer", kind: "brown", count: 6, spec: "6H-JH",
+  { id: "beer", it: "Birra", name: "Beer", kind: "brown",
+    sets: {
+      base: { count: 6, spec: "6H-JH" },
+      dodgeCity: { count: 2, spec: "6H 6S" },
+    },
     effect: "Hồi 1 máu.",
     notes: [
       "Dynamite: nếu sắp nhận sát thương chí mạng từ Dynamite, có thể hủy toàn bộ bằng 1 Beer, về 1 máu.",
       "Rule 3: có thể dùng Beer để tự cứu khỏi sát thương chí mạng, kể cả khi mất hơn 1 máu.",
     ] },
-  { id: "cat-balou", it: "Cat Balou", name: "Cat Balou", kind: "brown", count: 4, spec: "KH 9D-JD",
+  { id: "cat-balou", it: "Cat Balou", name: "Cat Balou", kind: "brown",
+    sets: {
+      base: { count: 4, spec: "KH 9D-JD" },
+      dodgeCity: { count: 1, spec: "8C" },
+    },
     effect: "Buộc 1 người chơi bất kỳ (mọi khoảng cách) phải bỏ 1 lá bài.",
     target: { self: true, needsCards: true },
     notes: [
       "Có thể dùng lên chính mình để bỏ 1 lá cụ thể trên tay hoặc trên bàn.",
       "Bạn quyết định bỏ từ tay hay trên bàn, nhưng không chỉ định lá cụ thể của người khác.",
     ] },
-  { id: "panic", it: "Panico!", name: "Panic!", kind: "brown", count: 4, spec: "JH QH AH 8D",
+  { id: "panic", it: "Panico!", name: "Panic!", kind: "brown",
+    sets: {
+      base: { count: 4, spec: "JH QH AH 8D" },
+      dodgeCity: { count: 1, spec: "JH" },
+    },
     effect: "Rút 1 lá bài từ một người chơi ở khoảng cách 1.",
     target: { maxDistance: 1, needsCards: true },
     notes: [
       "Không được cộng tầm từ súng; nhưng các lá tăng tầm (Scope...) thì có áp dụng.",
       "Có thể dùng Panic để nhặt 1 lá trên bàn của chính mình.",
     ] },
-  { id: "duel", it: "Duello", name: "Duel", kind: "brown", count: 3, spec: "QD JS 8C",
+  { id: "duel", it: "Duello", name: "Duel", kind: "brown",
+    sets: { base: { count: 3, spec: "QD JS 8C" } },
     effect: "Mục tiêu bỏ 1 Bang!, rồi tới bạn, luân phiên. Ai không bỏ được Bang! trước thì mất 1 máu.",
     target: {},
     notes: ["Rule 5"] },
-  { id: "general-store", it: "Emporio", name: "General Store", kind: "brown", count: 2, spec: "9C QS",
+  { id: "general-store", it: "Emporio", name: "General Store", kind: "brown",
+    sets: {
+      base: { count: 2, spec: "9C QS" },
+      dodgeCity: { count: 1, spec: "AS" },
+    },
     effect: "Lật số lá bằng số người chơi. Mỗi người lần lượt rút 1 lá." },
-  { id: "indians", it: "Indiani!", name: "Indians!", kind: "brown", count: 2, spec: "KD AD",
+  { id: "indians", it: "Indiani!", name: "Indians!", kind: "brown",
+    sets: {
+      base: { count: 2, spec: "KD AD" },
+      dodgeCity: { count: 1, spec: "5D" },
+    },
     effect: "Tất cả người chơi khác phải bỏ 1 Bang! hoặc mất 1 máu." },
-  { id: "stagecoach", it: "Diligenza", name: "Stagecoach", kind: "brown", count: 2, spec: "9S 9S",
+  { id: "stagecoach", it: "Diligenza", name: "Stagecoach", kind: "brown",
+    sets: { base: { count: 2, spec: "9S 9S" } },
     effect: "Rút 2 lá bài." },
-  { id: "wells-fargo", it: "Wells Fargo", name: "Wells Fargo", kind: "brown", count: 1, spec: "3H",
+  { id: "wells-fargo", it: "Wells Fargo", name: "Wells Fargo", kind: "brown",
+    sets: { base: { count: 1, spec: "3H" } },
     effect: "Rút 3 lá bài." },
-  { id: "gatling", it: "Gatling", name: "Gatling", kind: "brown", count: 1, spec: "10H",
+  { id: "gatling", it: "Gatling", name: "Gatling", kind: "brown",
+    sets: { base: { count: 1, spec: "10H" } },
     effect: "Bắn Bang! vào TẤT CẢ người chơi khác.",
     notes: ["Rule 5", "Mọi người chịu ảnh hưởng của vũ khí/nhân vật/vật phẩm tác động lên Bang! của bạn."] },
-  { id: "saloon", it: "Saloon", name: "Saloon", kind: "brown", count: 1, spec: "5H",
+  { id: "saloon", it: "Saloon", name: "Saloon", kind: "brown",
+    sets: { base: { count: 1, spec: "5H" } },
     effect: "Tất cả người chơi (kể cả bạn) hồi 1 máu.",
     notes: ["Rule 3"] },
-  { id: "mustang", it: "Mustang", name: "Mustang", kind: "blue", count: 2, spec: "8H 9H",
+  { id: "mustang", it: "Mustang", name: "Mustang", kind: "blue",
+    sets: {
+      base: { count: 2, spec: "8H 9H" },
+      dodgeCity: { count: 1, spec: "5H" },
+    },
+    seenFartherBy: 1,
     effect: "Người khác thấy bạn ở khoảng cách +1." },
-  { id: "scope", it: "Mirino", name: "Scope", kind: "blue", count: 1, spec: "AS",
+  { id: "hideout", it: "Riparo", name: "Hideout", kind: "blue",
+    sets: { dodgeCity: { count: 1, spec: "KD" } },
+    seenFartherBy: 1,
+    effect: "Người khác thấy bạn ở khoảng cách +1.",
+    notes: ["Cộng dồn với Mustang và với Paul Regret."] },
+  { id: "scope", it: "Mirino", name: "Scope", kind: "blue",
+    sets: { base: { count: 1, spec: "AS" } },
+    seesCloserBy: 1,
     effect: "Bạn thấy người khác ở khoảng cách −1." },
-  { id: "barrel", it: "Barile", name: "Barrel", kind: "blue", count: 2, spec: "QS KS",
+  { id: "binocular", it: "Binocolo", name: "Binocular", kind: "blue",
+    sets: { dodgeCity: { count: 1, spec: "10D" } },
+    seesCloserBy: 1,
+    effect: "Bạn thấy người khác ở khoảng cách −1.",
+    notes: ["Cộng dồn với Scope và với Rose Doolan."] },
+  { id: "barrel", it: "Barile", name: "Barrel", kind: "blue",
+    sets: {
+      base: { count: 2, spec: "QS KS" },
+      dodgeCity: { count: 1, spec: "AC" },
+    },
     effect: "Draw! ra Cơ (Hearts) thì coi như Missed!.",
     notes: ["Tính là 1 Missed! cho các hiệu ứng liên quan. Không được Draw! hai lần.", "Rule 2"] },
-  { id: "jail", it: "Prigione", name: "Jail", kind: "blue", count: 3, spec: "JS 4H 10S",
+  { id: "jail", it: "Prigione", name: "Jail", kind: "blue",
+    sets: { base: { count: 3, spec: "JS 4H 10S" } },
     effect: "Draw! ra Cơ: bỏ Jail và chơi bình thường. Ngược lại bỏ Jail và bỏ lượt.",
     target: { notSheriff: true, notAlreadyHolding: true },
     notes: ["Không dùng lên Sheriff.", "Nếu được đi lượt tiếp ngay, có thể đi."] },
-  { id: "dynamite", it: "Dinamite", name: "Dynamite", kind: "blue", count: 1, spec: "2H",
+  { id: "dynamite", it: "Dinamite", name: "Dynamite", kind: "blue",
+    sets: {
+      base: { count: 1, spec: "2H" },
+      dodgeCity: { count: 1, spec: "10C" },
+    },
     effect: "Draw! ra [2–9] Bích (Spades): mất 3 máu. Ngược lại chuyển Dynamite sang người bên trái.",
     notes: [
       "Thứ tự xử lý: Dynamite > Jail > Rattlesnake > Bomb.",
       "Rule 2: nếu người bên trái đã có Dynamite thì không chuyển sang họ.",
     ] },
-  { id: "volcanic", it: "Volcanic", name: "Volcanic", kind: "gun", count: 2, spec: "10S 10C", range: 1,
+  { id: "volcanic", it: "Volcanic", name: "Volcanic", kind: "gun",
+    sets: { base: { count: 2, spec: "10S 10C" } }, range: 1,
     effect: "Có thể chơi bao nhiêu lá Bang! tùy thích. Tầm bắn cơ bản 1.",
     notes: ["Rule 6"] },
-  { id: "schofield", it: "Schofeld", name: "Schofield", kind: "gun", count: 3, spec: "JC QC KS", range: 2,
+  { id: "schofield", it: "Schofeld", name: "Schofield", kind: "gun",
+    sets: { base: { count: 3, spec: "JC QC KS" } }, range: 2,
     effect: "Tầm bắn cơ bản 2.", notes: ["Rule 6"] },
-  { id: "remington", it: "Remington", name: "Remington", kind: "gun", count: 1, spec: "KC", range: 3,
+  { id: "remington", it: "Remington", name: "Remington", kind: "gun",
+    sets: {
+      base: { count: 1, spec: "KC" },
+      dodgeCity: { count: 1, spec: "6D" },
+    }, range: 3,
     effect: "Tầm bắn cơ bản 3.", notes: ["Rule 6"] },
-  { id: "rev-carabine", it: "Rev. Carabine", name: "Rev. Carabine", kind: "gun", count: 1, spec: "AC", range: 4,
+  { id: "rev-carabine", it: "Rev. Carabine", name: "Rev. Carabine", kind: "gun",
+    sets: {
+      base: { count: 1, spec: "AC" },
+      dodgeCity: { count: 1, spec: "5S" },
+    }, range: 4,
     effect: "Tầm bắn cơ bản 4.", notes: ["Rule 6"] },
-  { id: "winchester", it: "Winchester", name: "Winchester", kind: "gun", count: 1, spec: "8S", range: 5,
+  { id: "winchester", it: "Winchester", name: "Winchester", kind: "gun",
+    sets: { base: { count: 1, spec: "8S" } }, range: 5,
     effect: "Tầm bắn cơ bản 5.", notes: ["Rule 6"] },
 ];
 
-// Lookup by slug.
 export const CARD_DEF_BY_ID: Record<string, CardDef> = Object.fromEntries(
   CARD_DEFS.map((d) => [d.id, d])
 );
 
-// Last-resort glyph, when a card has neither an illustration nor vector art.
 export const CARD_FALLBACK_GLYPH: Record<string, string> = {
   bang: "💥",
   missed: "🛡️",
@@ -161,6 +248,8 @@ export const CARD_FALLBACK_GLYPH: Record<string, string> = {
   saloon: "🍻",
   mustang: "🐎",
   scope: "🔭",
+  binocular: "🔭",
+  hideout: "🌵",
   barrel: "🛢️",
   jail: "⛓️",
   dynamite: "🧨",
@@ -171,11 +260,8 @@ export const CARD_FALLBACK_GLYPH: Record<string, string> = {
   winchester: "🔫",
 };
 
-// Optional per-card artwork (data URI or path). Original SVG art lives in
-// cardArt.ts; add more entries there (or your own images) to illustrate cards.
 const CARD_VECTOR_ART: Record<string, string> = CARD_ART;
 
-// Illustrated art under public/cards/. Tried before CARD_VECTOR_ART.
 const CARD_PHOTO_ART: Record<string, string> = CARD_PHOTO;
 
 // The art sources for a card, best first. Renderers walk this list and drop to
@@ -233,16 +319,26 @@ export interface Card {
   playedBy?: string;
 }
 
-export function buildDeck(): Card[] {
+function setsInPlay(sets?: DeckSets): CardSet[] {
+  return sets?.dodgeCity ? ["base", "dodgeCity"] : ["base"];
+}
+
+// The count-vs-spec check is per SET, deliberately: pooling the totals would let a typo
+// move a card from one printing to the other and still add up.
+export function buildDeck(sets?: DeckSets): Card[] {
   const deck: Card[] = [];
   let n = 0;
   for (const def of CARD_DEFS) {
-    const cards = parseSpec(def.spec);
-    if (cards.length !== def.count) {
-      throw new Error(`${def.id}: spec has ${cards.length} cards but count=${def.count}`);
-    }
-    for (const c of cards) {
-      deck.push({ id: `c${n++}`, defId: def.id, name: def.name, suit: c.suit, rank: c.rank });
+    for (const set of setsInPlay(sets)) {
+      const entry = def.sets[set];
+      if (!entry) continue; // this card is not printed in that set
+      const cards = parseSpec(entry.spec);
+      if (cards.length !== entry.count) {
+        throw new Error(`${def.id} (${set}): spec has ${cards.length} cards but count=${entry.count}`);
+      }
+      for (const c of cards) {
+        deck.push({ id: `c${n++}`, defId: def.id, name: def.name, suit: c.suit, rank: c.rank });
+      }
     }
   }
   return deck;

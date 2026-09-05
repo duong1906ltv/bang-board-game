@@ -74,7 +74,7 @@ function setupRoom(): string {
 function stakeRandomGuesses(room: game.Room, code: string, stats: Stats) {
   // Whoever is playing right now — read off the view, so the harness asks the same question
   // the panel does rather than a lifted copy of it.
-  const subjectId = game.buildView(room, room.players[0].id).predictSubjectId;
+  const subjectId = game.viewFor(room, room.players[0].id).predictSubjectId;
   const subject = room.players.find((p) => p.id === subjectId);
   if (!subject) return;
 
@@ -92,7 +92,7 @@ function stakeRandomGuesses(room: game.Room, code: string, stats: Stats) {
 function auditViews(room: game.Room, stats: Stats) {
   if (room.predictions.length === 0) return;
   for (const viewer of room.players) {
-    const v = game.buildView(room, viewer.id);
+    const v = game.viewFor(room, viewer.id);
     for (const p of v.you.myPredictions) if (p.byId !== viewer.id) stats.viewLeak++;
     const others = room.predictions.filter((p) => p.byId !== viewer.id);
     const blob = JSON.stringify({ players: v.players, log: v.log });

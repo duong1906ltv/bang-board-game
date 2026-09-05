@@ -1,6 +1,6 @@
 // Deterministic board builder for the engine tests.
 //
-// lib/game.ts shuffles with Math.random and offers no seam to inject a seed, so the
+// The engine shuffles with Math.random and offers no seam to inject a seed, so the
 // tests do not try to control the shuffle: they let a real game start, then overwrite
 // the Room — which getRoom() hands back mutable — into the exact position under test.
 

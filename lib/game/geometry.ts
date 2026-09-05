@@ -27,6 +27,12 @@ export function hasEquip(p: Player, defId: string): boolean {
   return p.equipment.some((c) => c.defId === defId);
 }
 
+// Read off the catalog rather than naming cards, so Dodge City can reprint Mustang as
+// Hideout and Scope as Binocular without a branch here. Summing is what makes them stack.
+function equipDistance(p: Player, field: "seenFartherBy" | "seesCloserBy"): number {
+  return p.equipment.reduce((n, c) => n + (CARD_DEF_BY_ID[c.defId]?.[field] ?? 0), 0);
+}
+
 // How many Barrel-style Draw!s a player gets when hit by a Bang!: one per Barrel
 // in play, plus any the character brings innately.
 export function barrelAttempts(p: Player): number {
@@ -34,9 +40,9 @@ export function barrelAttempts(p: Player): number {
 }
 
 // Distance the viewer `from` sees to player `to`, counting only living players
-// around the circle. Mustang and Paul Regret each add +1 to how far others see
-// the target; Scope and Rose Doolan each subtract 1 from what the viewer sees.
-// Both pairs stack (Paul Regret + Mustang = +2). Minimum 1.
+// around the circle. Mustang/Hideout and Paul Regret each add +1 to how far others see
+// the target; Scope/Binocular and Rose Doolan each subtract 1 from what the viewer sees.
+// Everything stacks (Paul Regret + Mustang + Hideout = +3). Minimum 1.
 export function distanceBetween(room: Room, from: Player, to: Player): number {
   if (from.id === to.id) return 0;
   // A ghost is not in the circle: the living count seats around it as though the chair
@@ -53,11 +59,9 @@ export function distanceBetween(room: Room, from: Player, to: Player): number {
   const raw = Math.abs(i - j);
   let dist = Math.min(raw, ring.length - raw);
 
-  // A card and an ability that pull the same way stack: Paul Regret holding a
-  // Mustang is seen at +2, Rose Doolan holding a Scope sees everyone at -2.
-  if (hasEquip(to, "mustang")) dist += 1;
+  dist += equipDistance(to, "seenFartherBy");
   dist += charEffect(to).distanceToDelta ?? 0;
-  if (hasEquip(from, "scope")) dist -= 1;
+  dist -= equipDistance(from, "seesCloserBy");
   dist -= charEffect(from).distanceSeenDelta ?? 0;
   // Weather events stretch or flatten the whole table (Fog / Open Plains).
   dist += activeEffect(room).distanceDelta ?? 0;
