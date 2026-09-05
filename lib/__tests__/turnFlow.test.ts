@@ -159,6 +159,63 @@ test("the Renegade does not win while anybody else is still standing", () => {
   assert.equal(room.winner, "outlaws", "an Outlaw is still alive, so the table is not the Renegade's");
 });
 
+// ─── Eight seats, two Renegades ──────────────────────────────────────────────
+// Dodge City's 8-player deal is the only one with a second Renegade, and the win
+// check was written when there could only ever be one. It reads every Renegade with
+// .every(), so it is already right — these tests are here to keep it that way, since
+// nothing else on the table would notice if it stopped being right.
+//
+// Seats come out in the canonical order roleSetupFor(8) gives:
+//   0 sheriff · 1-2 deputy · 3-5 outlaw · 6-7 renegade
+
+test("a Renegade takes an eight-seat table only as the last one standing", () => {
+  const { code, room, players } = startTable(8);
+  const [sheriff] = players;
+  const renegade = players[6];
+  for (const p of players) if (p !== sheriff && p !== renegade) kill(p);
+  sheriff.hp = 1;
+
+  shoot(code, room, renegade, sheriff);
+  assert.equal(room.winner, "renegade", "the other Renegade is down, so he stands alone");
+});
+
+test("two Renegades still standing means nobody has won yet", () => {
+  const { code, room, players } = startTable(8);
+  const lastOutlaw = players[5];
+  kill(players[3]);
+  kill(players[4]);
+  lastOutlaw.hp = 1;
+
+  shoot(code, room, players[2], lastOutlaw); // deputy, one seat away once 3 and 4 are down
+  assert.equal(room.winner, null, "every Outlaw is down but both Renegades are not");
+  assert.equal(room.phase, "playing");
+});
+
+test("the law needs BOTH Renegades down, not just one", () => {
+  const { code, room, players } = startTable(8);
+  const sheriff = players[0];
+  for (const seat of [3, 4, 5, 7]) kill(players[seat]);
+  players[6].hp = 1;
+
+  shoot(code, room, sheriff, players[6]);
+  assert.equal(room.winner, "sheriff");
+  assert.equal(room.phase, "result");
+});
+
+test("the Outlaws take the table when the Sheriff falls, even with none of them left alive", () => {
+  // Luật gốc, và nó phản trực giác đủ để ai đó "sửa" nhầm: phe Outlaw thắng khi Sheriff
+  // chết, kể cả khi outlaw cuối cùng đã nằm xuống từ lâu. Renegade chỉ thắng khi là
+  // người sống CUỐI CÙNG — hai renegade còn sống thì chưa ai là người cuối cùng cả.
+  const { code, room, players } = startTable(8);
+  const sheriff = players[0];
+  for (const seat of [3, 4, 5]) kill(players[seat]);
+  sheriff.hp = 1;
+
+  shoot(code, room, players[7], sheriff);
+  assert.equal(room.winner, "outlaws");
+  assert.ok(players[6].alive && players[7].alive, "and both Renegades were standing when it ended");
+});
+
 test("surrendering takes a player out of the game like a death", () => {
   const { code, room, players } = startTable(5);
   const [a, b] = players;

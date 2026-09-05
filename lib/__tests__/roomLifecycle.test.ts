@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as game from "../game";
 import { MAX_PLAYERS } from "../types";
+import { AVATAR_COLORS } from "../../components/three/scene/geometry";
 import { sock } from "./helpers/table";
 
 // The engine keeps one module-level Map of rooms for the life of the process, so
@@ -153,8 +154,23 @@ test("role distribution is fixed per headcount", () => {
   assert.deepEqual(flat(5), ["sheriff", "deputy", "outlaw", "outlaw", "renegade"]);
   assert.deepEqual(flat(6), ["sheriff", "deputy", "outlaw", "outlaw", "outlaw", "renegade"]);
   assert.deepEqual(flat(7), ["sheriff", "deputy", "deputy", "outlaw", "outlaw", "outlaw", "renegade"]);
-  assert.deepEqual(game.roleSetupFor(3), [], "outside 4–7 there is no legal deal");
-  assert.deepEqual(game.roleSetupFor(8), []);
+  // Bàn 8 của Dodge City là bộ duy nhất có HAI renegade.
+  assert.deepEqual(flat(8), [
+    "sheriff", "deputy", "deputy", "outlaw", "outlaw", "outlaw", "renegade", "renegade",
+  ]);
+  assert.deepEqual(game.roleSetupFor(3), [], "ngoài 4–8 không có cách chia nào hợp lệ");
+  assert.deepEqual(game.roleSetupFor(9), []);
+});
+
+test("there is a distinct shirt for every seat the table can hold", () => {
+  // Players.tsx đánh màu bằng `i % AVATAR_COLORS.length`, nên bảng ngắn hơn MAX_PLAYERS
+  // không lỗi gì cả — nó lặng lẽ cho hai người mặc trùng áo, và trên bàn 3D thì không
+  // còn cách nào phân biệt họ. Nâng MAX_PLAYERS mà quên bảng màu là đúng cái bẫy đó.
+  assert.ok(
+    AVATAR_COLORS.length >= MAX_PLAYERS,
+    `${AVATAR_COLORS.length} màu áo cho ${MAX_PLAYERS} chỗ ngồi`,
+  );
+  assert.equal(new Set(AVATAR_COLORS).size, AVATAR_COLORS.length, "và không màu nào lặp lại");
 });
 
 test("a game needs four to eight seats", () => {

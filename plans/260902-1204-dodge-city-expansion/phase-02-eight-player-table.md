@@ -1,10 +1,10 @@
 # Phase 02 — Bàn 8 người
 
-**Ngữ cảnh:** [plan.md](plan.md) · [phase 01](phase-01-deck-infrastructure-and-toggle.md)
+**Ngữ cảnh:** [plan.md](plan.md) · [phase 01](phase-01-deck-infrastructure-and-toggle.md) · **số đo:** [evidence/phase-02-eight-seats.md](evidence/phase-02-eight-seats.md)
 
 ## Tổng quan
 
-**Ưu tiên:** trung bình · **Trạng thái:** ⬜ chưa làm · **Phụ thuộc:** phase 01
+**Ưu tiên:** trung bình · **Trạng thái:** 🟡 xong phần luật + số đo, còn ảnh · **Phụ thuộc:** phase 01
 
 Nâng trần từ 7 lên 8 người theo luật Dodge City. Đây là **bài toán 3D**, không phải bài
 toán luật — tách riêng vì thế.
@@ -50,7 +50,7 @@ Chỗ duy nhất cần suy nghĩ là Sheriff: `outlawsDead && renegadesDead` —
 - `components/three/scene/Avatars.tsx` — kiểm không đè nhau ở 7 đối thủ
 
 **Tạo**
-- `scripts/check-seat-layout.ts` — in toạ độ ghế cho nOpp 3..7, khoảng cách nhỏ nhất giữa
+- `scripts/check-table-readability.ts` — in toạ độ ghế cho nOpp 3..7, khoảng cách nhỏ nhất giữa
   2 ghế liền kề, và ghế xa nhất so với khung hình
 - bổ sung vào `lib/__tests__/roomLifecycle.test.ts` + `lib/__tests__/turnFlow.test.ts`
 
@@ -61,34 +61,44 @@ Chỗ duy nhất cần suy nghĩ là Sheriff: `outlawsDead && renegadesDead` —
 2. Viết test cho 2 Renegade **trước khi đụng 3D**: (a) 1 renegade chết, renegade kia sống
    cuối cùng → `winner: "renegade"`; (b) cả 2 renegade còn sống, outlaw chết hết →
    chưa ai thắng; (c) outlaw + cả 2 renegade chết → `winner: "sheriff"`.
-3. Viết `scripts/check-seat-layout.ts`, chạy cho nOpp 3..7, đọc số.
+3. Viết `scripts/check-table-readability.ts`, chạy cho nOpp 3..7, đọc số.
 4. Chỉ khi số cho thấy có vấn đề mới chỉnh `layout()`. Đừng chỉnh trước.
 5. Thêm màu áo thứ 8 vào `AVATAR_COLORS` (tách rõ khỏi 7 màu kia trên nền nỉ xanh).
 6. Mở phòng 8 bot, xem mắt, chụp lại vào `evidence/`.
 
 ## Todo
 
-- [ ] `MAX_PLAYERS = 8`
-- [ ] `ROLE_SETUP[8] = sheriff, deputy×2, outlaw×3, renegade×2`
-- [ ] Test 3 nhánh thắng/thua với 2 Renegade
-- [ ] `scripts/check-seat-layout.ts`, đọc số cho nOpp 3..7
-- [ ] Màu áo thứ 8
-- [ ] Chỉnh `layout()` **chỉ khi** script chỉ ra vấn đề
-- [ ] Ván 8 bot chạy tới điều kiện thắng trong sim
-- [ ] Ảnh bàn 8 người vào `evidence/`
+- [x] `MAX_PLAYERS = 8`
+- [x] `ROLE_SETUP[8] = sheriff, deputy×2, outlaw×3, renegade×2`
+- [x] Test thắng/thua với 2 Renegade — **4 nhánh**, không phải 3. Nhánh thứ tư: Sheriff
+      chết trong khi hai renegade còn sống và outlaw đã chết sạch → **outlaws** thắng.
+      Phản trực giác đủ để ai đó "sửa" nhầm. `checkWin` đã đúng sẵn, không sửa dòng nào.
+- [x] `scripts/check-table-readability.ts` — gộp cả đo ghế lẫn đo màu áo, vì cùng một
+      câu hỏi "bàn có đọc được không" và cùng một lối trả lời bằng số
+- [x] Màu áo thứ 8: vàng `#f1c40f`, chọn bằng ΔE
+- [x] Chỉnh `layout()` **chỉ khi** script chỉ ra vấn đề → **không chỉnh**, bàn 8 còn hở
+      1.935 và đòi khung hẹp hơn bàn 6
+- [x] Ván 8 bot chạy tới điều kiện thắng — 400/400, 0 đóng băng, cả 3 phe đều thắng
+- [ ] Ảnh bàn 8 người vào `evidence/` — **còn thiếu**, cần trình duyệt
+
+Phát sinh, chưa quyết:
+
+- [ ] Draft nhân vật vừa khít 16: bàn 8 ăn đúng `8 × DRAFT_PER_PLAYER` = toàn bộ pool.
+      Bỏ đi một nhân vật thì người ngồi cuối chỉ còn 1 lựa chọn mà không ai báo lỗi.
+      Phase 03 thêm 15 nhân vật nên áp lực này biến mất — nhưng phase 02 ship trước.
 
 ## Xong khi
 
 - Ván 8 người chạy tới điều kiện thắng trong sim, cả 3 phe đều thắng được ít nhất 1 lần.
 - 3 test cho 2 Renegade xanh.
-- Script layout in ra khoảng cách ghế đều, không ghế nào lọt khung.
+- Script đo in ra khoảng cách ghế đều, không ghế nào lọt khung.
 - 8 áo phân biệt được bằng mắt trên ảnh chụp.
 
 ## Rủi ro
 
 | Rủi ro | Đối phó |
 |---|---|
-| Chỉnh toạ độ 3D bằng cảm giác — đã sai nhiều lần trước đây | Bắt buộc `scripts/check-seat-layout.ts`, sửa theo số |
+| Chỉnh toạ độ 3D bằng cảm giác — đã sai nhiều lần trước đây | Bắt buộc `scripts/check-table-readability.ts`, sửa theo số |
 | `arc` chạm trần 1.5 ở 7 đối thủ, người ngồi rìa có thể ra ngoài khung | Script đo cả vị trí so với khung hình, không chỉ khoảng cách ghế |
 | 2 renegade đổi cán cân, ván 8 người có thể kéo dài bất thường | Sim nhiều ván, đo số lượt trung bình; nếu lệch nhiều thì báo, đừng tự chỉnh luật |
 | Sửa `MAX_PLAYERS` làm vỡ test cũ đang giả định 7 | Bước 1 chạy `npm test` ngay, sửa test trước khi đi tiếp |

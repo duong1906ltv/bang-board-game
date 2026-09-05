@@ -223,6 +223,9 @@ export const ROLE_SETUP: Record<number, Role[]> = {
   5: ["sheriff", "renegade", "outlaw", "outlaw", "deputy"],
   6: ["sheriff", "renegade", "outlaw", "outlaw", "outlaw", "deputy"],
   7: ["sheriff", "renegade", "outlaw", "outlaw", "outlaw", "deputy", "deputy"],
+  // Dodge City mở bàn 8 với renegade THỨ HAI. Hai renegade không thành một phe: luật
+  // thắng vẫn là "người sống cuối cùng", nên họ phải hạ nhau nốt sau khi bàn dọn sạch.
+  8: ["sheriff", "renegade", "renegade", "outlaw", "outlaw", "outlaw", "deputy", "deputy"],
 };
 
 export function genCode(): string {

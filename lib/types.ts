@@ -18,7 +18,7 @@ export const ROLE_EMOJI: Record<Role, string> = {
 // here, not in game.ts: the client needs them for the lobby, and game.ts pulls in
 // node:crypto (escapeReward) so it cannot be imported from the browser.
 export const MIN_PLAYERS = 4;
-export const MAX_PLAYERS = 7;
+export const MAX_PLAYERS = 8;
 
 // The Sheriff's identity is public from the start; everyone else is hidden until
 // death (or the end of the game).
