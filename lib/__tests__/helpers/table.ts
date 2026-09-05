@@ -21,6 +21,7 @@ const PLAIN: Character = {
   rank: null,
   maxHp: 4,
   effect: {},
+  set: "base",
 };
 
 let cardSeq = 0;

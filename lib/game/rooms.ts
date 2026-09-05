@@ -81,6 +81,7 @@ export function createRoom(
     jailedTurn: false,
     upkeepFor: null,
     bangsThisTurn: 0,
+    abilityUsesThisTurn: {},
     playsThisTurn: 0,
     playedDefsThisTurn: [],
     pending: null,

@@ -36,6 +36,9 @@ export interface Character {
   rank: CharRank;
   maxHp: number; // "bullets" / life points (Sheriff gets +1 on top)
   effect: CharacterEffect;
+  // Bắt buộc, không optional: mặc định "base" thì một nhân vật Dodge City quên khai sẽ
+  // lặng lẽ lọt vào bàn chơi bộ gốc. Bắt khai thì tsc bắt được ngay lúc thêm entry.
+  set: GameSet;
 }
 
 // A character's ability as DATA, the same way events.ts models events: the engine
@@ -49,7 +52,9 @@ export interface CharacterEffect {
   //  jesse     : first card may come from a chosen player's hand
   //  pedro     : first card may come off the discard pile
   //  blackjack : reveal the 2nd; on Heart/Diamond draw a bonus card
-  drawMode?: "kit" | "jesse" | "pedro" | "blackjack";
+  //  noface    : draw one, plus one for every life point already lost
+  drawMode?: "kit" | "jesse" | "pedro" | "blackjack" | "noface";
+  drawCountDelta?: number; // extra cards in the draw phase (Pixie Pete)
 
   // --- shooting ---
   unlimitedBang?: boolean; // Bang!/turn budget lifted (as if holding a Volcanic)
@@ -58,6 +63,10 @@ export interface CharacterEffect {
   useAs?: [string, string];
 
   // --- being shot at ---
+  anyAsMissed?: boolean; // any card in hand answers a Bang! (Elena Fuente)
+  // Cards of this suit played BY SOMEBODY ELSE cannot touch this player. Not "every
+  // card of that suit": his own are fine, and a Draw! that flips it is nobody's play.
+  immuneSuit?: Suit;
   extraBarrel?: number; // innate Barrel-style Draw!s, on top of Barrels in play
   distanceToDelta?: number; // others see this player this much farther away
   distanceSeenDelta?: number; // this player sees everyone this much closer
@@ -65,32 +74,95 @@ export interface CharacterEffect {
   // --- draw! checks ---
   luckyDraw?: boolean; // flip two, keep the better card
 
+  // --- hand limit ---
+  handLimitOverride?: number; // a flat cap instead of "one card per life point" (Sean Mallory)
+
+  // --- healing ---
+  beerHealDelta?: number; // extra life per Beer, both when played and when dying (Tequila Joe)
+
   // --- reactions to damage and death ---
+  healOnDeath?: number; // life regained whenever ANYBODY dies (Greg Digger)
+  drawOnDeath?: number; // cards drawn whenever ANYBODY dies (Herb Hunter)
   drawOnDamage?: boolean; // draw one card per life point lost
   stealOnDamage?: boolean; // steal one card from the attacker per life point lost
   burnTwoToHeal?: boolean; // discard any 2 cards to regain 1 life, at any time
   refillWhenEmpty?: boolean; // draw immediately whenever the hand runs out
   inheritsDeadCards?: boolean; // takes a dead player's cards instead of the discard
+
+  // --- abilities you press a button for, on your own turn ---
+  // Kèm theo mỗi cái là một hạn mức lượt, xem Room. burnTwoToHeal (Sid Ketchum) không
+  // có hạn mức nên nó vẫn đứng riêng ở trên.
+  loseLifeToDraw?: boolean; // trả 1 máu lấy 2 lá, không giới hạn số lần (Chuck Wengam)
+  burnTwoToShoot?: boolean; // bỏ 2 lá bất kỳ để bắn 1 Bang!, 1 lần/lượt (Doc Holyday)
+  burnBlueToDraw?: boolean; // bỏ 1 lá xanh trên tay lấy 2 lá, 2 lần/lượt (José Delgado)
 }
 
 export const CHARACTERS: Character[] = [
-  { id: "kit-carlson", name: "Kit Carlson", rank: "A", maxHp: 4, effect: { drawMode: "kit" } },
-  { id: "suzy-lafayette", name: "Suzy Lafayette", rank: "A", maxHp: 4, effect: { refillWhenEmpty: true } },
-  { id: "willy-the-kid", name: "Willy the Kid", rank: null, maxHp: 4, effect: { unlimitedBang: true } },
-  { id: "jesse-jones", name: "Jesse Jones", rank: null, maxHp: 4, effect: { drawMode: "jesse" } },
-  { id: "el-gringo", name: "El Gringo", rank: null, maxHp: 3, effect: { stealOnDamage: true } },
-  { id: "paul-regret", name: "Paul Regret", rank: "B", maxHp: 3, effect: { distanceToDelta: 1 } },
-  { id: "slab-the-killer", name: "Slab the Killer", rank: "A", maxHp: 4, effect: { missedNeededDelta: 1 } },
-  { id: "jourdonnais", name: "Jourdonnais", rank: "A", maxHp: 4, effect: { extraBarrel: 1 } },
-  { id: "lucky-duke", name: "Lucky Duke", rank: "A", maxHp: 4, effect: { luckyDraw: true } },
-  { id: "calamity-janet", name: "Calamity Janet", rank: null, maxHp: 4, effect: { useAs: ["bang", "missed"] } },
-  { id: "rose-doolan", name: "Rose Doolan", rank: null, maxHp: 4, effect: { distanceSeenDelta: 1 } },
-  { id: "vulture-sam", name: "Vulture Sam", rank: "D", maxHp: 4, effect: { inheritsDeadCards: true } },
-  { id: "pedro-ramirez", name: "Pedro Ramirez", rank: "B", maxHp: 4, effect: { drawMode: "pedro" } },
-  { id: "bart-cassidy", name: "Bart Cassidy", rank: "C", maxHp: 4, effect: { drawOnDamage: true } },
-  { id: "black-jack", name: "Black Jack", rank: "B", maxHp: 4, effect: { drawMode: "blackjack" } },
-  { id: "sid-ketchum", name: "Sid Ketchum", rank: null, maxHp: 4, effect: { burnTwoToHeal: true } },
+  { id: "kit-carlson", name: "Kit Carlson", rank: "A", maxHp: 4, effect: { drawMode: "kit" }, set: "base" },
+  { id: "suzy-lafayette", name: "Suzy Lafayette", rank: "A", maxHp: 4, effect: { refillWhenEmpty: true }, set: "base" },
+  { id: "willy-the-kid", name: "Willy the Kid", rank: null, maxHp: 4, effect: { unlimitedBang: true }, set: "base" },
+  { id: "jesse-jones", name: "Jesse Jones", rank: null, maxHp: 4, effect: { drawMode: "jesse" }, set: "base" },
+  { id: "el-gringo", name: "El Gringo", rank: null, maxHp: 3, effect: { stealOnDamage: true }, set: "base" },
+  { id: "paul-regret", name: "Paul Regret", rank: "B", maxHp: 3, effect: { distanceToDelta: 1 }, set: "base" },
+  { id: "slab-the-killer", name: "Slab the Killer", rank: "A", maxHp: 4, effect: { missedNeededDelta: 1 }, set: "base" },
+  { id: "jourdonnais", name: "Jourdonnais", rank: "A", maxHp: 4, effect: { extraBarrel: 1 }, set: "base" },
+  { id: "lucky-duke", name: "Lucky Duke", rank: "A", maxHp: 4, effect: { luckyDraw: true }, set: "base" },
+  { id: "calamity-janet", name: "Calamity Janet", rank: null, maxHp: 4, effect: { useAs: ["bang", "missed"] }, set: "base" },
+  { id: "rose-doolan", name: "Rose Doolan", rank: null, maxHp: 4, effect: { distanceSeenDelta: 1 }, set: "base" },
+  { id: "vulture-sam", name: "Vulture Sam", rank: "D", maxHp: 4, effect: { inheritsDeadCards: true }, set: "base" },
+  { id: "pedro-ramirez", name: "Pedro Ramirez", rank: "B", maxHp: 4, effect: { drawMode: "pedro" }, set: "base" },
+  { id: "bart-cassidy", name: "Bart Cassidy", rank: "C", maxHp: 4, effect: { drawOnDamage: true }, set: "base" },
+  { id: "black-jack", name: "Black Jack", rank: "B", maxHp: 4, effect: { drawMode: "blackjack" }, set: "base" },
+  { id: "sid-ketchum", name: "Sid Ketchum", rank: null, maxHp: 4, effect: { burnTwoToHeal: true }, set: "base" },
+
+  // ── Dodge City ──
+  // rank để null hết: rank là thang tự-chọn-hộ khi người chơi không kịp bấm, và nó được
+  // xếp cho 16 người cũ theo cảm nhận về sức mạnh trong bộ gốc. Xếp hạng người mới trước
+  // khi có ai chơi thử là đoán mò — cứ để họ ở đáy thang cho tới khi có số liệu thật.
+  { id: "pixie-pete", name: "Pixie Pete", rank: null, maxHp: 3, effect: { drawCountDelta: 1 }, set: "dodgeCity" },
+  { id: "sean-mallory", name: "Sean Mallory", rank: null, maxHp: 3, effect: { handLimitOverride: 10 }, set: "dodgeCity" },
+  { id: "tequila-joe", name: "Tequila Joe", rank: null, maxHp: 4, effect: { beerHealDelta: 1 }, set: "dodgeCity" },
+  { id: "bill-noface", name: "Bill Noface", rank: null, maxHp: 4, effect: { drawMode: "noface" }, set: "dodgeCity" },
+  { id: "greg-digger", name: "Greg Digger", rank: null, maxHp: 4, effect: { healOnDeath: 2 }, set: "dodgeCity" },
+  { id: "herb-hunter", name: "Herb Hunter", rank: null, maxHp: 4, effect: { drawOnDeath: 2 }, set: "dodgeCity" },
+  { id: "elena-fuente", name: "Elena Fuente", rank: null, maxHp: 3, effect: { anyAsMissed: true }, set: "dodgeCity" },
+  { id: "apache-kid", name: "Apache Kid", rank: null, maxHp: 3, effect: { immuneSuit: "diamonds" }, set: "dodgeCity" },
+  { id: "chuck-wengam", name: "Chuck Wengam", rank: null, maxHp: 4, effect: { loseLifeToDraw: true }, set: "dodgeCity" },
+  { id: "doc-holyday", name: "Doc Holyday", rank: null, maxHp: 4, effect: { burnTwoToShoot: true }, set: "dodgeCity" },
+  { id: "jose-delgado", name: "José Delgado", rank: null, maxHp: 4, effect: { burnBlueToDraw: true }, set: "dodgeCity" },
 ];
+
+// Năng lực phải BẤM NÚT, khác với thứ engine tự đọc ở checkpoint. Tên đặt theo việc nó
+// làm chứ không theo tên nhân vật: engine không được phép biết ai là ai, y hệt lý do
+// CharacterEffect không có trường `characterId`.
+export type AbilityKind =
+  | "burn-two-to-heal" // Sid Ketchum: bỏ 2 lá lấy 1 máu
+  | "lose-life-to-draw" // Chuck Wengam: trả 1 máu lấy 2 lá
+  | "burn-two-to-shoot" // Doc Holyday: bỏ 2 lá bắn 1 Bang!
+  | "burn-blue-to-draw"; // José Delgado: bỏ 1 lá xanh trên tay lấy 2 lá
+
+// Bao nhiêu lần trong một lượt. Infinity không phải "vô hạn thật": Chuck Wengam bị chính
+// số máu chặn lại, còn Sid Ketchum dùng được cả ngoài lượt mình nên "mỗi lượt" không phải
+// đơn vị đo của anh ta.
+export const ABILITY_USES_PER_TURN: Record<AbilityKind, number> = {
+  "burn-two-to-heal": Infinity,
+  "lose-life-to-draw": Infinity,
+  "burn-two-to-shoot": 1,
+  "burn-blue-to-draw": 2,
+};
+
+// Dẫn xuất từ bảng trên chứ không chép tay: thêm một kind mà quên thêm vào đây thì nút
+// của nó sẽ không bao giờ hiện, và không có gì báo.
+export const ALL_ABILITY_KINDS = Object.keys(ABILITY_USES_PER_TURN) as AbilityKind[];
+
+// Cờ trên CharacterEffect mở khoá cho từng năng lực. Một bảng thay vì một switch: thêm
+// năng lực mới là thêm một dòng ở đây, không phải sửa một nhánh trong engine.
+export const ABILITY_FLAG: Record<AbilityKind, keyof CharacterEffect> = {
+  "burn-two-to-heal": "burnTwoToHeal",
+  "lose-life-to-draw": "loseLifeToDraw",
+  "burn-two-to-shoot": "burnTwoToShoot",
+  "burn-blue-to-draw": "burnBlueToDraw",
+};
 
 // Auto-resolve priority for the draft safety net: A > B > C > D > unranked.
 export const RANK_PRIORITY: Record<string, number> = { A: 4, B: 3, C: 2, D: 1 };
@@ -100,7 +172,7 @@ export function rankPriority(rank: CharRank): number {
 
 // ─── Cards ───────────────────────────────────────────────────────────────────
 
-import type { Card } from "./cards";
+import type { Card, GameSet, Suit } from "./cards";
 export type { Card };
 
 // ─── Game phases ─────────────────────────────────────────────────────────────
@@ -282,6 +354,10 @@ export interface PlayerView {
     // must not re-derive targeting rules: it had its own copy and did not know
     // about Truce, so it painted crosshairs on a Sheriff the server would refuse.
     legalTargets: Record<string, string[]>;
+    // Nút năng lực nào bấm được NGAY BÂY GIỜ, và Doc Holyday bắn được vào ai. Server
+    // quyết cả hai (abilityProblem trong rules.ts) để client không có cuốn luật thứ hai.
+    abilities: AbilityKind[];
+    abilityTargets: string[];
     legalDrawTargets: string[]; // players whose hand your draw phase may take from
     handLimit: number; // cards you may keep at end of turn (= hp, ± events)
     inbox: LogEntry[]; // what others did to you since your turn last ended
@@ -402,7 +478,8 @@ export interface ClientToServerEvents {
   removeBot: (data: { code: string }) => void; // host: remove the last AI player
   pickCharacter: (data: { code: string; characterId: string }) => void;
   drawCards: (data: { code: string; source?: "deck" | "discard" | "player"; targetId?: string }) => void; // draw phase
-  sidHeal: (data: { code: string; cardIds: string[] }) => void; // Sid Ketchum: discard 2 to heal 1
+  // Mọi năng lực bấm nút đi chung một sự kiện; `kind` nói là năng lực nào.
+  useAbility: (data: { code: string; kind: AbilityKind; cardIds?: string[]; targetId?: string }) => void;
   playCard: (data: { code: string; cardId: string; targetId?: string; targetCardId?: string }) => void; // play a card
   respond: (data: { code: string; type: "missed" | "beer" | "bang" | "pass"; cardId?: string }) => void; // reply to a pending
   choose: (data: { code: string; cardId: string }) => void; // pick a card (General Store)

@@ -2,7 +2,7 @@
 // functions a human would, one action per tick, so every rule is exercised identically.
 
 import * as game from "./game";
-import { rankPriority } from "./types";
+import { rankPriority, type AbilityKind } from "./types";
 import { Card, CARD_DEF_BY_ID } from "./cards";
 
 type Player = game.Player;
@@ -49,19 +49,20 @@ function isEnemy(me: Player, other: Player): boolean {
   return true; // renegade fights everyone
 }
 
-// Nearest living enemy within weapon range (for Bang!). Returns null if none.
-// Skips the Sheriff while a Truce event protects them, so the bot doesn't burn
-// its turn on a shot the engine will refuse.
-function nearestEnemyInRange(room: Room, me: Player): Player | null {
-  const range = game.rangeOf(me, room);
-  const truce = !!game.activeEffect(room).protectSheriff;
+// Kẻ địch gần nhất mà phát bắn NÀY thật sự với tới. Danh sách hợp lệ lấy thẳng từ engine
+// chứ không dựng lại: tầm súng chỉ là một luật trong nhiều luật — còn Truce che Sheriff,
+// và Apache Kid miễn nhiễm bài Rô, cái sau phụ thuộc vào chính LÁ đang cầm chứ không chỉ
+// vào hai người. Bản cũ tự lọc theo tầm rồi tự nhớ Truce, và đó đúng là kiểu cuốn-luật-
+// thứ-hai đã làm bàn treo 19/200 ván khi Apache Kid vào bộ: bot ngắm được, engine từ
+// chối, step() trả false, lịch bot dừng hẳn và bàn đứng vĩnh viễn.
+function nearestShootable(room: Room, me: Player, card?: Card): Player | null {
+  const legal = new Set(game.legalTargetIds(room, me, "bang", card));
   let best: Player | null = null;
   let bestDist = Infinity;
   for (const p of room.players) {
-    if (!p.alive || p.id === me.id || !isEnemy(me, p)) continue;
-    if (truce && p.role === "sheriff") continue;
+    if (!legal.has(p.id) || !isEnemy(me, p)) continue;
     const d = game.distanceBetween(room, me, p);
-    if (d <= range && d < bestDist) { best = p; bestDist = d; }
+    if (d < bestDist) { best = p; bestDist = d; }
   }
   return best;
 }
@@ -208,6 +209,13 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
     return ok(c) ? c : undefined;
   };
 
+  // Năng lực bấm nút đi qua đúng vị từ mà engine dùng, y như `ok()` ở trên. Bot đoán sai
+  // thì step() trả false và LỊCH BOT DỪNG HẲN — bàn treo vĩnh viễn, vì không chỗ nào
+  // trong game có timeout.
+  const canUse = (kind: AbilityKind) => game.abilityProblem(room, me, kind) === null;
+  const worstCards = (n: number) =>
+    [...me.hand].sort((a, b) => pickPriority(a) - pickPriority(b)).slice(0, n).map((c) => c.id);
+
   // 1. Equip a better gun.
   const gun = me.hand
     .filter((c) => CARD_DEF_BY_ID[c.defId]?.kind === "gun")
@@ -228,10 +236,31 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
     if (beer) return play(beer);
   }
 
-  // 4. Shoot the nearest enemy in range (Bang! is governed by its own budget).
-  const target = nearestEnemyInRange(room, me);
-  const bang = findUsableAs(me, "bang");
-  if (target && ok(bang, target.id) && game.bangBudget(room, me) > 0) return play(bang, target.id);
+  // 3b. Sid Ketchum: đốt 2 lá lấy 1 máu. Sau lá Bia vì Bia rẻ hơn — một lá đổi một máu,
+  // còn đây là hai. Chừa lại 2 lá để còn có gì mà chơi.
+  if (me.hp < me.maxHp && me.hand.length >= 4 && canUse("burn-two-to-heal")) {
+    const ids = worstCards(2);
+    return () => game.useAbility(code, me.id, "burn-two-to-heal", { cardIds: ids }).ok;
+  }
+
+  // 4. Shoot the nearest enemy in range (Bang! is governed by its own budget). Duyệt từng
+  // lá chứ không lấy lá đầu tiên: hai lá Bang! khác chất có thể với tới hai tập mục tiêu
+  // khác nhau, nên "lá đầu tiên không bắn được ai" không có nghĩa là không bắn được.
+  if (game.bangBudget(room, me) > 0) {
+    for (const c of me.hand.filter((x) => game.canUseAs(me, x, "bang"))) {
+      const t = nearestShootable(room, me, c);
+      if (t && ok(c, t.id)) return play(c, t.id);
+    }
+  }
+
+  // 4b. Doc Holyday: hết lá Bang! hoặc hết hạn mức thì vẫn bắn được, giá 2 lá. Đắt, nên
+  // chỉ làm khi trên tay còn dư — bắn xong mà tay trắng thì lượt sau không đỡ được gì.
+  const docTarget = me.hand.length >= 4 ? nearestShootable(room, me) : null;
+  if (docTarget && canUse("burn-two-to-shoot")) {
+    const ids = worstCards(2);
+    const tid = docTarget.id;
+    return () => game.useAbility(code, me.id, "burn-two-to-shoot", { cardIds: ids, targetId: tid }).ok;
+  }
 
   // 5. Area attacks.
   const gatling = usable("gatling");
@@ -244,6 +273,27 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   if (stage) return play(stage);
   const wells = usable("wells-fargo");
   if (wells) return play(wells);
+
+  // 6b. Chuck Wengam: đổi máu lấy bài, chỉ khi máu còn dày. Ngưỡng 3 chứ không phải 2:
+  // ở 2 máu một phát Bang! đưa anh ta vào cửa hấp hối, và anh ta vừa tiêu mất lá đỡ.
+  if (me.alive && me.hp >= 3 && me.hand.length <= 3 && canUse("lose-life-to-draw")) {
+    return () => game.useAbility(code, me.id, "lose-life-to-draw").ok;
+  }
+
+  // 6c. José Delgado: đốt lá xanh lấy 2 lá. Ưu tiên lá thừa thật — súng không hơn khẩu
+  // đang đeo, hoặc lá xanh trùng thứ đã bày ra bàn. Không có lá thừa thì chỉ đốt khi tay
+  // đằng nào cũng quá giới hạn và lá đó sắp bị bỏ.
+  if (canUse("burn-blue-to-draw")) {
+    const blues = me.hand.filter((c) => game.isBlueBordered(c));
+    const spare =
+      blues.find((c) => gunRange(c) > 0 && gunRange(c) <= game.rangeOf(me, room)) ??
+      blues.find((c) => me.equipment.some((e) => e.defId === c.defId)) ??
+      (me.hand.length > game.handLimitOf(room, me) ? blues[0] : undefined);
+    if (spare) {
+      const id = spare.id;
+      return () => game.useAbility(code, me.id, "burn-blue-to-draw", { cardIds: [id] }).ok;
+    }
+  }
 
   // 7. Saloon only if it actually heals us. A ghost is allowed to pour the round — it
   // just has no reason to, since every point of it goes to players who are still alive

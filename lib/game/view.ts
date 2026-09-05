@@ -6,16 +6,19 @@ import {
   PlayerView,
   PUBLIC_ROLES,
   Role,
+  ALL_ABILITY_KINDS,
 } from "../types";
 import { MISSION_BY_ID } from "../missions";
 import { charEffect } from "./deck";
 import { toEventView } from "./events-read";
 import { distanceBetween, rangeOf } from "./geometry";
 import {
+  abilityProblem,
   bangBudget,
   blockedDefIdsFor,
   canUseAs,
   handLimitOf,
+  legalTargetIds,
   legalTargetsFor,
   predictBlock,
   predictMsLeft,
@@ -263,6 +266,13 @@ export function viewFor(room: Room, playerId: string): PlayerView {
       playedDefsThisTurn: isMyTurn ? [...room.playedDefsThisTurn] : [],
       blockedDefIds: isMyTurn && me ? blockedDefIdsFor(room, me) : [],
       legalTargets: isMyTurn && me ? legalTargetsFor(room, me) : {},
+      // KHÔNG gác sau isMyTurn: Sid Ketchum uống được trong lượt người khác, và cửa
+      // hấp hối của anh ta luôn rơi vào lượt kẻ vừa bắn anh ta.
+      abilities: me ? ALL_ABILITY_KINDS.filter((k) => abilityProblem(room, me, k) === null) : [],
+      abilityTargets:
+        me && abilityProblem(room, me, "burn-two-to-shoot") === null
+          ? legalTargetIds(room, me, "bang")
+          : [],
       // Whose hand the draw phase may reach (Jesse Jones' drawMode).
       legalDrawTargets:
         me && charEffect(me).drawMode === "jesse"

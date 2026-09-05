@@ -3,8 +3,8 @@
 // Bottom of the stack alongside state.ts: nothing here knows about turns, cards
 // being played, or damage. It only knows how to take a card off the deck.
 
-import { Card } from "../cards";
-import { CharacterEffect } from "../types";
+import { Card, DeckSets } from "../cards";
+import { CHARACTERS, Character, CharacterEffect } from "../types";
 import { Player, Room, shuffle } from "./state";
 
 export function drawOne(room: Room): Card | null {
@@ -14,6 +14,14 @@ export function drawOne(room: Room): Card | null {
     room.discard = [];
   }
   return room.deck.pop() ?? null;
+}
+
+// Ai được phép xuất hiện trong lượt chọn nhân vật. Cùng khuôn với buildDeck: `base`
+// luôn có mặt vì nó là game, toggle chỉ quyết định có đổ thêm bộ mở rộng vào hay không.
+// Một hàm chứ không phải lọc tại chỗ ở startGame, vì test cần hỏi thẳng câu này.
+export function charactersInPlay(sets?: DeckSets): Character[] {
+  if (sets?.dodgeCity) return CHARACTERS;
+  return CHARACTERS.filter((c) => c.set === "base");
 }
 
 // A player's character ability, as data. Absent character (or a character with no

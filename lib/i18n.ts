@@ -154,6 +154,19 @@ const CHAR_ABILITY: Record<string, [string, string]> = {
   "bart-cassidy": ["Mỗi khi bị mất máu, rút 1 lá.", "Each time he loses a life point, he draws a card."],
   "black-jack": ["Lá rút thứ hai được lật ngửa; nếu là Cơ/Rô thì rút thêm 1 lá.", "He reveals his 2nd drawn card; on Heart/Diamond he draws one more."],
   "sid-ketchum": ["Có thể bỏ 2 lá để hồi 1 máu.", "He may discard 2 cards to regain 1 life point."],
+
+  // --- Dodge City ---
+  "pixie-pete": ["Rút 3 lá thay vì 2 ở đầu lượt.", "He draws 3 cards instead of 2 in his draw phase."],
+  "sean-mallory": ["Cuối lượt được giữ tới 10 lá trên tay.", "He may hold up to 10 cards in hand at the end of his turn."],
+  "tequila-joe": ["Mỗi lá Bia hồi 2 máu thay vì 1.", "Each Beer he plays regains 2 life points instead of 1."],
+  "bill-noface": ["Rút 1 lá, cộng thêm 1 lá cho mỗi máu đã mất.", "He draws 1 card, plus 1 for each wound he has taken."],
+  "greg-digger": ["Mỗi khi có người chết, hồi 2 máu.", "Each time a player is eliminated, he regains 2 life points."],
+  "herb-hunter": ["Mỗi khi có người chết, rút 2 lá.", "Each time a player is eliminated, he draws 2 cards."],
+  "elena-fuente": ["Có thể dùng lá bất kỳ làm Trượt!.", "She may use any card as a Missed!."],
+  "apache-kid": ["Miễn nhiễm với bài chất Rô của người khác.", "Diamond cards played by other players have no effect on him."],
+  "chuck-wengam": ["Trong lượt mình, có thể trả 1 máu để rút 2 lá. Không dùng được ở 1 máu.", "On his turn he may lose 1 life point to draw 2 cards. Not at 1 life."],
+  "doc-holyday": ["Mỗi lượt một lần, bỏ 2 lá để bắn 1 phát Bang! — không tính vào hạn mức.", "Once per turn he may discard 2 cards to fire a Bang!, which does not count against his limit."],
+  "jose-delgado": ["Mỗi lượt hai lần, bỏ 1 lá xanh trên tay để rút 2 lá.", "Twice per turn he may discard a blue card from his hand to draw 2 cards."],
 };
 export const charAbility = (l: Locale, id?: string | null) =>
   (id && CHAR_ABILITY[id] ? CHAR_ABILITY[id][l === "vi" ? 0 : 1] : "");
@@ -340,6 +353,9 @@ const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
     "Only from a player at distance 1",
   ],
   "target-has-no-cards": ["Mục tiêu không có bài", "The target has no cards"],
+  "ability-used-up": ["Năng lực này đã dùng hết lượt rồi", "That ability is spent for this turn"],
+  "need-a-blue-card": ["Cần một lá xanh trên tay", "Needs a blue card in hand"],
+  "immune-suit": ["Người này miễn nhiễm với chất bài đó", "This player is immune to that suit"],
   "cannot-jail-sheriff": ["Không thể bỏ tù Cảnh Sát Trưởng", "The Sheriff cannot be jailed"],
   "already-jailed": ["Người này đã bị giam", "Already in jail"],
   "truce-protects-sheriff": [

@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
+import { AbilityKind, Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
 import { type Card } from "@/lib/cards";
 import { getIntroSeen, setIntroSeen } from "@/lib/prefs";
 import { useDisplayPrefs } from "./useDisplayPrefs";
 import { useTableFeedback } from "./useTableFeedback";
 import { L, useLocale, roleLabel, tError } from "@/lib/i18n";
+import { AbilityBar, ABILITY_SPEC } from "./AbilityBar";
 import { Briefing } from "./Briefing";
 import { CardModal } from "./CardModal";
 import { CharacterFace } from "./CharacterFace";
@@ -33,7 +34,7 @@ export function Table({
   onDraw,
   onPlay,
   onDiscard,
-  onSidHeal,
+  onUseAbility,
   onEndTurn,
   onSurrender,
   onRestart,
@@ -46,7 +47,7 @@ export function Table({
   onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
   onPlay: (cardId: string, targetId?: string, targetCardId?: string) => void;
   onDiscard: (cardId: string) => void;
-  onSidHeal: (cardIds: string[]) => void;
+  onUseAbility: (kind: AbilityKind, cardIds: string[], targetId?: string) => void;
   onEndTurn: () => void;
   onSurrender: () => void;
   onRestart: () => void;
@@ -66,7 +67,13 @@ export function Table({
   // (Drought / Hangover), so the server sends the resolved number.
   const overLimit = Math.max(0, you.hand.length - you.handLimit);
   const inPlayPhase = isMyTurn && you.turnPhase !== "draw";
-  const [aiming, setAiming] = useState<{ id: string; defId: string } | null>(null);
+  // `ability` có mặt khi phát bắn này đến từ nút năng lực (Doc Holyday) chứ không từ một
+  // lá bài trên tay — lúc đó `id` rỗng vì không có lá nào để đánh đi.
+  const [aiming, setAiming] = useState<{
+    id: string;
+    defId: string;
+    ability?: { kind: AbilityKind; cardIds: string[] };
+  } | null>(null);
   // Lá đang chờ bạn xác nhận đánh. Cùng họ với `aiming` ở trên, và cố ý nằm ngay cạnh nó:
   // cả hai là "một nhát tap đã mở một nước đi nhưng nước đó CHƯA xảy ra", và giữa chúng là
   // toàn bộ tay bài — lá cần ngắm thì lùi được bằng nút Hủy của thanh ngắm, lá không cần
@@ -77,8 +84,9 @@ export function Table({
   const [homeKey, setHomeKey] = useState(0);
   // A General Store or a Kit Carlson is answered out on the table, not in a panel.
   const tableChoice = view.pending?.kind === "store" || view.pending?.kind === "kit";
-  const [sidPick, setSidPick] = useState<string[]>([]);
-  const [sidPicking, setSidPicking] = useState(false);
+  // Năng lực đang chờ bạn chọn lá cho nó. Một state cho cả bốn năng lực: chúng khác nhau
+  // ở số lá và ở chỗ có phải ngắm ai không, và cả hai điều đó nằm trong ABILITY_SPEC.
+  const [ability, setAbility] = useState<{ kind: AbilityKind; pick: string[] } | null>(null);
   // Hai chế độ bỏ bài, không phải một cờ. "forced" là bước bắt buộc trước khi hết lượt —
   // đúng số lá vượt giới hạn, rồi lượt tự kết thúc. "free" là bỏ CHỦ ĐỘNG, bao nhiêu lá cũng
   // được, và không kết thúc lượt.
@@ -124,7 +132,7 @@ export function Table({
       if (e.key !== "Escape") return;
       setInfoCard(null); setCharView(null); setPlayerInfo(null); closeBriefing(); dismissEvents();
       setConfirmSurrender(false); setDiscarding(false);
-      setAiming(null); setSidPicking(false); setConfirmPlay(null);
+      setAiming(null); setAbility(null); setConfirmPlay(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -166,7 +174,6 @@ export function Table({
   }, [inPlayPhase, you.hand]);
 
   const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
-  const canBurnToHeal = !!you.character?.effect.burnTwoToHeal;
   // A character whose useAs pair covers Bang! can fire the swapped card as one, so
   // that card aims like a Bang! (targeting + range) and counts against the
   // Bang!/turn limit.
@@ -223,15 +230,18 @@ export function Table({
   // in turn: Sid Ketchum picking his two, the discard that ends a turn picking its N,
   // and otherwise playing the card outright. Reading a card is a press-and-hold.
   const cardAction = (card: Card) => {
-    // Sid Ketchum can discard-to-heal any time, so his selection isn't gated by
-    // being in your play phase.
-    if (sidPicking) {
-      const next = sidPick.includes(card.id) ? sidPick.filter((x) => x !== card.id) : [...sidPick, card.id];
-      if (next.length === 2) {
-        onSidHeal(next);
-        setSidPick([]);
-        setSidPicking(false);
-      } else setSidPick(next);
+    // Không gác sau inPlayPhase: Sid Ketchum bỏ bài lấy máu được cả ngoài lượt mình, và
+    // server đã quyết ai bấm được gì qua `you.abilities`.
+    if (ability) {
+      const spec = ABILITY_SPEC[ability.kind];
+      const next = ability.pick.includes(card.id)
+        ? ability.pick.filter((x) => x !== card.id)
+        : [...ability.pick, card.id];
+      if (next.length < spec.need) return setAbility({ ...ability, pick: next });
+      setAbility(null);
+      // Doc Holyday còn phải ngắm; hai người kia xong ngay khi đủ lá.
+      if (spec.aims) setAiming({ id: "", defId: "bang", ability: { kind: ability.kind, cardIds: next } });
+      else onUseAbility(ability.kind, next);
       return;
     }
     if (!inPlayPhase) return;
@@ -277,14 +287,23 @@ export function Table({
 
   // The engine resolves who each card may be aimed at (targetProblem in game.ts)
   // and ships the answer in the view, so this is pure lookup — no second rulebook.
+  //
+  // Khoá theo id lá bài trước, tên bài chỉ là đường lui: Apache Kid miễn nhiễm bài Rô nên
+  // hai lá Bang! cùng nằm trên tay có thể có mục tiêu hợp lệ khác nhau, và khoá theo tên
+  // thì hai lá đó dùng chung một câu trả lời.
   const canTarget = (p: (typeof view.players)[number]) => {
     if (!aiming) return false;
-    const ids = you.legalTargets[aiming.defId];
+    // Phát bắn của Doc Holyday không đi ra từ một lá bài nào, nên nó có danh sách mục
+    // tiêu riêng do server dựng — legalTargets khoá theo lá thì không có chỗ cho nó.
+    const ids = aiming.ability
+      ? you.abilityTargets
+      : you.legalTargets[aiming.id] ?? you.legalTargets[aiming.defId];
     return !!ids?.includes(p.id);
   };
   const fireAt = (targetId: string, targetCardId?: string) => {
     if (!aiming) return;
-    onPlay(aiming.id, targetId, targetCardId);
+    if (aiming.ability) onUseAbility(aiming.ability.kind, aiming.ability.cardIds, targetId);
+    else onPlay(aiming.id, targetId, targetCardId);
     setAiming(null);
   };
   // Cat Balou / Panic! may hit a specific face-up card on the table.
@@ -606,7 +625,7 @@ export function Table({
                   onClick={() => {
                     if (overLimit === 0) return onEndTurn();
                     setAiming(null);
-                    setSidPicking(false);
+                    setAbility(null);
                     setDiscardMode("forced");
                   }}
                 >
@@ -626,7 +645,7 @@ export function Table({
                     title={L(locale, "Tự bỏ bài khỏi tay", "Throw cards away by choice")}
                     onClick={() => {
                       setAiming(null);
-                      setSidPicking(false);
+                      setAbility(null);
                       setDiscardMode("free");
                     }}
                   >
@@ -639,30 +658,18 @@ export function Table({
         </div>
       )}
 
-      {/* Sid Ketchum: discard 2 → heal 1, usable ANY time (even off-turn / dying) */}
-      {canBurnToHeal && you.alive && you.hp < you.maxHp && you.hand.length >= 2 && (
-        <button
-          onClick={() => { setSidPicking((v) => !v); setSidPick([]); setDiscarding(false); }}
-          style={{
-            position: "fixed",
-            left: 12,
-            bottom: 132,
-            zIndex: 57,
-            width: "auto",
-            padding: "8px 12px",
-            fontSize: "0.82rem",
-            fontWeight: 700,
-            borderRadius: 10,
-            border: `1px solid ${sidPicking ? "#33d17a" : "rgba(240,226,192,0.5)"}`,
-            background: sidPicking ? "rgba(20,110,50,0.92)" : "rgba(20,18,16,0.88)",
-            color: "#f0e2c0",
-          }}
-        >
-          {sidPicking
-            ? L(locale, `Chạm 2 lá để bỏ (${sidPick.length}/2) · Hủy`, `Tap 2 to discard (${sidPick.length}/2) · Cancel`)
-            : L(locale, "🩹 Sid: bỏ 2 → +1 máu", "🩹 Sid: discard 2 → +1")}
-        </button>
-      )}
+      <AbilityBar
+        view={view}
+        active={ability?.kind ?? null}
+        picked={ability?.pick.length ?? 0}
+        onPress={(kind) => {
+          setDiscarding(false);
+          if (ability?.kind === kind) return setAbility(null); // bấm lại là huỷ
+          // Chuck Wengam không cần lá nào — bấm là xong.
+          if (ABILITY_SPEC[kind].need === 0) return onUseAbility(kind, []);
+          setAbility({ kind, pick: [] });
+        }}
+      />
 
       {/* aiming: click a green scope over a target (rendered in the 3D scene).
           Docked to the top-centre, just under the HUD, so it doesn't cover the table. */}
@@ -700,9 +707,9 @@ export function Table({
                    with `waiting-for-reaction`, so every tap here would be an error
                    message. Answering a pending is the reaction panel's job, not the
                    hand's — except Sid's burn, which is legal at any time at all. */
-                canInteract={(inPlayPhase && !view.pending) || sidPicking}
+                canInteract={(inPlayPhase && !view.pending) || !!ability}
                 entering={justDrew.has(c.id)}
-                selected={sidPick.includes(c.id) || discardPick.includes(c.id) || aiming?.id === c.id}
+                selected={!!ability?.pick.includes(c.id) || discardPick.includes(c.id) || aiming?.id === c.id}
                 onTap={() => cardAction(c)}
                 onInspect={() => setInfoCard(c)}
               />
@@ -713,8 +720,8 @@ export function Table({
 
       {inPlayPhase && !aiming && you.hand.length > 0 && (
         <div style={{ position: "fixed", left: "50%", bottom: 176, transform: "translateX(-50%)", zIndex: 55, color: "rgba(240,226,192,0.85)", fontSize: 13, fontFamily: "system-ui, sans-serif", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", pointerEvents: "none" }}>
-          {sidPicking
-            ? L(locale, `Chạm 2 lá để bỏ (${sidPick.length}/2)`, `Tap 2 cards to discard (${sidPick.length}/2)`)
+          {ability
+            ? `${L(locale, ABILITY_SPEC[ability.kind].picking[0], ABILITY_SPEC[ability.kind].picking[1])} (${ability.pick.length}/${ABILITY_SPEC[ability.kind].need})`
             : discardMode === "forced"
               ? L(locale, `Chọn ${overLimit} lá để bỏ (${discardPick.length}/${overLimit})`, `Pick ${overLimit} to discard (${discardPick.length}/${overLimit})`)
               : discardMode === "free"

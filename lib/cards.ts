@@ -56,9 +56,9 @@ export interface TargetRule {
   shoots?: boolean; // counts as a shot, so Truce protects the Sheriff from it
 }
 
-// A card printed in both sets (Bang!, Beer, Barrel, …) carries one entry per set rather
-// than a second CardDef with a duplicate id.
-export type CardSet = "base" | "dodgeCity";
+// Which printed box something came out of. Not cards only — characters carry it too
+// (see Character.set), because the room toggle has to hold back both at once.
+export type GameSet = "base" | "dodgeCity";
 
 // Which sets a room is playing with. `base` is always in — it is the game.
 export interface DeckSets {
@@ -75,7 +75,7 @@ export interface CardDef {
   it: string; // Italian name (as printed)
   name: string; // English name
   kind: CardKind;
-  sets: Partial<Record<CardSet, CardSetEntry>>; // copies contributed per printed set
+  sets: Partial<Record<GameSet, CardSetEntry>>; // copies contributed per printed set
   range?: number; // weapon range (guns only)
   effect: string;
   target?: TargetRule; // present only for cards that are aimed at somebody
@@ -319,7 +319,7 @@ export interface Card {
   playedBy?: string;
 }
 
-function setsInPlay(sets?: DeckSets): CardSet[] {
+function setsInPlay(sets?: DeckSets): GameSet[] {
   return sets?.dodgeCity ? ["base", "dodgeCity"] : ["base"];
 }
 

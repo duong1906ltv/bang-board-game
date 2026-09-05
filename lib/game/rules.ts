@@ -7,6 +7,7 @@
 // prediction panel greyed out on turns the engine would have accepted.
 
 import { Card, CARD_DEF_BY_ID } from "../cards";
+import { ABILITY_FLAG, ABILITY_USES_PER_TURN, AbilityKind } from "../types";
 import { GameError } from "../errors";
 import { activeEffect } from "./events-read";
 import { charEffect } from "./deck";
@@ -18,11 +19,22 @@ import { Player, Room } from "./state";
 export const HEAL_DEF_IDS = ["beer", "saloon"];
 
 // Read from the card's TargetRule. Both the play handlers and viewFor come through here.
-export function targetProblem(room: Room, actor: Player, defId: string, target: Player): GameError | null {
+export function targetProblem(
+  room: Room,
+  actor: Player,
+  defId: string,
+  target: Player,
+  card?: Card,
+): GameError | null {
   const rule = CARD_DEF_BY_ID[defId]?.target;
   if (!rule) return { code: "invalid-card" };
   if (!target.alive) return { code: "invalid-target" };
   if (target.id === actor.id && !rule.self) return { code: "invalid-target" };
+  // Apache Kid: "lá bài chất Rô của NGƯỜI KHÁC", không phải "mọi lá Rô". Của chính anh ta
+  // thì bình thường, và Dynamite hay lá lật lên khi Draw! không phải ai đánh vào anh ta cả
+  // — chúng không đi qua cửa này nên tự khắc không dính.
+  const immune = charEffect(target).immuneSuit;
+  if (immune && card?.suit === immune && actor.id !== target.id) return { code: "immune-suit" };
   if (rule.shoots && activeEffect(room).protectSheriff && target.role === "sheriff") {
     return { code: "truce-protects-sheriff" };
   }
@@ -46,7 +58,10 @@ export function handLimitOf(room: Room, p: Player): number {
   // A ghost's whole hand goes to the discard with it, so no limit applies. Answering with
   // the hand (not hp, which is 0) stops endTurn demanding a discard the rule never asks for.
   if (p.ghost) return p.hand.length;
-  return Math.max(1, p.hp + (activeEffect(room).handLimitDelta ?? 0));
+  // Sean Mallory thay hẳn "một lá mỗi máu" bằng một trần phẳng. Sự kiện vẫn cộng trừ lên
+  // trên: chúng co giãn cả bàn, không phải luật riêng của một người.
+  const base = charEffect(p).handLimitOverride ?? p.hp;
+  return Math.max(1, base + (activeEffect(room).handLimitDelta ?? 0));
 }
 
 export function bangBudget(room: Room, p: Player): number {
@@ -106,10 +121,14 @@ export function legalTargetsFor(room: Room, p: Player): Record<string, string[]>
     const playAs = [c.defId, ...(swap?.includes(c.defId) ? swap.filter((d) => d !== c.defId) : [])];
     for (const as of playAs) {
       if (!CARD_DEF_BY_ID[as]?.target) continue;
-      const ids = legalTargetIds(room, p, as);
-      // BOTH names: the engine validates by the card played AS, the client aims by the card
-      // in hand. Keying only "bang" left Janet's Missed! with no crosshair and her ability
-      // unreachable.
+      const ids = legalTargetIds(room, p, as, c);
+      // Ba khoá cho một lá, và khoá theo `c.id` là khoá CHÍNH: Apache Kid miễn nhiễm bài
+      // Rô, nên một Bang! ♦ và một Bang! ♣ trên cùng bàn tay có mục tiêu hợp lệ khác nhau
+      // — khoá theo defId thì hai lá đè lên nhau và một trong hai chắc chắn sai.
+      out[c.id] = ids;
+      // Hai khoá defId giữ lại cho client cũ và cho chỗ nào chỉ biết tên bài: engine kiểm
+      // theo lá được đánh NHƯ, client ngắm theo lá trên tay. Chỉ khoá "bang" thì lá Né của
+      // Janet mất crosshair và năng lực của cô ấy không bấm tới được.
       out[as] ??= ids;
       out[c.defId] ??= ids;
     }
@@ -131,16 +150,72 @@ export function isExemptPlay(room: Room, p: Player, card: Card, targetId?: strin
   return isBangLike(p, card, targetId);
 }
 
-export function legalTargetIds(room: Room, actor: Player, defId: string): string[] {
+export function legalTargetIds(room: Room, actor: Player, defId: string, card?: Card): string[] {
   if (!CARD_DEF_BY_ID[defId]?.target) return [];
-  return room.players.filter((p) => !targetProblem(room, actor, defId, p)).map((p) => p.id);
+  return room.players.filter((p) => !targetProblem(room, actor, defId, p, card)).map((p) => p.id);
 }
 
 // Calamity Janet may swap Bang!/Missed!.
 export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
   if (card.defId === asDefId) return true;
-  const swap = charEffect(player).useAs;
+  const ch = charEffect(player);
+  // Elena Fuente, và chỉ theo MỘT chiều: mọi lá đỡ được Bang!, nhưng không lá nào biến
+  // thành Bang!. Duel đòi Bang! thật, nên nó không lọt qua đây.
+  if (asDefId === "missed" && ch.anyAsMissed) return true;
+  const swap = ch.useAs;
   return !!swap && swap.includes(card.defId) && swap.includes(asDefId);
+}
+
+// Bấm được nút năng lực này ngay bây giờ không. MỘT hàm, không phải hai bản chép: view
+// dựng nút từ đây và engine nhận lệnh cũng qua đây, nên "nút sáng mà server từ chối" là
+// điều không xảy ra được.
+export function abilityProblem(room: Room, p: Player, kind: AbilityKind): GameError | null {
+  if (!p.alive) return { code: "not-your-turn" };
+  if (!charEffect(p)[ABILITY_FLAG[kind]]) return { code: "ability-unavailable" };
+  if ((room.abilityUsesThisTurn[kind] ?? 0) >= ABILITY_USES_PER_TURN[kind]) {
+    return { code: "ability-used-up" };
+  }
+
+  if (kind === "burn-two-to-heal") {
+    // Sid Ketchum uống được VÀO BẤT CỨ LÚC NÀO — ngoài lượt, và kể cả khi đang hấp hối
+    // để tự cứu. Đó là toàn bộ giá trị của năng lực, nên anh ta đứng trên cửa lượt.
+    if (activeEffect(room).noHeal) return { code: "event-forbids-heal" };
+    if (p.hp >= p.maxHp) return { code: "hp-full" };
+    if (p.hand.length < 2) return { code: "card-not-in-hand" };
+    return null;
+  }
+
+  // Ba năng lực Dodge City là hành động trong lượt mình, cùng ba điều kiện với việc đánh
+  // một lá bài: đúng người, đúng phase, không có cửa phản ứng nào đang mở.
+  if (room.pending) return { code: "waiting-for-reaction" };
+  if (room.players[room.turnIndex]?.id !== p.id) return { code: "not-your-turn" };
+  if (room.turnPhase !== "play") return { code: "not-your-turn" };
+
+  if (kind === "lose-life-to-draw") {
+    // Chuck Wengam không tự sát được.
+    return p.hp <= 1 ? { code: "ability-unavailable" } : null;
+  }
+  if (kind === "burn-two-to-shoot") {
+    // Sự kiện cấm Bang! thì cấm cả phát này — nó vẫn là một Bang!. Nhưng hạn mức
+    // Bang!/lượt KHÔNG áp, và đó là điểm khác biệt duy nhất của Doc Holyday.
+    if (activeEffect(room).noBang) return { code: "event-bans-bang" };
+    if (p.hand.length < 2) return { code: "card-not-in-hand" };
+    if (legalTargetIds(room, p, "bang").length === 0) return { code: "invalid-target" };
+    return null;
+  }
+  if (kind === "burn-blue-to-draw") {
+    // "Lá xanh" theo bài in gốc gồm cả súng — bộ gốc in súng viền xanh. Engine tách "gun"
+    // thành kind riêng, nên phải nhận cả hai, nếu không José Delgado mất đúng một nửa số
+    // lá anh ta được phép đốt.
+    const blue = p.hand.some((c) => isBlueBordered(c));
+    return blue ? null : { code: "need-a-blue-card" };
+  }
+  return kind satisfies never;
+}
+
+export function isBlueBordered(c: Card): boolean {
+  const kind = CARD_DEF_BY_ID[c.defId]?.kind;
+  return kind === "blue" || kind === "gun";
 }
 
 // --- turn prediction (lib/predictions.ts) ---

@@ -2,10 +2,10 @@
 // so nothing survives a restart.
 
 import {
+  AbilityKind,
   MAX_PLAYERS,
   MIN_PLAYERS,
   Character,
-  CHARACTERS,
   rankPriority,
   Role,
   Winner,
@@ -26,14 +26,24 @@ import {
   rooms,
   shuffle,
 } from "./state";
-import { beersInHand, charEffect, drawInto, drawOne } from "./deck";
+import { beersInHand, charEffect, charactersInPlay, drawInto, drawOne } from "./deck";
 import { cancelPrediction, judgePredictions, predict, voidPredictionsFor } from "./predictions";
 import { dealMissions, signalMissions } from "./missions";
 import type { MissionSignal } from "../missions";
 import { predictWindowMs } from "../predictions";
 import { activeEffect, eventsUnlocked, resetEventState, tickEvents } from "./events-read";
 import { barrelAttempts, distanceBetween, hasEquip, rangeOf } from "./geometry";
-import { bangBudget, canUseAs, handLimitOf, isExemptPlay, legalTargetIds, playBlock, targetProblem } from "./rules";
+import {
+  abilityProblem,
+  bangBudget,
+  canUseAs,
+  handLimitOf,
+  isBlueBordered,
+  isExemptPlay,
+  legalTargetIds,
+  playBlock,
+  targetProblem,
+} from "./rules";
 import {
   addBot,
   addPlayer,
@@ -58,7 +68,16 @@ export type { Player, Room };
 export { DRAFT_PER_PLAYER };
 export { activeEffect };
 export { distanceBetween, rangeOf };
-export { bangBudget, canUseAs, handLimitOf, playBlock, targetProblem };
+export {
+  abilityProblem,
+  bangBudget,
+  canUseAs,
+  handLimitOf,
+  isBlueBordered,
+  legalTargetIds,
+  playBlock,
+  targetProblem,
+};
 export {
   addBot,
   addPlayer,
@@ -163,8 +182,12 @@ export function startGame(code: string): Result {
 
   room.players = reseat(room.players);
   const roles = shuffle(setup);
-  // Draw n*2 characters from the pool and hand each player 2 to choose from.
-  const pool = shuffle(CHARACTERS).slice(0, n * DRAFT_PER_PLAYER);
+  // Draw n*2 characters from the pool and hand each player 2 to choose from. Pool tuân
+  // theo luật phòng như nọc bài: tắt toggle thì đúng 16 người bộ gốc, vừa khít bàn 8.
+  const pool = shuffle(charactersInPlay({ dodgeCity: room.dodgeCityOn })).slice(
+    0,
+    n * DRAFT_PER_PLAYER,
+  );
   room.players.forEach((p, i) => {
     p.role = roles[i];
     p.character = null;
@@ -459,11 +482,18 @@ export function drawCards(
   // How many cards this draw phase yields: 2 by default, overridden by events
   // (Card Rain 3 / Empty Pockets 1) and topped up by additive ones (Gold Rush).
   const eff = activeEffect(room);
-  const drawTotal = Math.max(0, (eff.drawCount ?? 2) + (eff.extraDraw ?? 0));
+  const ch = charEffect(current);
+  // Bill Noface thay hẳn con số nền: 1 lá cộng 1 cho mỗi vết thương. Thay chứ không cộng,
+  // nên ở đầy máu anh ta rút 1 — đó là cái giá của việc rút 4 khi sắp chết.
+  const baseDraw = ch.drawMode === "noface" ? 1 + (current.maxHp - current.hp) : eff.drawCount ?? 2;
+  // Pixie Pete cộng thêm, nên anh ta ăn theo mọi sự kiện đổi con số nền thay vì ghi đè nó.
+  // Đặt ở drawTotal chứ không ở một nhánh riêng: Kit Carlson lật drawTotal+1, Black Jack
+  // rút bù drawTotal-2 — mọi nhánh dưới đây đã đọc con số này, nên chúng đúng miễn phí.
+  const drawTotal = Math.max(0, baseDraw + (eff.extraDraw ?? 0) + (ch.drawCountDelta ?? 0));
 
   // Kit Carlson: reveal one more than he keeps, then bottom the leftovers — so it
   // scales with the event-driven draw count instead of being a fixed 3-pick-2.
-  if (charEffect(current).drawMode === "kit" && drawTotal > 0) {
+  if (ch.drawMode === "kit" && drawTotal > 0) {
     const cards: Card[] = [];
     drawInto(room, cards, drawTotal + 1);
     room.pending = { kind: "kit", playerId: current.id, cards, picksLeft: drawTotal };
@@ -471,7 +501,7 @@ export function drawCards(
   }
 
   // Jesse Jones: draw the first card from a chosen player's hand.
-  if (charEffect(current).drawMode === "jesse" && source === "player" && targetId && drawTotal > 0) {
+  if (ch.drawMode === "jesse" && source === "player" && targetId && drawTotal > 0) {
     const t = room.players.find((p) => p.id === targetId);
     const robbed = t && t.id !== current.id && t.hand.length > 0 ? t : null;
     // The steal waits on the victim's acknowledgement, exactly like Panic! — from their
@@ -487,7 +517,7 @@ export function drawCards(
   }
 
   // Pedro Ramirez: draw the first card from the discard pile.
-  if (charEffect(current).drawMode === "pedro" && source === "discard" && room.discard.length > 0 && drawTotal > 0) {
+  if (ch.drawMode === "pedro" && source === "discard" && room.discard.length > 0 && drawTotal > 0) {
     current.hand.push(room.discard.pop()!);
     drawInto(room, current.hand, drawTotal - 1);
     room.turnPhase = "play";
@@ -495,7 +525,7 @@ export function drawCards(
     return true;
   }
 
-  if (charEffect(current).drawMode === "blackjack" && drawTotal >= 2) {
+  if (ch.drawMode === "blackjack" && drawTotal >= 2) {
     const c1 = drawOne(room);
     if (c1) current.hand.push(c1);
     const c2 = drawOne(room);
@@ -598,7 +628,7 @@ function playCardImpl(
     if (card.defId === "jail") {
       const target = room.players.find((p) => p.id === _targetId);
       if (!target) return err("invalid-target");
-      const problem = targetProblem(room, current, card.defId, target);
+      const problem = targetProblem(room, current, card.defId, target, card);
       if (problem) return { ok: false, error: problem };
       current.hand.splice(idx, 1);
       target.equipment.push(card);
@@ -807,7 +837,7 @@ function openTaken(
 function playPanic(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): Result {
   const target = room.players.find((p) => p.id === targetId);
   if (!target) return err("invalid-target");
-  const problem = targetProblem(room, current, "panic", target);
+  const problem = targetProblem(room, current, "panic", target, current.hand[handIdx]);
   if (problem) return { ok: false, error: problem };
   // Spend the played card first either way: it has been played, publicly, whatever the
   // victim does next. Only the card coming BACK waits on them.
@@ -820,7 +850,7 @@ function playPanic(room: Room, current: Player, handIdx: number, targetId?: stri
 function playCatBalou(room: Room, current: Player, handIdx: number, targetId?: string, targetCardId?: string): Result {
   const target = room.players.find((p) => p.id === targetId);
   if (!target) return err("invalid-target");
-  const problem = targetProblem(room, current, "cat-balou", target);
+  const problem = targetProblem(room, current, "cat-balou", target, current.hand[handIdx]);
   if (problem) return { ok: false, error: problem };
   if (!openTaken(room, current, target, "toss", CARD_DEF_BY_ID["cat-balou"].name, targetCardId)) return err("target-has-no-cards");
   pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
@@ -848,14 +878,14 @@ function resolveTaken(room: Room, p: Extract<Pending, { kind: "taken" }>): Card 
 function playBang(room: Room, current: Player, handIdx: number, targetId?: string): Result {
   let target = room.players.find((p) => p.id === targetId);
   if (!target) return err("invalid-target");
-  const problem = targetProblem(room, current, "bang", target);
+  const problem = targetProblem(room, current, "bang", target, current.hand[handIdx]);
   if (problem) return { ok: false, error: problem };
   const eff = activeEffect(room);
   // Drunk: the shot goes wide — it lands on a random valid target instead. "Valid"
   // is the same predicate the aimed shot went through, so a drunk shot can never
   // land somewhere a sober one could not.
   if (eff.drunkAim) {
-    const candidates = legalTargetIds(room, current, "bang");
+    const candidates = legalTargetIds(room, current, "bang", current.hand[handIdx]);
     if (candidates.length) {
       const id = candidates[Math.floor(Math.random() * candidates.length)];
       target = room.players.find((p) => p.id === id) ?? target;
@@ -864,6 +894,15 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   room.bangsThisTurn += 1;
+  openBangAt(room, current, target);
+  return { ok: true };
+}
+
+// Phát bắn đã rời nòng: đặt cửa phản ứng và chạy các cửa Barrel. Tách khỏi playBang vì
+// Doc Holyday bắn mà KHÔNG đánh lá Bang! nào — anh ta trả bằng hai lá bỏ đi, nên không có
+// lá để trừ khỏi tay và không tiêu hạn mức Bang!/lượt.
+function openBangAt(room: Room, current: Player, target: Player): void {
+  const eff = activeEffect(room);
   const missedNeeded = Math.max(
     1,
     1 + (charEffect(current).missedNeededDelta ?? 0) + (eff.missedNeededDelta ?? 0)
@@ -895,7 +934,6 @@ function playBang(room: Room, current: Player, handIdx: number, targetId?: strin
     }
     if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // fully dodged
   }
-  return { ok: true };
 }
 
 // The proactive Beer. A dying player drinks through respond() instead.
@@ -903,8 +941,8 @@ function playBeer(room: Room, current: Player, handIdx: number): Result {
   if (current.hp >= current.maxHp) return err("hp-full");
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
-  // Happy Hour makes a Beer worth 2 life points.
-  healPlayer(room, current, activeEffect(room).beerHeal ?? 1);
+  // Happy Hour makes a Beer worth 2 life points; Tequila Joe adds his own on top.
+  healPlayer(room, current, (activeEffect(room).beerHeal ?? 1) + (charEffect(current).beerHealDelta ?? 0));
   return { ok: true };
 }
 
@@ -1221,6 +1259,7 @@ function beginTurn(room: Room, resuming = false) {
     room.bangsThisTurn = 0;
     room.playsThisTurn = 0;
     room.playedDefsThisTurn = [];
+    room.abilityUsesThisTurn = {};
     room.jailedTurn = false;
     // The staking window for guesses about this turn (lib/predictions.ts). Set with the
     // other turn-scoped resets rather than at the three places a turn actually opens,
@@ -1478,9 +1517,13 @@ export function respond(
       // from 0 or below. deathQueue.needed already counted exactly how many Beers it takes to
       // reach 1, so clamping here would leave a dying player unable to come back and strand
       // the queue on a pending nothing can resolve.
-      target.hp += 1;
-      pushLog(room, { kind: "heal", a: target.name, n: 1 });
-      pending.beersNeeded -= 1;
+      // Tequila Joe hồi 2 mỗi Birra, nên anh ta cần ÍT chai hơn để đứng dậy — trừ đúng
+      // số máu vừa hồi khỏi beersNeeded, đừng trừ 1 cứng, nếu không anh ta vẫn phải uống
+      // đủ số chai của người thường và năng lực chỉ có tác dụng một nửa.
+      const gain = 1 + (charEffect(target).beerHealDelta ?? 0);
+      target.hp += gain;
+      pushLog(room, { kind: "heal", a: target.name, n: gain });
+      pending.beersNeeded -= gain;
       if (pending.beersNeeded <= 0) {
         clearPending(room);
         processDeathQueue(room);
@@ -1584,32 +1627,94 @@ export function choose(code: string, playerId: string, cardId: string): Result {
   return { ok: false };
 }
 
-export function sidHeal(code: string, playerId: string, cardIds: string[]): Result {
+// Mọi năng lực phải bấm nút đi qua đúng cửa này. Một cửa chứ không phải bốn: nó là điểm
+// vào từ socket, nên mỗi lối vào thêm là một lối nữa phải nhớ kiểm chủ thể và hạn mức.
+//
+// Điều kiện "bấm được chưa" nằm ở abilityProblem trong rules.ts, dùng chung với view —
+// ở đây chỉ còn phần tiêu bài và mở cửa bắn.
+export function useAbility(
+  code: string,
+  playerId: string,
+  kind: AbilityKind,
+  opts: { cardIds?: string[]; targetId?: string } = {},
+): Result {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
-  // Sid Ketchum may discard 2 cards to regain 1 life AT ANY TIME — on or off his
-  // turn, and even while dying (to save himself). So no turn/phase/pending gate.
-  const sid = room.players.find((p) => p.id === playerId);
-  if (!sid || !sid.alive) return { ok: false };
-  if (!charEffect(sid).burnTwoToHeal) return err("ability-unavailable");
-  if (activeEffect(room).noHeal) return err("event-forbids-heal");
-  if (sid.hp >= sid.maxHp) return err("hp-full");
-  if (cardIds.length !== 2 || cardIds[0] === cardIds[1]) return err("pick-two-distinct");
-  const idxs = cardIds.map((id) => sid.hand.findIndex((c) => c.id === id));
-  if (idxs.some((i) => i < 0)) return err("card-not-in-hand");
+  const p = room.players.find((x) => x.id === playerId);
+  if (!p) return { ok: false };
+  const problem = abilityProblem(room, p, kind);
+  if (problem) return { ok: false, error: problem };
+
+  const spend = () => {
+    room.abilityUsesThisTurn[kind] = (room.abilityUsesThisTurn[kind] ?? 0) + 1;
+  };
+
+  if (kind === "burn-two-to-heal") {
+    const burned = burnFromHand(room, p, opts.cardIds ?? [], 2);
+    if (burned) return { ok: false, error: burned };
+    healPlayer(room, p, 1);
+    pushLog(room, { kind: "heal", a: p.name, n: 1 });
+    spend();
+    // Đang hấp hối mà lên trên 0 thì anh ta sống — đóng cửa lại.
+    if (room.pending?.kind === "dying" && room.pending.targetId === p.id && p.hp > 0) {
+      clearPending(room);
+      processDeathQueue(room);
+      resumeUpkeep(room);
+    }
+    return { ok: true };
+  }
+
+  if (kind === "lose-life-to-draw") {
+    // Trừ máu thẳng chứ không qua dealDamage: không có ai bắn anh ta, nên El Gringo không
+    // có gì để cướp và Bart Cassidy không có vết thương để ăn theo.
+    p.hp -= 1;
+    drawInto(room, p.hand, 2);
+    pushLog(room, { kind: "draw", a: p.name, n: 2 });
+    spend();
+    return { ok: true };
+  }
+
+  if (kind === "burn-two-to-shoot") {
+    const target = room.players.find((x) => x.id === opts.targetId);
+    if (!target) return err("invalid-target");
+    // Không truyền lá bài: phát bắn này không mang chất nào, nên Apache Kid không miễn
+    // nhiễm với nó. Hai lá bỏ đi là cái GIÁ, không phải viên đạn.
+    const bad = targetProblem(room, p, "bang", target);
+    if (bad) return { ok: false, error: bad };
+    const burned = burnFromHand(room, p, opts.cardIds ?? [], 2);
+    if (burned) return { ok: false, error: burned };
+    spend();
+    openBangAt(room, p, target);
+    return { ok: true };
+  }
+
+  if (kind === "burn-blue-to-draw") {
+    const [id] = opts.cardIds ?? [];
+    const card = p.hand.find((c) => c.id === id);
+    if (!card) return err("card-not-in-hand");
+    if (!isBlueBordered(card)) return err("need-a-blue-card");
+    const burned = burnFromHand(room, p, [id], 1);
+    if (burned) return { ok: false, error: burned };
+    drawInto(room, p.hand, 2);
+    pushLog(room, { kind: "draw", a: p.name, n: 2 });
+    spend();
+    return { ok: true };
+  }
+
+  return kind satisfies never;
+}
+
+// Bỏ đúng `n` lá RIÊNG BIỆT khỏi tay vào chồng bỏ. Trả về lỗi thay vì ném, và không đụng
+// vào tay bài cho tới khi cả `n` lá đều đã xác nhận có thật — nửa chừng thất bại thì
+// người chơi mất bài mà chẳng được gì.
+function burnFromHand(room: Room, p: Player, cardIds: string[], n: number): GameError | null {
+  if (cardIds.length !== n || new Set(cardIds).size !== n) return { code: "pick-two-distinct" };
+  if (cardIds.some((id) => !p.hand.some((c) => c.id === id))) return { code: "card-not-in-hand" };
   for (const id of cardIds) {
-    const i = sid.hand.findIndex((c) => c.id === id);
-    room.discard.push(sid.hand.splice(i, 1)[0]);
+    const i = p.hand.findIndex((c) => c.id === id);
+    pushToDiscard(room, p.hand.splice(i, 1)[0]);
   }
-  healPlayer(room, sid, 1);
-  pushLog(room, { kind: "heal", a: sid.name, n: 1 });
-  // If he was dying and this brought him back above 0, he survives — resolve.
-  if (room.pending?.kind === "dying" && room.pending.targetId === sid.id && sid.hp > 0) {
-    clearPending(room);
-    processDeathQueue(room);
-    resumeUpkeep(room);
-  }
-  return { ok: true };
+  return null;
 }
 
 // Resolve a multi (Indians!/Gatling): each undefended responder takes 1 damage;
@@ -1755,6 +1860,16 @@ function killPlayer(
   if (heir) heir.hand.push(...cards);
   else room.discard.push(...cards);
 
+  // Greg Digger hồi máu và Herb Hunter rút bài mỗi khi BẤT KỲ ai chết — kể cả khi người
+  // chết là do tay họ, và kể cả khi hai người cùng ngồi trên bàn. Không phải người chết:
+  // target.alive vừa bị đặt false ở trên nên vòng lặp tự bỏ qua anh ta.
+  for (const p of room.players) {
+    if (!p.alive) continue;
+    const ch = charEffect(p);
+    if (ch.healOnDeath) healPlayer(room, p, ch.healOnDeath);
+    if (ch.drawOnDeath) drawInto(room, p.hand, ch.drawOnDeath);
+  }
+
   // Death rewards / penalty for whoever landed the killing blow.
   const killer = killerId ? room.players.find((p) => p.id === killerId) : null;
   const usable = (p: Player | null | undefined) => (p && p.alive && p.id !== target.id ? p : null);
@@ -1848,6 +1963,7 @@ export function restart(code: string): boolean {
   room.bangsThisTurn = 0;
   room.playsThisTurn = 0;
   room.playedDefsThisTurn = [];
+  room.abilityUsesThisTurn = {};
   room.winner = null;
   room.deathQueue = [];
   room.checks = [];

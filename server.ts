@@ -288,10 +288,10 @@ app.prepare().then(() => {
       if (pid && game.drawCards(code, pid, source, targetId)) broadcast(code);
     });
 
-    socket.on("sidHeal", ({ code, cardIds }) => {
+    socket.on("useAbility", ({ code, kind, cardIds, targetId }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      applyResult(code, game.sidHeal(code, pid, cardIds));
+      applyResult(code, game.useAbility(code, pid, kind, { cardIds, targetId }));
     });
 
     socket.on("playCard", ({ code, cardId, targetId, targetCardId }) => {

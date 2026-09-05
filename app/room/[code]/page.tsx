@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity, loadLook } from "@/lib/socketClient";
-import { PlayerView, type EventLevel } from "@/lib/types";
+import { PlayerView, type AbilityKind, type EventLevel } from "@/lib/types";
 import TurnAlert from "@/components/TurnAlert";
 import { L, useLocale, initLocale, tError } from "@/lib/i18n";
 import { LangToggle } from "@/components/LangToggle";
@@ -83,7 +83,8 @@ export default function RoomPage() {
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
   const draw = (source?: "deck" | "discard" | "player", targetId?: string) =>
     socket.emit("drawCards", { code, source, targetId });
-  const sidHeal = (cardIds: string[]) => socket.emit("sidHeal", { code, cardIds });
+  const useAbility = (kind: AbilityKind, cardIds: string[], targetId?: string) =>
+    socket.emit("useAbility", { code, kind, cardIds, targetId });
   const play = (cardId: string, targetId?: string, targetCardId?: string) =>
     socket.emit("playCard", { code, cardId, targetId, targetCardId });
   const respond = (type: "missed" | "beer" | "bang" | "pass", cardId?: string) =>
@@ -123,7 +124,7 @@ export default function RoomPage() {
       )}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onSidHeal={sidHeal} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} onPredict={predict} onCancelPredict={cancelPredict} />
+        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onUseAbility={useAbility} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} onPredict={predict} onCancelPredict={cancelPredict} />
       )}
 
       {view.pending &&

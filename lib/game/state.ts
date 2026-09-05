@@ -5,7 +5,7 @@
 // this is the bottom layer, and a arrow pointing back up would make the module graph
 // a cycle instead of a stack.
 
-import type { PredictReveal } from "../types";
+import type { AbilityKind, PredictReveal } from "../types";
 import type { MissionReveal } from "../types";
 import type { Prediction } from "../predictions";
 import {
@@ -95,6 +95,10 @@ export interface Room {
   bangsThisTurn: number; // Bang!s played by the active player this turn
   playsThisTurn: number; // cards played by the active player this turn (for maxPlays events)
   playedDefsThisTurn: string[]; // house rule: each card type only once per turn (Bang!/guns exempt)
+  // Đếm theo AbilityKind chứ không phải theo tên nhân vật (docHolydayUsed, joseDelgadoUses):
+  // hai người khác nhau có thể mang cùng một năng lực sau này, và engine vẫn không cần
+  // biết tên ai. Reset cùng chỗ với bangsThisTurn.
+  abilityUsesThisTurn: Partial<Record<AbilityKind, number>>;
   pending: Pending | null; // unresolved reaction locking the table
   winner: Winner | null; // set when the game ends
   // Players who hit 0 HP and still have to be resolved, in the order they were hit.

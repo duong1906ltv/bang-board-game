@@ -11,7 +11,8 @@
     "sim": "tsx scripts/sim-events.ts",
     "test": "node --import tsx --test 'lib/__tests__/**/*.test.ts'",
     "sim:predict": "tsx scripts/sim-predictions.ts",
-    "sim:missions": "tsx scripts/sim-missions.ts"
+    "sim:missions": "tsx scripts/sim-missions.ts",
+    "sim:dodge": "tsx scripts/sim-dodge-city.ts"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

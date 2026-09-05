@@ -1,10 +1,10 @@
 # Phase 03 — 11 nhân vật rẻ + 3 nút năng lực
 
-**Ngữ cảnh:** [plan.md](plan.md) · [phase 01](phase-01-deck-infrastructure-and-toggle.md)
+**Ngữ cảnh:** [plan.md](plan.md) · [phase 01](phase-01-deck-infrastructure-and-toggle.md) · **số đo:** [evidence/phase-03-characters.md](evidence/phase-03-characters.md)
 
 ## Tổng quan
 
-**Ưu tiên:** cao · **Trạng thái:** ⬜ chưa làm · **Phụ thuộc:** phase 01
+**Ưu tiên:** cao · **Trạng thái:** 🟡 xong engine + bot, còn ảnh nhân vật và xem mắt · **Phụ thuộc:** phase 01
 
 11 nhân vật Dodge City diễn đạt được bằng `CharacterEffect`, cộng 3 người cần nút bấm
 chủ động theo khuôn Sid Ketchum đã có. Để lại 4 người khó cho phase 06.
@@ -81,15 +81,30 @@ engine lẫn view đi qua, nên crosshair client vẽ và play server nhận kh�
 
 ## Todo
 
-- [ ] `Character.set` + lọc pool draft theo toggle
-- [ ] Pixie Pete · Sean Mallory · Tequila Joe · Bill Noface
-- [ ] Greg Digger · Herb Hunter (cùng checkpoint xử lý chết)
-- [ ] Elena Fuente (`canUseAs` tổng quát) · Apache Kid (`targetProblem`)
-- [ ] Bộ đếm lượt + `useAbility` nhiều kind
-- [ ] Chuck Wengam · Doc Holyday · José Delgado + nút UI
-- [ ] i18n 11 dòng vi/en + 11 id art
-- [ ] Bot biết dùng 3 nút
-- [ ] Test: mỗi nhân vật ≥ 1 test chạm đúng checkpoint
+- [x] `Character.set` + lọc pool draft theo toggle — `charactersInPlay()` cùng khuôn
+      `buildDeck()`. Field **bắt buộc**, không optional: quên khai là lọt sang bàn bộ gốc.
+- [x] Pixie Pete · Sean Mallory · Tequila Joe · Bill Noface
+- [x] Greg Digger · Herb Hunter (cùng checkpoint xử lý chết)
+- [x] Elena Fuente (`canUseAs` tổng quát) · Apache Kid (`targetProblem`)
+- [x] Bộ đếm lượt + `useAbility` nhiều kind — đếm theo `AbilityKind` chứ **không** theo
+      `docHolydayUsed`/`joseDelgadoUses` như plan ghi: tên nhân vật trong engine đúng là
+      thứ cả dự án tránh. Hạn mức nằm ở `ABILITY_USES_PER_TURN` dạng data.
+- [x] Chuck Wengam · Doc Holyday · José Delgado + nút UI (`components/room/AbilityBar.tsx`)
+- [x] i18n 11 dòng vi/en + test chặn trôi
+- [ ] ~~11 id art~~ — **cố ý không làm.** `characterArt.ts` cho phép danh sách tụt lại và
+      rơi về glyph 🤠; thêm id mà chưa có file PNG mới là hỏng.
+- [x] Bot biết dùng 4 nút (kể cả Sid Ketchum, vốn là tính năng chết từ bộ gốc)
+- [x] Test: mỗi nhân vật ≥ 1 test chạm đúng checkpoint
+- [x] `scripts/sim-dodge-city.ts` — sim riêng hỏi "tính năng có tới được tay người chơi
+      không", cấm mớm bài. Nó bắt được lỗi treo bàn mà 191 test đều bỏ sót.
+- [ ] Xem bằng mắt thanh nút năng lực — cần trình duyệt
+
+Phát sinh, đã sửa:
+
+- [x] **Bot treo bàn 19/200 ván.** `playBlock` không kiểm mục tiêu, và
+      `nearestEnemyInRange` là cuốn luật thứ hai chép tay. Bot giờ ngắm bằng
+      `legalTargetIds`, và duyệt từng lá vì hai lá Bang! khác chất với tới hai tập mục
+      tiêu khác nhau. Có test hồi quy, đã thử đỏ/xanh cả hai chiều.
 
 ## Xong khi
 
