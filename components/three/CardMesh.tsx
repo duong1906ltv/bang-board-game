@@ -9,7 +9,7 @@ import * as THREE from "three";
 import {
   Card,
   CARD_DEF_BY_ID,
-  CARD_ICON,
+  CARD_FALLBACK_GLYPH,
   SUIT_SYMBOL,
   cardArtFillsPanel,
   cardArtSources,
@@ -179,7 +179,7 @@ function drawFace(card: Card, detail: boolean): THREE.CanvasTexture {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#2a2114";
-    ctx.fillText(CARD_ICON[card.defId] ?? "🂠", W / 2, boxY + boxH / 2);
+    ctx.fillText(CARD_FALLBACK_GLYPH[card.defId] ?? "🂠", W / 2, boxY + boxH / 2);
     drawRange();
     tex.needsUpdate = true;
   };

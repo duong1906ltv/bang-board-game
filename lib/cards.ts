@@ -146,7 +146,7 @@ export const CARD_DEF_BY_ID: Record<string, CardDef> = Object.fromEntries(
 );
 
 // Last-resort glyph, when a card has neither an illustration nor vector art.
-export const CARD_ICON: Record<string, string> = {
+export const CARD_FALLBACK_GLYPH: Record<string, string> = {
   bang: "💥",
   missed: "🛡️",
   beer: "🍺",
@@ -173,16 +173,16 @@ export const CARD_ICON: Record<string, string> = {
 
 // Optional per-card artwork (data URI or path). Original SVG art lives in
 // cardArt.ts; add more entries there (or your own images) to illustrate cards.
-const CARD_IMAGE: Record<string, string> = CARD_ART;
+const CARD_VECTOR_ART: Record<string, string> = CARD_ART;
 
-// Illustrated art under public/cards/. Tried before CARD_IMAGE.
-const CARD_PHOTO_IMAGE: Record<string, string> = CARD_PHOTO;
+// Illustrated art under public/cards/. Tried before CARD_VECTOR_ART.
+const CARD_PHOTO_ART: Record<string, string> = CARD_PHOTO;
 
 // The art sources for a card, best first. Renderers walk this list and drop to
 // the next entry whenever one fails to load (missing file, decode error), so a
 // half-finished illustration set never leaves an empty card face.
 export function cardArtSources(defId: string): string[] {
-  return [CARD_PHOTO_IMAGE[defId], CARD_IMAGE[defId]].filter(Boolean) as string[];
+  return [CARD_PHOTO_ART[defId], CARD_VECTOR_ART[defId]].filter(Boolean) as string[];
 }
 
 // Illustrations under public/cards/ are pre-padded to roughly the art panel's

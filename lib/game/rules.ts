@@ -1,10 +1,10 @@
-// Questions about the rules: may this card be played, how many may be played, who is
-// a legal target, what counts as a Bang!.
+// Questions about the rules: may this card be played, how many may be played, who is a
+// legal target, what counts as a Bang!. Everything here ANSWERS; nothing here acts — which
+// is what lets view.ts sit below the core instead of inside it.
 //
-// isBangLike / isExemptPlay / legalTargetIds / canUseAs were living in the core out of
-// history, not design — they answer questions, they do not act. Moving them here is what
-// removed the last two arrows pointing back up, and it is why view.ts can sit below the
-// core instead of inside it.
+// Every answer is published in the view, and the client re-derives none of them. It used to
+// derive several and got them wrong each time: crosshairs that had never heard of Truce, a
+// prediction panel greyed out on turns the engine would have accepted.
 
 import { Card, CARD_DEF_BY_ID } from "../cards";
 import { GameError } from "../errors";
@@ -14,13 +14,10 @@ import { distanceBetween, hasEquip, rangeOf } from "./geometry";
 import { predictionProblem } from "../predictions";
 import { Player, Room } from "./state";
 
-// Cards whose whole point is restoring life — suppressed together by `noHeal`.
+// Grouped so the noHeal event effect can suppress them together.
 export const HEAL_DEF_IDS = ["beer", "saloon"];
 
-// The single answer to "may `actor` aim `defId` at `target`?", read from the card's
-// TargetRule. Both the play handlers and buildView go through this, so the
-// crosshairs the client draws and the plays the server accepts cannot drift apart —
-// the client used to carry its own copy and had never heard of Truce.
+// Read from the card's TargetRule. Both the play handlers and viewFor come through here.
 export function targetProblem(room: Room, actor: Player, defId: string, target: Player): GameError | null {
   const rule = CARD_DEF_BY_ID[defId]?.target;
   if (!rule) return { code: "invalid-card" };
@@ -43,22 +40,15 @@ export function targetProblem(room: Room, actor: Player, defId: string, target: 
   return null;
 }
 
-// Cards a player may keep at the end of their turn.
-// Floored at 1, never 0. A limit of 0 is unsatisfiable for Suzy Lafayette: she
-// draws the instant her hand is empty (refillEmptyHands runs after every action),
-// so discarding her last card immediately puts her back over the limit and the turn
-// can never be ended — an infinite discard/draw loop for bot and human alike.
-// Drought therefore stops biting at 1 life, which costs almost nothing.
+// Floored at 1, never 0: Suzy Lafayette redraws the moment her hand empties, so a limit of
+// 0 can never be satisfied and the turn can never end. Drought stops biting at 1 life.
 export function handLimitOf(room: Room, p: Player): number {
-  // A ghost lies back down at the end of its turn and everything it is holding goes to
-  // the discard with it, so there is nothing for a limit to police. Answering with the
-  // hand itself (rather than hp, which is 0) is what keeps endTurn from demanding a
-  // discard the rule never asks for, and the client from offering one.
+  // A ghost's whole hand goes to the discard with it, so no limit applies. Answering with
+  // the hand (not hp, which is 0) stops endTurn demanding a discard the rule never asks for.
   if (p.ghost) return p.hand.length;
   return Math.max(1, p.hp + (activeEffect(room).handLimitDelta ?? 0));
 }
 
-// How many more Bang!s the player may fire this turn (0 = none).
 export function bangBudget(room: Room, p: Player): number {
   const eff = activeEffect(room);
   if (eff.noBang) return 0;
@@ -67,16 +57,13 @@ export function bangBudget(room: Room, p: Player): number {
   return Math.max(0, cap - room.bangsThisTurn);
 }
 
-// Why this card can't be played right now, or null if it can. Covers the
-// once-per-turn house rule and every event restriction; range/target validity is
-// still checked by the individual play handlers.
+// Covers the once-per-turn house rule and every event restriction. Range and target
+// validity stay with the individual play handlers.
 export function playBlock(room: Room, p: Player, card: Card, targetId?: string): GameError | null {
   const def = CARD_DEF_BY_ID[card.defId];
   if (!def) return { code: "invalid-card" };
-  // Serving a Jail sentence blocks every play. This has to live HERE rather than only
-  // in playCard(), because playBlock is the shared predicate: the bot filters its
-  // candidate moves through it, and a bot move the engine then rejects returns false
-  // from step(), which stops the bot scheduler and freezes the table for good.
+  // Here rather than in playCard(): the bot filters its moves through playBlock, and a bot
+  // move the engine then rejects stops the scheduler and freezes the table for good.
   if (room.jailedTurn && room.players[room.turnIndex]?.id === p.id) {
     return { code: "jailed-discard-only" };
   }
@@ -87,13 +74,11 @@ export function playBlock(room: Room, p: Player, card: Card, targetId?: string):
   if (eff.maxPlays != null && room.playsThisTurn >= eff.maxPlays) {
     return { code: "event-play-limit", n: eff.maxPlays };
   }
-  // Healing plays, blocked as a group. Note this covers the PROACTIVE Beer only —
-  // a dying player may still drink to survive (respond()), so "no healing" never
-  // becomes "no saving throw".
+  // The PROACTIVE Beer only — a dying player still drinks through respond(), so "no healing"
+  // never becomes "no saving throw".
   if (HEAL_DEF_IDS.includes(card.defId) && eff.noHeal) return { code: "event-forbids-heal" };
-  // A ghost has no life to restore, so a Beer would burn for nothing. Saloon is left
-  // alone on purpose — it heals the LIVING, and pouring a round for the table on the
-  // way out is a real play even if none of it reaches the one buying.
+  // Saloon is left alone on purpose: it heals the LIVING, so buying the table a round on the
+  // way out is a real play even though none of it reaches the ghost.
   if (p.ghost && card.defId === "beer") return { code: "ghost-cannot-heal" };
   if (isBangLike(p, card, targetId) && bangBudget(room, p) <= 0) {
     return { code: eff.noBang ? "event-bans-bang" : "bang-limit-reached" };
@@ -104,9 +89,6 @@ export function playBlock(room: Room, p: Player, card: Card, targetId?: string):
   return null;
 }
 
-// The distinct card types in `p`'s hand that cannot be played right now. Sent in
-// the view so the client can grey those cards out instead of letting the player
-// aim into a silent server rejection.
 export function blockedDefIdsFor(room: Room, p: Player): string[] {
   const out = new Set<string>();
   for (const c of p.hand) {
@@ -116,25 +98,18 @@ export function blockedDefIdsFor(room: Room, p: Player): string[] {
   return [...out];
 }
 
-// Legal targets for every aimable card type the player is holding, keyed by the
-// defId the UI aims with. A character that may play one card as another (Calamity
-// Janet) gets the swapped card keyed too, since it aims by the other card's rules.
+// Keyed by the defId the UI aims with.
 export function legalTargetsFor(room: Room, p: Player): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   const swap = charEffect(p).useAs;
   for (const c of p.hand) {
-    // What this card may be played AS: itself, plus whatever the character swaps it
-    // for (Calamity Janet's Missed! ⇄ Bang!).
     const playAs = [c.defId, ...(swap?.includes(c.defId) ? swap.filter((d) => d !== c.defId) : [])];
     for (const as of playAs) {
       if (!CARD_DEF_BY_ID[as]?.target) continue;
       const ids = legalTargetIds(room, p, as);
-      // Keyed under BOTH names, because the two sides ask different questions: the
-      // engine validates by the rules of the card being played AS, but the client
-      // aims with the defId of the card in hand — the one it drew and the player
-      // clicked. Janet's Missed! used to land only under "bang", so the client's
-      // lookup for "missed" came back undefined, no crosshair ever lit up, and her
-      // whole ability was unreachable even though the server would have allowed it.
+      // BOTH names: the engine validates by the card played AS, the client aims by the card
+      // in hand. Keying only "bang" left Janet's Missed! with no crosshair and her ability
+      // unreachable.
       out[as] ??= ids;
       out[c.defId] ??= ids;
     }
@@ -142,20 +117,13 @@ export function legalTargetsFor(room: Room, p: Player): Record<string, string[]>
   return out;
 }
 
-// Play a card from the active player's hand.
-// Step 2a scope: blue self-equipment (guns, Mustang, Scope, Barrel). Targeted
-// blue cards (Jail/Dynamite) and brown cards are handled in later steps.
-// A play that is EXEMPT from the "each card type only once per turn" house rule:
-//  • any gun swap (weapons change freely), and
-//  • a Bang! — including Calamity Janet firing a Missed! as a Bang! — which is
-//    governed by its OWN limit instead (bangsThisTurn: once, or unlimited with
-//    Volcanic / Willy the Kid; see playBang).
-// A Bang! being fired — including Calamity Janet using a Missed! as one. Governed
-// by the Bang!/turn budget rather than the once-per-turn house rule.
+// A Bang! being fired, including Calamity Janet using a Missed! as one.
 export function isBangLike(p: Player, card: Card, targetId?: string): boolean {
   return card.defId === "bang" || (!!targetId && canUseAs(p, card, "bang"));
 }
 
+// Exempt from the "each card type once per turn" house rule: gun swaps (weapons change
+// freely) and Bang!s, which answer to the Bang!/turn budget instead.
 export function isExemptPlay(room: Room, p: Player, card: Card, targetId?: string): boolean {
   if (activeEffect(room).ignoreOncePerTurn) return true; // Frenzy suspends the house rule
   const def = CARD_DEF_BY_ID[card.defId];
@@ -163,14 +131,12 @@ export function isExemptPlay(room: Room, p: Player, card: Card, targetId?: strin
   return isBangLike(p, card, targetId);
 }
 
-// Everyone `defId` may legally be aimed at right now. Published per card type in
-// the view so the UI can highlight exactly the legal targets.
 export function legalTargetIds(room: Room, actor: Player, defId: string): string[] {
   if (!CARD_DEF_BY_ID[defId]?.target) return [];
   return room.players.filter((p) => !targetProblem(room, actor, defId, p)).map((p) => p.id);
 }
 
-// Whether `card` may be used as `asDefId`. Calamity Janet may swap Bang!/Missed!.
+// Calamity Janet may swap Bang!/Missed!.
 export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
   if (card.defId === asDefId) return true;
   const swap = charEffect(player).useAs;
@@ -179,52 +145,33 @@ export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
 
 // --- turn prediction (lib/predictions.ts) ---
 
-// Whose turn a guess is about: the seat playing RIGHT NOW. One line, but it is the whole
-// difference between this and the old design (which was open on the NEXT seat), so it is
-// named rather than inlined at its three call sites.
-//
-// Lives here rather than in the core because view.ts needs it and view.ts may not import
-// the core — that is the arrow the module split exists to prevent.
+// The seat playing RIGHT NOW, not the next one. Named rather than inlined at its three call
+// sites because that distinction is the whole design.
 export function predictSubjectId(room: Room): string | null {
   if (room.phase !== "playing") return null;
   return room.players[room.turnIndex]?.id ?? null;
 }
 
-// Milliseconds left on the staking window, floored at 0. Sent in the view rather than the
-// deadline itself: the client counts down locally from whatever the last view said, so a
-// clock that disagrees with the server's by a few seconds cannot show a window that is
-// already shut — and the server stays the only judge of whether a stake lands.
+// A duration, not the deadline: a client clock a few seconds off the server's would
+// otherwise render a window that has already shut.
 export function predictMsLeft(room: Room): number {
   if (room.phase !== "playing" || room.predictEndsAt === 0) return 0;
   return Math.max(0, room.predictEndsAt - Date.now());
 }
 
-// Why `me` may not stake a guess right now, or null if they may. Answered server-side for
-// the same reason legalTargets is: the client used to re-derive a rule and got it wrong, so
-// it no longer derives any of them.
 export function predictBlock(room: Room, me: Player | undefined): string | null {
   if (!me) return "no-seat";
   if (room.phase !== "playing") return "not-playing";
-  // Deliberately NOT blocked while the table waits on a reaction. It used to be, and that
-  // one line was the single biggest reason a player found the panel dead: measured over 150
-  // games, the table sits in a `pending` for 26% of all engine steps, and at some point
-  // during 64% of all (player, turn) pairs — so most turns had a stretch where everybody's
-  // panel was grey while the clock kept running.
-  //
-  // It also hid nothing. The bet is on a CARD COUNT, room.playsThisTurn is incremented in
-  // exactly one place (playCard), and the card that opened the pending was already counted
-  // before the pending existed. respond() never touches the counter, so resolving a Missed!,
-  // a Duel or a General Store reveals no new information about the number being guessed.
-  // Blocking it was pure lost window.
+  // Deliberately NOT blocked while the table waits on a reaction. Blocking it hid nothing —
+  // the bet is on a card count, and respond() never touches room.playsThisTurn — while
+  // costing most of the window: a table sits in a pending for 26% of engine steps.
   const subject = room.players.find((p) => p.id === predictSubjectId(room));
   if (!subject) return "bad-predict-target";
-  // Checked here as well as in predict(), not instead of it: this drives the panel and
-  // predict() is the authority. Both read the same clock, so a window that shut while the
-  // panel sat open greys it out on the next view instead of failing at the press.
+  // As well as in predict(), not instead: this greys the panel out, predict() is the
+  // authority.
   if (predictMsLeft(room) <= 0) return "predict-window-closed";
   const locked = room.predictions.filter((p) => p.byId === me.id && p.targetId === subject.id);
-  // No `value`: this asks whether ANY stake is possible, not whether one particular value is
-  // legal. Passing a placeholder was the bug that greyed the panel out on every turn the
-  // engine would have accepted.
+  // No `value`: asks whether ANY stake is possible. Passing a placeholder was the bug that
+  // greyed the panel out on turns the engine would have accepted.
   return predictionProblem({ by: me, subject, locked }) ?? null;
 }

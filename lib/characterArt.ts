@@ -1,6 +1,6 @@
 // Character portraits under public/characters/<characterId>.png, cropped by
-// scripts/import-character-art.sh. All 16 characters are covered; a character
-// missing from this list falls back to the 🤠 glyph rather than an empty panel.
+// scripts/import-character-art.sh. A character missing from this list falls back to the
+// 🤠 glyph rather than an empty panel, so the list may lag the roster.
 
 export const CHARACTER_PHOTO_IDS = [
   "bart-cassidy",

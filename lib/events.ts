@@ -208,27 +208,24 @@ export type EventLevel = "off" | "on";
 
 // ─── Effect merging ──────────────────────────────────────────────────────────
 
-// Numeric fields that ADD when several active events set them.
 const SUM_FIELDS = [
   "rangeDelta", "distanceDelta", "extraDraw", "handLimitDelta",
   "damageDelta", "missedNeededDelta",
 ] as const;
-// Numeric fields where the SMALLEST value wins (the most restrictive).
-const MIN_FIELDS = ["maxPlays", "drawCount", "bangLimit"] as const;
-// Numeric fields where the LARGEST value wins (the most generous).
-const MAX_FIELDS = ["rangeOverride", "beerHeal"] as const;
+const MOST_RESTRICTIVE_FIELDS = ["maxPlays", "drawCount", "bangLimit"] as const;
+const MOST_GENEROUS_FIELDS = ["rangeOverride", "beerHeal"] as const;
 const FLAG_FIELDS = [
   "noBang", "noHeal", "noDamage", "protectSheriff",
   "ignoreOncePerTurn", "luckyDraw", "badDraw", "drunkAim",
 ] as const;
 
-// Fold `add` into `into`. Order-independent for every field type above.
+// Order-independent for every field type above.
 export function mergeEffect(into: EventEffect, add: EventEffect | undefined): EventEffect {
   if (!add) return into;
   for (const f of FLAG_FIELDS) if (add[f]) into[f] = true;
   for (const f of SUM_FIELDS) if (add[f] != null) into[f] = (into[f] ?? 0) + add[f]!;
-  for (const f of MIN_FIELDS) if (add[f] != null) into[f] = into[f] == null ? add[f] : Math.min(into[f]!, add[f]!);
-  for (const f of MAX_FIELDS) if (add[f] != null) into[f] = into[f] == null ? add[f] : Math.max(into[f]!, add[f]!);
+  for (const f of MOST_RESTRICTIVE_FIELDS) if (add[f] != null) into[f] = into[f] == null ? add[f] : Math.min(into[f]!, add[f]!);
+  for (const f of MOST_GENEROUS_FIELDS) if (add[f] != null) into[f] = into[f] == null ? add[f] : Math.max(into[f]!, add[f]!);
   if (add.bannedDefIds) into.bannedDefIds = [...(into.bannedDefIds ?? []), ...add.bannedDefIds];
   if (add.bannedKinds) into.bannedKinds = [...(into.bannedKinds ?? []), ...add.bannedKinds];
   return into;

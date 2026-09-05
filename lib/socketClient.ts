@@ -12,8 +12,7 @@ export function getSocket() {
   return socket;
 }
 
-// localStorage helpers to remember the player's identity per room.
-const KEY = (code: string) => `bang:${code.toUpperCase()}`;
+const identityKey = (code: string) => `bang:${code.toUpperCase()}`;
 
 // Most-recent-first list of room codes this browser has an identity for. The home
 // page hands these to the server to ask "is any of these seats still mine?", which
@@ -51,14 +50,14 @@ export function loadSeats(): { code: string; playerId: string }[] {
 
 export function saveIdentity(code: string, playerId: string) {
   try {
-    localStorage.setItem(KEY(code), playerId);
+    localStorage.setItem(identityKey(code), playerId);
   } catch {}
   noteRecent(code);
 }
 
 export function loadIdentity(code: string): string | null {
   try {
-    return localStorage.getItem(KEY(code));
+    return localStorage.getItem(identityKey(code));
   } catch {
     return null;
   }

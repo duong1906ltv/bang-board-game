@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import {
   Card,
   CARD_DEF_BY_ID,
-  CARD_ICON,
+  CARD_FALLBACK_GLYPH,
   SUIT_SYMBOL,
   cardArtFillsPanel,
   cardArtSources,
@@ -109,7 +109,7 @@ export function PlayingCard({
               }}
             />
           ) : (
-            <span className="pc-icon">{CARD_ICON[card.defId] ?? "🂠"}</span>
+            <span className="pc-icon">{CARD_FALLBACK_GLYPH[card.defId] ?? "🂠"}</span>
           )}
           {/* Range token for guns. The illustrations of the four long guns are
               near-identical, and at pcard-sm the effect line is hidden, so the

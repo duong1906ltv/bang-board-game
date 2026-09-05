@@ -8,7 +8,7 @@ import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import { CardMesh } from "../CardMesh";
 import { Crosshair } from "./Crosshair";
-import { CARD_DEF_BY_ID, CARD_ICON, type Card } from "@/lib/cards";
+import { CARD_DEF_BY_ID, CARD_FALLBACK_GLYPH, type Card } from "@/lib/cards";
 import { CARD_LIFT, DECK_X, DISCARD_X, FELT_Y, deckTop } from "./geometry";
 import { PickSpot } from "./PickSpot";
 
@@ -83,7 +83,7 @@ export function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPi
               >
                 {/* Guns: 🎯 + range (same style as the header range badge) — avoids
                     the green water-pistol 🔫 emoji and the dark, hard-to-see rifle art. */}
-                {def?.kind === "gun" ? "🎯" : (CARD_ICON[c.defId] ?? "🔵")}
+                {def?.kind === "gun" ? "🎯" : (CARD_FALLBACK_GLYPH[c.defId] ?? "🔵")}
                 {suffix && <span style={{ fontSize: 10, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
               </div>
             </Html>

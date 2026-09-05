@@ -1,11 +1,5 @@
-// Server-side AI for filling seats during testing. Bots have no socket; they
-// drive the exact same game.* functions a human would, one action per "tick",
-// so the flow (and every rule) is exercised identically. The server paces the
-// ticks (see server.ts) so humans can watch.
-//
-// The strategy is deliberately simple but role-aware enough that games actually
-// progress and reach a win condition: dodge/heal when threatened, shoot the
-// nearest enemy in range on your turn, then end.
+// Server-side AI for filling seats. Bots have no socket and drive the exact same game.*
+// functions a human would, one action per tick, so every rule is exercised identically.
 
 import * as game from "./game";
 import { rankPriority } from "./types";
@@ -72,8 +66,7 @@ function nearestEnemyInRange(room: Room, me: Player): Player | null {
   return best;
 }
 
-// Value used to decide which store/kit card a bot grabs, and which to keep.
-function cardValue(c: Card): number {
+function pickPriority(c: Card): number {
   const v: Record<string, number> = {
     bang: 8, missed: 7, beer: 6, "rev-carabine": 5, remington: 5, winchester: 5,
     schofield: 4, volcanic: 4, barrel: 4, scope: 3, mustang: 3,
@@ -84,7 +77,7 @@ function cardValue(c: Card): number {
 }
 
 function bestPick(cards: Card[]): Card {
-  return [...cards].sort((a, b) => cardValue(b) - cardValue(a))[0];
+  return [...cards].sort((a, b) => pickPriority(b) - pickPriority(a))[0];
 }
 
 function gunRange(c: Card): number {
@@ -262,13 +255,12 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
 
   // 8. Discard down to the hand limit (events can tighten it), then end the turn.
   if (me.hand.length > game.handLimitOf(room, me)) {
-      const worst = [...me.hand].sort((a, b) => cardValue(a) - cardValue(b))[0];
+      const worst = [...me.hand].sort((a, b) => pickPriority(a) - pickPriority(b))[0];
     return () => game.discardCard(code, me.id, worst.id);
   }
   return () => game.endTurn(code, me.id).ok;
 }
 
-// Is there a bot waiting to act right now? (Cheap check for scheduling.)
 export function hasBotToAct(code: string): boolean {
   const room = game.getRoom(code);
   return !!room && nextAction(room) !== null;
