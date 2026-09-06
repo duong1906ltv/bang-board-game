@@ -31,6 +31,21 @@ export function charEffect(p: Player | null | undefined): CharacterEffect {
   return p?.character?.effect ?? {};
 }
 
+// Năng lực ĐANG dùng, sau khi tính cả việc mượn. Vera Custer mượn năng lực người khác cả
+// lượt, nên mọi checkpoint hỏi "người này làm được gì" phải đi qua đây.
+//
+// Một tầng, không đệ quy: người bị mượn mà cũng là Vera thì trả về năng lực rỗng thay vì
+// gọi lại chính mình. Trên bàn thật không xảy ra được — mỗi nhân vật chỉ có một bản trong
+// pool — nhưng một hàm mà cả engine gọi thì không được phép có đường vòng nào.
+export function effectiveEffect(room: Room, p: Player | null | undefined): CharacterEffect {
+  const own = charEffect(p);
+  if (!own.copiesAnotherAbility || !room.copiedAbilityFrom) return own;
+  if (room.players[room.turnIndex]?.id !== p?.id) return own; // mượn chỉ trong lượt cô ta
+  const src = room.players.find((x) => x.id === room.copiedAbilityFrom);
+  const borrowed = charEffect(src);
+  return borrowed.copiesAnotherAbility ? {} : borrowed;
+}
+
 export function beersInHand(p: Player): number {
   return p.hand.filter((c) => c.defId === "beer").length;
 }

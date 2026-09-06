@@ -47,7 +47,7 @@ export function Table({
   onCancelPredict,
 }: {
   view: PlayerView;
-  onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
+  onDraw: (source?: "deck" | "discard" | "player" | "equipment", targetId?: string, cardId?: string) => void;
   onPlay: (cardId: string, targetId?: string, targetCardId?: string, payCardIds?: string[]) => void;
   // Brawl bắt bạn tự chọn lá bỏ, mà tay bài nằm ở đây chứ không ở ReactionPanel.
   onRespond: (type: PendingAction, cardId?: string) => void;
@@ -347,7 +347,16 @@ export function Table({
     setGreenAim(null);
   };
   // Cat Balou / Panic! may hit a specific face-up card on the table.
-  const pickCardMode = aiming?.defId === "cat-balou" || aiming?.defId === "panic";
+  // Pat Brennan chỉ đích danh một lá trên bàn thay cho cả phần rút của mình. Dùng lại
+  // đúng cơ chế chọn-lá-trên-bàn của Cat Balou / Panic — cũng là "bấm vào một lá đang
+  // bày ra" — thay vì dựng một chế độ thứ hai làm cùng một việc.
+  // Vera Custer chọn người để mượn năng lực: cùng một nhát bấm vào crosshair như khi
+  // ngắm bắn, nên dùng lại đúng cơ chế đó thay vì dựng bảng chọn thứ hai.
+  const veraPick = view.pending?.kind === "copy" && view.pending.youMustRespond;
+  const brennanDraw =
+    isMyTurn && you.turnPhase === "draw" && !view.pending && you.legalDrawTargets.length > 0
+      && you.character?.effect.drawMode === "brennan";
+  const pickCardMode = brennanDraw || aiming?.defId === "cat-balou" || aiming?.defId === "panic";
 
   const aimText: Record<string, [string, string]> = {
     bang: [`Chọn mục tiêu Bang! (trong tầm ${you.range})`, `Choose a Bang! target (range ${you.range})`],
@@ -364,12 +373,22 @@ export function Table({
         <TableScene
           view={view}
           homeKey={homeKey}
-          targetIds={aiming ? view.players.filter((p) => canTarget(p)).map((p) => p.id) : []}
-          onPickTarget={fireAt}
+          targetIds={
+            veraPick
+              ? view.players.filter((p) => p.alive && p.id !== you.id).map((p) => p.id)
+              : brennanDraw
+              ? you.legalDrawTargets
+              : aiming
+              ? view.players.filter((p) => canTarget(p)).map((p) => p.id)
+              : []
+          }
+          onPickTarget={(id) => (veraPick ? onRespond("pass", id) : fireAt(id))}
           onInspect={inspectCard}
           onInspectPlayer={setPlayerInfo}
           pickCardMode={pickCardMode}
-          onPickCard={(ownerId, cardId) => fireAt(ownerId, cardId)}
+          onPickCard={(ownerId, cardId) =>
+            brennanDraw ? onDraw("equipment", ownerId, cardId) : fireAt(ownerId, cardId)
+          }
           /* You draw by clicking the deck, so the pile is armed exactly when the old
              "Rút 2 lá" button used to be shown. Not while aiming: a click on the felt
              then belongs to whatever you are pointing at. */

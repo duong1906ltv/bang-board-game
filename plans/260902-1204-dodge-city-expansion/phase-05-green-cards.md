@@ -1,6 +1,6 @@
 # Phase 05 — Green
 
-**Ngữ cảnh:** [plan.md](plan.md) · [card-spec.md](card-spec.md) ← spec lấy từ đây · [phase 04](phase-04-new-brown-cards.md)
+**Ngữ cảnh:** [plan.md](plan.md) · [card-spec.md](card-spec.md) ← spec lấy từ đây · [phase 04](phase-04-new-brown-cards.md) · **số đo:** [evidence/phase-05-green.md](evidence/phase-05-green.md)
 
 ## Tổng quan
 
@@ -106,18 +106,28 @@ equipment có `greenUse: "reaction"` và đã sẵn sàng.
 
 ## Todo
 
-- [ ] `CardKind: "green"` + `greenUse` + `Card.readyOnTurn`
-- [ ] `useEquip` + luật chưa-sẵn-sàng
-- [ ] Canteen (lá chứng minh)
-- [ ] 8 loại `turn` còn lại, dùng lại handler sẵn có, không tăng `bangsThisTurn`
-- [ ] `respond()` tìm Missed! cả trong equipment
-- [ ] Bible · Iron Plate ×2 · Sombrero · Ten Gallon Hat
-- [ ] 3D: green sẵn sàng vs chưa sẵn sàng
-- [ ] Bot kích hoạt được green, sim chạy **không nudge**
-- [ ] Quyết `bannedKinds` với green + ghi lý do
-- [ ] Rà 13 nhiệm vụ với green
-- [ ] Nâng `DC_CARDS_SO_FAR` 26 → 40; lúc này test 10/10/10/10 mới tự bật
-- [ ] Chạy lại 3 script sim, so số với phase 01
+- [x] `CardKind: "green"` + `greenUse` + **`Card.playedOnTurn`** (plan gọi là `readyOnTurn`;
+      đổi tên vì nó ghi lá được ĐẶT lúc nào, còn "chín chưa" là phép so với `turnCounter`)
+- [x] `useEquip` + luật chưa-sẵn-sàng
+- [x] Canteen (lá chứng minh)
+- [x] 8 loại `turn` còn lại, dùng lại `openBangAt`/`openMulti`, không tăng `bangsThisTurn`
+- [x] `respond()` tìm lá đỡ cả trong equipment — `findReaction` + `countReactions`
+- [x] Bible · Iron Plate ×2 · Sombrero · Ten Gallon Hat
+- [x] 3D: dấu ⏳ trên lá green chưa chín; và nhãn ±N giờ đọc từ catalog nên Hideout /
+      Binocular cũng hiện đúng (trước đó chúng lên bàn mà không nói mình làm gì)
+- [x] Bot đặt được green xuống bàn và kích hoạt được, sim chạy **không nudge**
+- [x] Quyết `bannedKinds` với green + ghi lý do
+- [x] Rà 13 nhiệm vụ với green — `no-cover` nhận thêm 4 lá green mang ký hiệu Mancato!
+- [x] Nâng `DC_CARDS_SO_FAR` 26 → 40; test 10/10/10/10 tự bật và xanh
+- [x] Chạy lại sim, so số với phase 01 — cửa Draw! trở về đúng 25.0% / 12.5%
+- [ ] Xem bằng mắt thanh green và dấu ⏳ — cần trình duyệt
+
+Phát sinh, đã sửa:
+
+- [x] **Lỗi luật: green đỡ được Bang! ngay từ trên tay.** `canUseAs` nhận `countsAs` bất kể
+      lá nằm ở đâu, nên Bible bỏ qua sạch cái giá một lượt chờ. Sim thấy vì `bible` chạy
+      32 lần trong khi bot chưa từng đặt lá green nào xuống — chạy quá NHIỀU cũng là dấu hiệu.
+- [x] **Bot chưa bao giờ đặt green xuống bàn**, nên cả 13 lá nằm chết trên tay.
 
 ## Xong khi
 

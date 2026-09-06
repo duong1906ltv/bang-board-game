@@ -3,6 +3,10 @@
 Board game **Bang!** chơi realtime nhiều người qua trình duyệt.
 Next.js (App Router) + TypeScript + Socket.IO, state lưu in-memory theo phòng.
 
+Bộ gốc 80 lá / 16 nhân vật / 4–7 người, cộng bộ mở rộng **Dodge City** bật tắt theo
+phòng: +40 lá, +15 nhân vật, bàn lên tới 8 người. Bật lên thì nọc thành 120 lá và pool
+nhân vật thành 31 — tắt đi thì ván chạy y hệt bộ gốc.
+
 ## Cách chạy (local)
 
 ```bash
@@ -23,6 +27,28 @@ Test cho engine (`lib/game/`): hình học ghế, giải bài, Draw! check, vòn
 điều kiện thắng. Chạy bằng test runner sẵn có của Node, không thêm dependency.
 Engine xáo bài ngẫu nhiên nên test không đấu với shuffle — `lib/__tests__/helpers/table.ts`
 dựng ván rồi ghi đè thế bài cho xác định.
+
+## Soak test
+
+`npm test` kiểm engine trả đúng chưa. Nó KHÔNG kiểm được hai thứ, và cả hai đều từng để
+lọt lỗi thật trong khi bộ test xanh hết:
+
+```bash
+npm run sim              # bàn có bao giờ treo không (200 ván/mức sự kiện)
+npm run sim:dodge        # tính năng đã viết có bao giờ CHẠY không
+npm run sim:missions     # nhiệm vụ phụ có nhích được tiến độ không
+npm run sim:predict      # cửa đoán có rò rỉ hay treo không
+```
+
+`sim:dodge` cấm mớm bài, có chủ ý: nếu một lá hay một năng lực không bao giờ chạy thì đó
+là engine hoặc UI chưa tới được nó, và mớm chỉ giấu đi đúng cái cần thấy. Nó cũng từng bắt
+được chiều ngược lại — một lá chạy quá NHIỀU hoá ra là lỗi luật.
+
+Đo hình học bàn 3D bằng số, đừng bằng mắt:
+
+```bash
+npx tsx scripts/check-table-readability.ts
+```
 
 ## Cấu trúc
 

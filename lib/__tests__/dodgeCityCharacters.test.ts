@@ -15,9 +15,10 @@ const dodgeCityIds = new Set(
   CHARACTERS.filter((c) => c.set === "dodgeCity").map((c) => c.id),
 );
 
-test("the eleven cheap Dodge City characters are all catalogued", () => {
-  assert.equal(dodgeCityIds.size, 11, "phase 06 nâng số này lên 15");
+test("cả 15 nhân vật Dodge City đều có trong pool", () => {
+  assert.equal(dodgeCityIds.size, 15);
   assert.equal(CHARACTERS.filter((c) => c.set === "base").length, 16);
+  assert.equal(CHARACTERS.length, 31);
 });
 
 test("a base-game room never deals a Dodge City character", () => {

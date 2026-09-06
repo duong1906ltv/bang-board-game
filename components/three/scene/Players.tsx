@@ -290,10 +290,16 @@ export function YourAvatar({
   onInspect,
   models,
   turnCounter,
+  pickCardMode,
+  onPickCard,
+  targetIds,
 }: {
   // Read off view.you, not the players array: the array hides roles from everyone,
   // including from you, so your own sheriff star would never light up.
-  you: { alive: boolean; ghost: boolean; hp: number; role: Role | null; equipment: Card[]; seat: number; hand: Card[] };
+  you: { id: string; alive: boolean; ghost: boolean; hp: number; role: Role | null; equipment: Card[]; seat: number; hand: Card[] };
+  pickCardMode?: boolean;
+  onPickCard?: (ownerId: string, cardId: string) => void;
+  targetIds?: string[];
   players: PlayerPublic[];
   count: number;
   ring: number;
@@ -335,7 +341,9 @@ export function YourAvatar({
           thứ hai của cùng thông tin, ở cỡ khác, chỉ làm che bàn. Đối thủ vẫn có biển,
           vì với họ đó là bản DUY NHẤT. */}
       {plaque?.isTurn && <TurnMarker position={[x, markY(), z]} />}
-      <FeltCards cards={you.equipment} ang={YOUR_SEAT_ANG} radius={equipRadius(ring)} onInspect={onInspect} color={color} turnCounter={turnCounter} />
+      {/* Bàn của CHÍNH bạn cũng bấm được: Pat Brennan lấy "1 lá trên bàn của người bất
+          kỳ", và người bất kỳ gồm cả chính anh ta. */}
+      <FeltCards cards={you.equipment} ang={YOUR_SEAT_ANG} radius={equipRadius(ring)} onInspect={onInspect} color={color} turnCounter={turnCounter} pickable={!!pickCardMode && !!targetIds?.includes(you.id)} onPickCard={(cid) => onPickCard?.(you.id, cid)} />
       <FeltGun equipment={you.equipment} x={x} z={z} face={faceCentre(YOUR_SEAT_ANG)} models={models} />
       {/* Quạt bài úp cho ghế của CHÍNH BẠN, cùng khung với mọi đối thủ: ở VÀNH NỈ (ring), không
           phải ở ghế (seatR — chỗ đó nằm ngoài mặt nỉ), quay -ang - π/2.

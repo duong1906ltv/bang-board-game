@@ -99,6 +99,9 @@ export interface Room {
   // hai người khác nhau có thể mang cùng một năng lực sau này, và engine vẫn không cần
   // biết tên ai. Reset cùng chỗ với bangsThisTurn.
   abilityUsesThisTurn: Partial<Record<AbilityKind, number>>;
+  // Vera Custer đang mượn năng lực của ai trong lượt này. Reset cùng chỗ với bangsThisTurn
+  // — quên reset là giữ năng lực người khác vĩnh viễn.
+  copiedAbilityFrom: string | null;
   pending: Pending | null; // unresolved reaction locking the table
   winner: Winner | null; // set when the game ends
   // Players who hit 0 HP and still have to be resolved, in the order they were hit.
@@ -173,6 +176,9 @@ export type Pending =
   // đó: taken là người đánh chọn hộ và nạn nhân chỉ bấm xác nhận, còn đây nạn nhân thật
   // sự quyết định. Nên nó giống "multi" (đồng thời, ai xong trước cũng được) hơn.
   | { kind: "toss"; sourceId: string; responders: { id: string; done: boolean }[] }
+  // Vera Custer đang chọn mượn năng lực của ai. Đầu lượt cô ta và TRƯỚC draw phase, vì
+  // năng lực mượn được có thể chính là cách rút bài (Kit Carlson, Jesse Jones...).
+  | { kind: "copy"; playerId: string }
   | { kind: "duel"; aId: string; bId: string; turnId: string }
   | { kind: "store"; sourceId: string; cards: Card[]; order: string[] }
   | { kind: "kit"; playerId: string; cards: Card[]; picksLeft: number }

@@ -4,7 +4,7 @@
 
 ## Tổng quan
 
-**Ưu tiên:** thấp · **Trạng thái:** ⬜ chưa làm · **Phụ thuộc:** phase 03
+**Ưu tiên:** thấp · **Trạng thái:** 🟡 xong engine + bot, chưa xem mắt · **Phụ thuộc:** phase 03
 
 Bốn nhân vật còn lại, mỗi người một bài toán riêng, đụng bốn chỗ khác nhau trong engine.
 Xếp cuối vì thế — mỗi người xứng đáng một lượt review riêng, không gộp.
@@ -86,15 +86,24 @@ Làm **tuần tự**, mỗi người một commit, dễ trước khó sau:
 
 ## Todo
 
-- [ ] Pat Brennan: `drawMode: "brennan"` + view công bố bàn với tới được
-- [ ] Molly Stark: tìm/dựng **một** chỗ chung cho "đánh bài ngoài lượt"
-- [ ] Molly Stark: loại trừ bị-cướp, bị-ép-bỏ, bỏ-cuối-lượt
-- [ ] Belle Star: luồn ngữ cảnh lượt vào `geometry.ts`, test cũ xanh trước
-- [ ] Belle Star: Mustang/Hideout/Barrel của người khác vô hiệu trong lượt cô ta
-- [ ] Vera Custer: pending chọn đầu lượt, **trước** draw phase
-- [ ] Vera Custer: `charEffect` gián tiếp, reset cuối lượt
-- [ ] i18n 4 dòng + 4 id art + bot
-- [ ] Test riêng cho từng người
+- [x] Pat Brennan: `drawMode: "brennan"` + view công bố bàn với tới được. Client dùng lại
+      đúng cơ chế chọn-lá-trên-bàn của Cat Balou / Panic, kể cả bàn của chính anh ta.
+- [x] Molly Stark: **một** chỗ chung — `spendReaction`. Hoá ra "chủ động, ngoài lượt"
+      không rải khắp engine như plan lo: bạn chỉ tự nguyện bỏ lá ngoài lượt khi TRẢ LỜI
+      một cửa phản ứng, và mọi đường đều hẹp về đó. Duel được kéo qua cùng cửa.
+- [x] Molly Stark: loại trừ bị-cướp (đi `openTaken`), bị-ép-bỏ (nhánh `toss`),
+      bỏ-cuối-lượt (đang là lượt mình). Điều kiện lượt kiểm TRONG hook, không ở nơi gọi.
+- [x] Belle Star: đổi chữ ký `barrelAttempts` trước, 223 test cũ xanh, rồi mới cắm năng lực
+- [x] Belle Star: Mustang/Hideout/Barrel **và cả Iron Plate** của người khác vô hiệu —
+      green trên bàn cũng là lá trên bàn. Nhân vật thì KHÔNG bị chạm (Jourdonnais giữ
+      Barrel bẩm sinh, Paul Regret giữ +1 khoảng cách).
+- [x] Vera Custer: pending `"copy"` mở **trước** draw phase, và mở lại đúng lúc tấm thẻ
+      Dynamite/Jail được gạt đi
+- [x] Vera Custer: `effectiveEffect` gián tiếp một tầng, reset ở `beginTurn` và `restart`
+- [x] i18n 4 dòng + bot biết trả lời cửa của Vera và rút kiểu Brennan
+- [ ] ~~4 id art~~ — cùng lý do phase 03, `characterArt.ts` cố ý cho phép tụt lại
+- [x] Test riêng cho từng người — 14 test
+- [ ] Xem bằng mắt — cần trình duyệt
 
 ## Xong khi
 

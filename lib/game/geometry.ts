@@ -6,7 +6,7 @@
 
 import { CARD_DEF_BY_ID } from "../cards";
 import { activeEffect } from "./events-read";
-import { charEffect } from "./deck";
+import { effectiveEffect } from "./deck";
 import { Player, Room, aliveBySeat } from "./state";
 
 // Weapon range: the equipped gun's range, or 1 (Colt .45) if unarmed. Events may
@@ -35,8 +35,19 @@ function equipDistance(p: Player, field: "seenFartherBy" | "seesCloserBy"): numb
 
 // How many Barrel-style Draw!s a player gets when hit by a Bang!: one per Barrel
 // in play, plus any the character brings innately.
-export function barrelAttempts(p: Player): number {
-  return (hasEquip(p, "barrel") ? 1 : 0) + (charEffect(p).extraBarrel ?? 0);
+export function barrelAttempts(room: Room, p: Player): number {
+  // Belle Star: trong lượt cô ta, Barrel của người khác nằm đó cho có. Barrel bẩm sinh của
+  // Jourdonnais thì KHÔNG bị chạm — nó là năng lực nhân vật, không phải lá trên bàn.
+  const barrel = hasEquip(p, "barrel") && !equipSuppressed(room, p) ? 1 : 0;
+  return barrel + (effectiveEffect(room, p).extraBarrel ?? 0);
+}
+
+// Lá trên bàn của `owner` có đang bị vô hiệu không. Chỉ Belle Star gây ra chuyện này, và
+// chỉ trong lượt cô ta, và chỉ với bàn của NGƯỜI KHÁC.
+export function equipSuppressed(room: Room, owner: Player): boolean {
+  const active = room.players[room.turnIndex];
+  if (!active || active.id === owner.id) return false;
+  return !!effectiveEffect(room, active).suppressOthersEquip;
 }
 
 // Distance the viewer `from` sees to player `to`, counting only living players
@@ -59,10 +70,12 @@ export function distanceBetween(room: Room, from: Player, to: Player): number {
   const raw = Math.abs(i - j);
   let dist = Math.min(raw, ring.length - raw);
 
-  dist += equipDistance(to, "seenFartherBy");
-  dist += charEffect(to).distanceToDelta ?? 0;
+  // Belle Star vô hiệu lá trên bàn người khác, nhưng KHÔNG vô hiệu nhân vật: Paul Regret
+  // vẫn ở xa thêm 1, vì đó là con người anh ta chứ không phải cái yên ngựa.
+  if (!equipSuppressed(room, to)) dist += equipDistance(to, "seenFartherBy");
+  dist += effectiveEffect(room, to).distanceToDelta ?? 0;
   dist -= equipDistance(from, "seesCloserBy");
-  dist -= charEffect(from).distanceSeenDelta ?? 0;
+  dist -= effectiveEffect(room, from).distanceSeenDelta ?? 0;
   // Weather events stretch or flatten the whole table (Fog / Open Plains).
   dist += activeEffect(room).distanceDelta ?? 0;
 

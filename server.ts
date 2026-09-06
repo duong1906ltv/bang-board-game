@@ -283,9 +283,9 @@ app.prepare().then(() => {
       if (pid && game.pickCharacter(code, pid, characterId)) broadcast(code);
     });
 
-    socket.on("drawCards", ({ code, source, targetId }) => {
+    socket.on("drawCards", ({ code, source, targetId, cardId }) => {
       const pid = playerIdOf(code, socket.id);
-      if (pid && game.drawCards(code, pid, source, targetId)) broadcast(code);
+      if (pid && game.drawCards(code, pid, source, targetId, cardId)) broadcast(code);
     });
 
     socket.on("useEquip", ({ code, cardId, targetId }) => {

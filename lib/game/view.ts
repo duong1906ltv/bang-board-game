@@ -10,7 +10,7 @@ import {
 } from "../types";
 import { CARD_DEF_BY_ID } from "../cards";
 import { MISSION_BY_ID } from "../missions";
-import { charEffect } from "./deck";
+import { effectiveEffect } from "./deck";
 import { toEventView } from "./events-read";
 import { distanceBetween, rangeOf } from "./geometry";
 import {
@@ -117,8 +117,8 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
   const cardsAnswering = (primary: PendingAction | null): string[] => {
     if (!me || !primary) return [];
     return [
-      ...me.hand.filter((c) => canUseAs(me, c, primary)),
-      ...me.equipment.filter((c) => reactionOnTable(room, c, primary)),
+      ...me.hand.filter((c) => canUseAs(room, me, c, primary)),
+      ...me.equipment.filter((c) => reactionOnTable(room, me, c, primary)),
     ].map((c) => c.id);
   };
 
@@ -148,7 +148,7 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
     // Only offer "Missed!" if the target holds enough to complete the dodge (2 vs Slab
     // the Killer) — otherwise a lone Missed! would be wasted.
     const usableAsMissed = me
-      ? me.hand.filter((c) => canUseAs(me, c, "missed")).length
+      ? me.hand.filter((c) => canUseAs(room, me, c, "missed")).length
       : 0;
     const canDodge =
       waitingOnMe && usableAsMissed >= p.missedNeeded - p.missedPlayed;
@@ -184,6 +184,16 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
       actorName: playerName(p.sourceId),
       effect: p.effect,
       waiting: p.responders.filter((x) => !x.done).map((x) => playerName(x.id)),
+    };
+  }
+  if (p.kind === "copy") {
+    const waitingOnMe = meId === p.playerId;
+    return {
+      kind: "copy",
+      youMustRespond: waitingOnMe,
+      // Không có nút nào: bạn chọn NGƯỜI, và crosshair trên bàn là chỗ chọn.
+      actions: [],
+      actorName: playerName(p.playerId),
     };
   }
   if (p.kind === "toss") {
@@ -315,13 +325,15 @@ export function viewFor(room: Room, playerId: string): PlayerView {
           .filter((c) => CARD_DEF_BY_ID[c.defId]?.target)
           .map((c) => [c.id, legalTargetIds(room, me!, c.defId, c)]),
       ),
-      // Whose hand the draw phase may reach (Jesse Jones' drawMode).
-      legalDrawTargets:
-        me && charEffect(me).drawMode === "jesse"
-          ? room.players
-              .filter((p) => p.alive && p.id !== me.id && p.hand.length > 0)
-              .map((p) => p.id)
-          : [],
+      // Ai mà draw phase với tới được. Hai người, hai NGUỒN khác nhau: Jesse Jones lấy
+      // từ tay, Pat Brennan lấy từ bàn — nên điều kiện "có gì để lấy" cũng khác.
+      legalDrawTargets: !me
+        ? []
+        : effectiveEffect(room, me).drawMode === "jesse"
+        ? room.players.filter((p) => p.alive && p.id !== me.id && p.hand.length > 0).map((p) => p.id)
+        : effectiveEffect(room, me).drawMode === "brennan"
+        ? room.players.filter((p) => p.alive && p.equipment.length > 0).map((p) => p.id)
+        : [],
       handLimit: me ? handLimitOf(room, me) : 0,
       inbox: me?.inbox ?? [],
       wins: me?.wins ?? 0,

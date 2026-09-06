@@ -82,6 +82,7 @@ export function createRoom(
     upkeepFor: null,
     bangsThisTurn: 0,
     abilityUsesThisTurn: {},
+    copiedAbilityFrom: null,
     playsThisTurn: 0,
     playedDefsThisTurn: [],
     pending: null,

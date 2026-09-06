@@ -32,7 +32,7 @@ Thêm bộ mở rộng chính thức **Dodge City** (DvGiochi, 2004): 15 nhân v
 | 03 | [11 nhân vật rẻ + 3 nút năng lực](phase-03-characters-data-driven.md) | 8 field mới trên `CharacterEffect`, 3 ability action theo khuôn Sid Ketchum | 🟡 còn ảnh |
 | 04 | [Brown mới](phase-04-new-brown-cards.md) | `costDiscard` (Whisky/Tequila/Brawl/Rag Time/Springfield) + Punch + Dodge | 🟡 chưa xem mắt |
 | 05 | [Green](phase-05-green-cards.md) | `CardKind` thứ 4, cờ sẵn sàng, action kích hoạt, 4 lá Missed! ngoài lượt, bot, 3D | 🟡 chưa xem mắt |
-| 06 | [4 nhân vật khó](phase-06-hard-characters.md) | Pat Brennan, Molly Stark, Belle Star, Vera Custer | ⬜ |
+| 06 | [4 nhân vật khó](phase-06-hard-characters.md) | Pat Brennan, Molly Stark, Belle Star, Vera Custer | 🟡 chưa xem mắt |
 
 ## Phụ thuộc
 

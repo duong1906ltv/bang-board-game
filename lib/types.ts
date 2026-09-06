@@ -53,7 +53,8 @@ export interface CharacterEffect {
   //  pedro     : first card may come off the discard pile
   //  blackjack : reveal the 2nd; on Heart/Diamond draw a bonus card
   //  noface    : draw one, plus one for every life point already lost
-  drawMode?: "kit" | "jesse" | "pedro" | "blackjack" | "noface";
+  //  brennan   : ONE card taken off the table in front of anybody, instead of the usual two
+  drawMode?: "kit" | "jesse" | "pedro" | "blackjack" | "noface" | "brennan";
   drawCountDelta?: number; // extra cards in the draw phase (Pixie Pete)
 
   // --- shooting ---
@@ -79,6 +80,18 @@ export interface CharacterEffect {
 
   // --- healing ---
   beerHealDelta?: number; // extra life per Beer, both when played and when dying (Tequila Joe)
+
+  // --- ngoài lượt ---
+  // Molly Stark: mỗi lá cô ta CHỦ ĐỘNG bỏ ra ngoài lượt mình thì rút lại 1 lá. Chủ động
+  // là phần khó: bị Cat Balou lấy, bị Brawl ép bỏ, bỏ bài cuối lượt đều không tính.
+  drawOnOutOfTurnPlay?: boolean;
+
+  // --- trong lượt mình ---
+  // Belle Star: trong lượt cô ta, mọi lá TRÊN BÀN của người khác mất tác dụng — Mustang
+  // thôi đẩy xa, Barrel thôi đỡ, Iron Plate thôi chặn.
+  suppressOthersEquip?: boolean;
+  // Vera Custer: đầu lượt chọn một người còn sống và mượn năng lực của họ cả lượt.
+  copiesAnotherAbility?: boolean;
 
   // --- reactions to damage and death ---
   healOnDeath?: number; // life regained whenever ANYBODY dies (Greg Digger)
@@ -130,6 +143,10 @@ export const CHARACTERS: Character[] = [
   { id: "chuck-wengam", name: "Chuck Wengam", rank: null, maxHp: 4, effect: { loseLifeToDraw: true }, set: "dodgeCity" },
   { id: "doc-holyday", name: "Doc Holyday", rank: null, maxHp: 4, effect: { burnTwoToShoot: true }, set: "dodgeCity" },
   { id: "jose-delgado", name: "José Delgado", rank: null, maxHp: 4, effect: { burnBlueToDraw: true }, set: "dodgeCity" },
+  { id: "pat-brennan", name: "Pat Brennan", rank: null, maxHp: 4, effect: { drawMode: "brennan" }, set: "dodgeCity" },
+  { id: "molly-stark", name: "Molly Stark", rank: null, maxHp: 4, effect: { drawOnOutOfTurnPlay: true }, set: "dodgeCity" },
+  { id: "belle-star", name: "Belle Star", rank: null, maxHp: 4, effect: { suppressOthersEquip: true }, set: "dodgeCity" },
+  { id: "vera-custer", name: "Vera Custer", rank: null, maxHp: 3, effect: { copiesAnotherAbility: true }, set: "dodgeCity" },
 ];
 
 // Năng lực phải BẤM NÚT, khác với thứ engine tự đọc ở checkpoint. Tên đặt theo việc nó
@@ -189,7 +206,7 @@ export type Winner = "sheriff" | "outlaws" | "renegade";
 //  - multi: Indians!/Gatling — each other player defends or takes 1
 //  - duel:  two players alternate discarding Bang!; first to fail loses 1
 //  - store: General Store — players pick a revealed card in turn order
-export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit" | "check" | "taken" | "toss";
+export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit" | "check" | "taken" | "toss" | "copy";
 // "toss" mang theo cardId: nạn nhân Brawl tự chọn lá, nên câu trả lời phải nói LÁ NÀO.
 export type PendingAction = "missed" | "beer" | "bang" | "pass" | "toss";
 
@@ -489,7 +506,8 @@ export interface ClientToServerEvents {
   addBot: (data: { code: string }) => void; // host: add an AI player (testing)
   removeBot: (data: { code: string }) => void; // host: remove the last AI player
   pickCharacter: (data: { code: string; characterId: string }) => void;
-  drawCards: (data: { code: string; source?: "deck" | "discard" | "player"; targetId?: string }) => void; // draw phase
+  // cardId: Pat Brennan chỉ đích danh lá trên bàn — khác Jesse Jones, người rút mù từ tay.
+  drawCards: (data: { code: string; source?: "deck" | "discard" | "player" | "equipment"; targetId?: string; cardId?: string }) => void;
   // Mọi năng lực bấm nút đi chung một sự kiện; `kind` nói là năng lực nào.
   useAbility: (data: { code: string; kind: AbilityKind; cardIds?: string[]; targetId?: string }) => void;
   // Kích hoạt một lá green đang nằm trước mặt bạn.

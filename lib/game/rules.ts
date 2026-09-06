@@ -10,8 +10,8 @@ import { Card, CARD_DEF_BY_ID } from "../cards";
 import { ABILITY_FLAG, ABILITY_USES_PER_TURN, AbilityKind } from "../types";
 import { GameError } from "../errors";
 import { activeEffect } from "./events-read";
-import { charEffect } from "./deck";
-import { distanceBetween, hasEquip, rangeOf } from "./geometry";
+import { effectiveEffect } from "./deck";
+import { distanceBetween, equipSuppressed, hasEquip, rangeOf } from "./geometry";
 import { predictionProblem } from "../predictions";
 import { Player, Room } from "./state";
 
@@ -35,7 +35,7 @@ export function targetProblem(
   // Apache Kid: "lá bài chất Rô của NGƯỜI KHÁC", không phải "mọi lá Rô". Của chính anh ta
   // thì bình thường, và Dynamite hay lá lật lên khi Draw! không phải ai đánh vào anh ta cả
   // — chúng không đi qua cửa này nên tự khắc không dính.
-  const immune = charEffect(target).immuneSuit;
+  const immune = effectiveEffect(room, target).immuneSuit;
   if (immune && card?.suit === immune && actor.id !== target.id) return { code: "immune-suit" };
   if (rule.shoots && activeEffect(room).protectSheriff && target.role === "sheriff") {
     return { code: "truce-protects-sheriff" };
@@ -62,14 +62,14 @@ export function handLimitOf(room: Room, p: Player): number {
   if (p.ghost) return p.hand.length;
   // Sean Mallory thay hẳn "một lá mỗi máu" bằng một trần phẳng. Sự kiện vẫn cộng trừ lên
   // trên: chúng co giãn cả bàn, không phải luật riêng của một người.
-  const base = charEffect(p).handLimitOverride ?? p.hp;
+  const base = effectiveEffect(room, p).handLimitOverride ?? p.hp;
   return Math.max(1, base + (activeEffect(room).handLimitDelta ?? 0));
 }
 
 export function bangBudget(room: Room, p: Player): number {
   const eff = activeEffect(room);
   if (eff.noBang) return 0;
-  const unlimited = hasEquip(p, "volcanic") || !!charEffect(p).unlimitedBang;
+  const unlimited = hasEquip(p, "volcanic") || !!effectiveEffect(room, p).unlimitedBang;
   const cap = eff.bangLimit ?? (unlimited ? 99 : 1);
   return Math.max(0, cap - room.bangsThisTurn);
 }
@@ -97,7 +97,7 @@ export function playBlock(room: Room, p: Player, card: Card, targetId?: string):
   // Saloon is left alone on purpose: it heals the LIVING, so buying the table a round on the
   // way out is a real play even though none of it reaches the ghost.
   if (p.ghost && card.defId === "beer") return { code: "ghost-cannot-heal" };
-  if (isBangLike(p, card, targetId) && bangBudget(room, p) <= 0) {
+  if (isBangLike(room, p, card, targetId) && bangBudget(room, p) <= 0) {
     return { code: eff.noBang ? "event-bans-bang" : "bang-limit-reached" };
   }
   // Đủ lá để trả giá không. Ở đây chứ không phải trong handler, vì bot lọc nước đi qua
@@ -123,7 +123,7 @@ export function blockedDefIdsFor(room: Room, p: Player): string[] {
 // Keyed by the defId the UI aims with.
 export function legalTargetsFor(room: Room, p: Player): Record<string, string[]> {
   const out: Record<string, string[]> = {};
-  const swap = charEffect(p).useAs;
+  const swap = effectiveEffect(room, p).useAs;
   for (const c of p.hand) {
     const playAs = [c.defId, ...(swap?.includes(c.defId) ? swap.filter((d) => d !== c.defId) : [])];
     for (const as of playAs) {
@@ -144,8 +144,8 @@ export function legalTargetsFor(room: Room, p: Player): Record<string, string[]>
 }
 
 // A Bang! being fired, including Calamity Janet using a Missed! as one.
-export function isBangLike(p: Player, card: Card, targetId?: string): boolean {
-  return card.defId === "bang" || (!!targetId && canUseAs(p, card, "bang"));
+export function isBangLike(room: Room, p: Player, card: Card, targetId?: string): boolean {
+  return card.defId === "bang" || (!!targetId && canUseAs(room, p, card, "bang"));
 }
 
 // Exempt from the "each card type once per turn" house rule: gun swaps (weapons change
@@ -154,7 +154,7 @@ export function isExemptPlay(room: Room, p: Player, card: Card, targetId?: strin
   if (activeEffect(room).ignoreOncePerTurn) return true; // Frenzy suspends the house rule
   const def = CARD_DEF_BY_ID[card.defId];
   if (def?.kind === "gun") return true;
-  return isBangLike(p, card, targetId);
+  return isBangLike(room, p, card, targetId);
 }
 
 export function legalTargetIds(room: Room, actor: Player, defId: string, card?: Card): string[] {
@@ -163,7 +163,7 @@ export function legalTargetIds(room: Room, actor: Player, defId: string, card?: 
 }
 
 // Calamity Janet may swap Bang!/Missed!.
-export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
+export function canUseAs(room: Room, player: Player, card: Card, asDefId: string): boolean {
   if (card.defId === asDefId) return true;
   // Dodge mang ký hiệu Mancato!. MỘT chiều: Dodge đỡ được Bang!, nhưng Mancato! không
   // biến thành Dodge (nó sẽ không rút thêm lá nào). Calamity Janet cũng không bắn Dodge
@@ -175,7 +175,7 @@ export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
   // một lượt chờ vốn là toàn bộ thiết kế của loại bài này. reactionOnTable xét riêng.
   const def = CARD_DEF_BY_ID[card.defId];
   if (def?.countsAs === asDefId && def.kind !== "green") return true;
-  const ch = charEffect(player);
+  const ch = effectiveEffect(room, player);
   // Elena Fuente, và chỉ theo MỘT chiều: mọi lá đỡ được Bang!, nhưng không lá nào biến
   // thành Bang!. Duel đòi Bang! thật, nên nó không lọt qua đây.
   if (asDefId === "missed" && ch.anyAsMissed) return true;
@@ -188,7 +188,7 @@ export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
 // điều không xảy ra được.
 export function abilityProblem(room: Room, p: Player, kind: AbilityKind): GameError | null {
   if (!p.alive) return { code: "not-your-turn" };
-  if (!charEffect(p)[ABILITY_FLAG[kind]]) return { code: "ability-unavailable" };
+  if (!effectiveEffect(room, p)[ABILITY_FLAG[kind]]) return { code: "ability-unavailable" };
   if ((room.abilityUsesThisTurn[kind] ?? 0) >= ABILITY_USES_PER_TURN[kind]) {
     return { code: "ability-used-up" };
   }
@@ -272,9 +272,12 @@ export function isGreenReady(room: Room, card: Card): boolean {
 
 // Lá green trên bàn có trả lời được cửa phản ứng `asDefId` không. Tách khỏi canUseAs vì
 // nó hỏi thêm hai điều canUseAs không biết: lá đang nằm ở đâu, và đã chín chưa.
-export function reactionOnTable(room: Room, card: Card, asDefId: string): boolean {
+export function reactionOnTable(room: Room, owner: Player, card: Card, asDefId: string): boolean {
   const def = CARD_DEF_BY_ID[card.defId];
-  return def?.greenUse === "reaction" && def.countsAs === asDefId && isGreenReady(room, card);
+  if (def?.greenUse !== "reaction" || def.countsAs !== asDefId) return false;
+  // Belle Star vô hiệu lá trên bàn người khác, nên Iron Plate cũng thôi chặn — nó là một
+  // lá đang bày ra bàn y như Barrel.
+  return isGreenReady(room, card) && !equipSuppressed(room, owner);
 }
 
 export function isBlueBordered(c: Card): boolean {

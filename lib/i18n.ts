@@ -166,6 +166,10 @@ const CHAR_ABILITY: Record<string, [string, string]> = {
   "apache-kid": ["Miễn nhiễm với bài chất Rô của người khác.", "Diamond cards played by other players have no effect on him."],
   "chuck-wengam": ["Trong lượt mình, có thể trả 1 máu để rút 2 lá. Không dùng được ở 1 máu.", "On his turn he may lose 1 life point to draw 2 cards. Not at 1 life."],
   "doc-holyday": ["Mỗi lượt một lần, bỏ 2 lá để bắn 1 phát Bang! — không tính vào hạn mức.", "Once per turn he may discard 2 cards to fire a Bang!, which does not count against his limit."],
+  "pat-brennan": ["Thay vì rút 2 lá, có thể lấy 1 lá đang bày trên bàn của người bất kỳ.", "Instead of drawing 2 cards, he may take one card in play in front of any player."],
+  "molly-stark": ["Mỗi lá cô chủ động dùng hoặc bỏ ngoài lượt mình, rút lại 1 lá.", "Each time she plays or voluntarily discards a card out of turn, she draws a card."],
+  "belle-star": ["Trong lượt cô, mọi lá trên bàn của người khác mất tác dụng.", "During her turn, cards in play in front of other players have no effect."],
+  "vera-custer": ["Đầu lượt mình, chọn một người còn sống và mượn năng lực của họ cả lượt.", "At the start of her turn, she copies another living player's ability for the whole turn."],
   "jose-delgado": ["Mỗi lượt hai lần, bỏ 1 lá xanh trên tay để rút 2 lá.", "Twice per turn he may discard a blue card from his hand to draw 2 cards."],
 };
 export const charAbility = (l: Locale, id?: string | null) =>
@@ -194,6 +198,8 @@ export function formatPending(l: Locale, p: PlayerView["pending"], youName?: str
       return p.effect === "indians"
         ? L(l, `${a} dùng Indians! — bỏ 1 Bang! hoặc mất 1 máu`, `${a} plays Indians! — discard a Bang! or lose 1 life`)
         : L(l, `${a} dùng Gatling — đánh Missed! hoặc mất 1 máu`, `${a} plays Gatling — play a Missed! or lose 1 life`);
+    case "copy":
+      return L(l, `${a} (Vera Custer) chọn năng lực để mượn`, `${a} (Vera Custer) is copying an ability`);
     case "toss":
       return L(l, `${a} dùng Brawl — mỗi người bỏ 1 lá`, `${a} plays Brawl — everyone else discards a card`);
     case "duel":

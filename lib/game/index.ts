@@ -27,7 +27,7 @@ import {
   rooms,
   shuffle,
 } from "./state";
-import { beersInHand, charEffect, charactersInPlay, drawInto, drawOne } from "./deck";
+import { beersInHand, effectiveEffect, charactersInPlay, drawInto, drawOne } from "./deck";
 import { cancelPrediction, judgePredictions, predict, voidPredictionsFor } from "./predictions";
 import { dealMissions, signalMissions } from "./missions";
 import type { MissionSignal } from "../missions";
@@ -71,7 +71,8 @@ import { viewFor } from "./view";
 export type { Player, Room };
 export { DRAFT_PER_PLAYER };
 export { activeEffect };
-export { distanceBetween, rangeOf };
+export { effectiveEffect };
+export { barrelAttempts, distanceBetween, rangeOf };
 export {
   abilityProblem,
   bangBudget,
@@ -476,8 +477,9 @@ function makeCtx(room: Room, opener: Player): EventCtx {
 export function drawCards(
   code: string,
   playerId: string,
-  source: "deck" | "discard" | "player" = "deck",
-  targetId?: string
+  source: "deck" | "discard" | "player" | "equipment" = "deck",
+  targetId?: string,
+  cardId?: string
 ): boolean {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing" || room.turnPhase !== "draw") return false;
@@ -489,7 +491,7 @@ export function drawCards(
   // How many cards this draw phase yields: 2 by default, overridden by events
   // (Card Rain 3 / Empty Pockets 1) and topped up by additive ones (Gold Rush).
   const eff = activeEffect(room);
-  const ch = charEffect(current);
+  const ch = effectiveEffect(room, current);
   // Bill Noface thay hẳn con số nền: 1 lá cộng 1 cho mỗi vết thương. Thay chứ không cộng,
   // nên ở đầy máu anh ta rút 1 — đó là cái giá của việc rút 4 khi sắp chết.
   const baseDraw = ch.drawMode === "noface" ? 1 + (current.maxHp - current.hp) : eff.drawCount ?? 2;
@@ -521,6 +523,16 @@ export function drawCards(
     room.turnPhase = "play";
     pushLog(room, { kind: "draw", a: current.name, n: current.hand.length - beforeDraw });
     return true;
+  }
+
+  // Pat Brennan: MỘT lá lấy thẳng khỏi bàn của người bất kỳ, thay cho cả hai lá thường.
+  // Không phải "lá đầu tiên" như Jesse Jones — đó là toàn bộ phần rút của anh ta, nên
+  // thenDraw truyền 0: nó đóng draw phase mà không rút thêm gì.
+  if (ch.drawMode === "brennan" && source === "equipment" && targetId && cardId && drawTotal > 0) {
+    const t = room.players.find((p) => p.id === targetId);
+    const has = t?.equipment.some((c) => c.id === cardId);
+    if (t && has && openTaken(room, current, t, "take", undefined, cardId, 0)) return true;
+    // Lá không còn ở đó nữa (ai đó vừa cướp mất): rút nọc như thường thay vì kẹt.
   }
 
   // Pedro Ramirez: draw the first card from the discard pile.
@@ -704,7 +716,7 @@ function playCardImpl(
   if (card.defId === "dodge") return err("missed-is-reaction-only");
   // Missed! is only playable as a reaction — except Calamity Janet may fire it as a Bang!.
   if (card.defId === "missed") {
-    if (_targetId && canUseAs(current, card, "bang")) return playBang(room, current, idx, _targetId);
+    if (_targetId && canUseAs(room, current, card, "bang")) return playBang(room, current, idx, _targetId);
     return err("missed-is-reaction-only");
   }
   return err("card-not-implemented");
@@ -735,7 +747,7 @@ function openMulti(room: Room, current: Player, effect: "indians" | "gatling", p
   if (effect === "gatling") {
     targets.forEach((p, ti) => {
       const r = responders[ti];
-      const attempts = barrelAttempts(p);
+      const attempts = barrelAttempts(room, p);
       for (let i = 0; i < attempts && !r.safe; i++) {
         const card = drawCheck(room, p, goodBarrel);
         const heart = !!card && card.suit === "hearts";
@@ -959,7 +971,7 @@ function openBangAt(room: Room, current: Player, target: Player): void {
   const eff = activeEffect(room);
   const missedNeeded = Math.max(
     1,
-    1 + (charEffect(current).missedNeededDelta ?? 0) + (eff.missedNeededDelta ?? 0)
+    1 + (effectiveEffect(room, current).missedNeededDelta ?? 0) + (eff.missedNeededDelta ?? 0)
   );
   const pending = {
     kind: "bang" as const,
@@ -975,7 +987,7 @@ function openBangAt(room: Room, current: Player, target: Player): void {
   // (per the card: "cannot Draw! twice"). Each Heart counts as one Missed!, so
   // vs Slab the Killer (2 needed) a lone Barrel can supply at most 1 — the target
   // still needs a real Missed!. Stop as soon as the hit is fully dodged.
-  const barrels = barrelAttempts(target);
+  const barrels = barrelAttempts(room, target);
   if (barrels > 0) {
     room.checks = [];
     for (let i = 0; i < barrels && pending.missedPlayed < pending.missedNeeded; i++) {
@@ -1097,7 +1109,7 @@ function playBeer(room: Room, current: Player, handIdx: number): Result {
   const [c] = current.hand.splice(handIdx, 1);
   room.discard.push(c);
   // Happy Hour makes a Beer worth 2 life points; Tequila Joe adds his own on top.
-  healPlayer(room, current, (activeEffect(room).beerHeal ?? 1) + (charEffect(current).beerHealDelta ?? 0));
+  healPlayer(room, current, (activeEffect(room).beerHeal ?? 1) + (effectiveEffect(room, current).beerHealDelta ?? 0));
   return { ok: true };
 }
 
@@ -1302,7 +1314,7 @@ function drawCheck(room: Room, drawer?: Player, isGood?: (c: Card) => boolean): 
   const first = drawOne(room);
   if (!first) return null;
   const eff = activeEffect(room);
-  const isLuckyDuke = !!charEffect(drawer).luckyDraw;
+  const isLuckyDuke = !!effectiveEffect(room, drawer).luckyDraw;
   // Lucky Duke (or a Lucky Table event) flips two and keeps the better card; Bad
   // Weather flips two and keeps the worse one. Lucky Duke's own skill beats the
   // weather rather than cancelling out with it.
@@ -1415,6 +1427,8 @@ function beginTurn(room: Room, resuming = false) {
     room.playsThisTurn = 0;
     room.playedDefsThisTurn = [];
     room.abilityUsesThisTurn = {};
+    // Quên dòng này là Vera Custer giữ năng lực người khác vĩnh viễn.
+    room.copiedAbilityFrom = null;
     room.jailedTurn = false;
     // The staking window for guesses about this turn (lib/predictions.ts). Set with the
     // other turn-scoped resets rather than at the three places a turn actually opens,
@@ -1549,9 +1563,21 @@ function beginTurn(room: Room, resuming = false) {
     pushLog(room, { kind: "turn", a: cur.name });
     // Survived the Dynamite, or walked out of Jail: the turn is theirs and already
     // set up, so this only holds the draw until they have seen the card.
-    gate("stay");
+    if (gate("stay")) return;
+    openCopyChoice(room, cur);
     return;
   }
+}
+
+// Vera Custer: mở cửa chọn người để mượn năng lực. Gọi ở MỌI chỗ một lượt thật sự bắt đầu
+// và trước khi rút bài — năng lực mượn được có thể chính là cách rút bài (Kit Carlson,
+// Jesse Jones, Pedro Ramirez, Bill Noface), nên chọn sau draw phase là chọn muộn.
+function openCopyChoice(room: Room, cur: Player | undefined) {
+  if (!cur || !cur.alive || room.pending) return;
+  if (!effectiveEffect(room, cur).copiesAnotherAbility) return;
+  // Người còn sống khác cô ta. Bàn chỉ còn mình cô ta thì chẳng có gì để mượn.
+  if (!room.players.some((p) => p.alive && p.id !== cur.id)) return;
+  room.pending = { kind: "copy", playerId: cur.id };
 }
 
 // Hand control back to a turn whose upkeep stopped half-done waiting on a Beer
@@ -1600,8 +1626,8 @@ function findReaction(
     // Trên bàn chỉ green nhóm "reaction" mới trả lời được. Không siết chỗ này thì Elena
     // Fuente — "lá bất kỳ" — sẽ đốt được cả Barrel và khẩu súng đang đeo để né một phát
     // Bang!, mà năng lực của cô ấy nói rõ là lá TRÊN TAY.
-    if (onTable) return reactionOnTable(room, c, asDefId);
-    return canUseAs(p, c, asDefId);
+    if (onTable) return reactionOnTable(room, p, c, asDefId);
+    return canUseAs(room, p, c, asDefId);
   };
   const hit = (pile: Card[], onTable: boolean) => {
     const i = pile.findIndex((c) => usable(c, onTable));
@@ -1614,8 +1640,8 @@ function findReaction(
 // chỗ, cùng lý do với findReaction.
 function countReactions(room: Room, p: Player, asDefId: string): number {
   return (
-    p.hand.filter((c) => canUseAs(p, c, asDefId)).length +
-    p.equipment.filter((c) => reactionOnTable(room, c, asDefId)).length
+    p.hand.filter((c) => canUseAs(room, p, c, asDefId)).length +
+    p.equipment.filter((c) => reactionOnTable(room, p, c, asDefId)).length
   );
 }
 
@@ -1631,6 +1657,22 @@ function spendReaction(room: Room, p: Player, found: { card: Card; pile: Card[] 
     drawInto(room, p.hand, bonus);
     pushLog(room, { kind: "draw", a: p.name, n: bonus });
   }
+  noteOutOfTurnPlay(room, p);
+}
+
+// Molly Stark: MỘT chỗ cho toàn bộ năng lực của cô ta, không rải sáu nơi.
+//
+// "Chủ động, ngoài lượt mình" nghe như rải khắp engine, nhưng mọi đường đều hẹp lại vào
+// đúng một chỗ: bạn chỉ tự nguyện bỏ một lá ngoài lượt mình khi TRẢ LỜI một cửa phản ứng.
+// Bị Cat Balou lấy thì không đi qua đây (đó là openTaken). Bị Brawl ép bỏ cũng không (đó
+// là nhánh "toss", và ép thì không phải chủ động). Bỏ bài cuối lượt thì đang là lượt mình.
+//
+// Điều kiện lượt kiểm tại đây chứ không ở nơi gọi: hai chỗ kiểm là hai chỗ có thể lệch.
+function noteOutOfTurnPlay(room: Room, p: Player) {
+  if (!effectiveEffect(room, p).drawOnOutOfTurnPlay) return;
+  if (room.players[room.turnIndex]?.id === p.id) return; // trong lượt mình thì không tính
+  drawInto(room, p.hand, 1);
+  pushLog(room, { kind: "draw", a: p.name, n: 1 });
 }
 
 // A player replies to the active pending. `type` meaning depends on the pending.
@@ -1653,6 +1695,22 @@ export function respond(
     // "stay" left the turn fully set up and merely blocked; "skip" still owes the
     // hand-off that the reveal was holding back.
     if (resume === "skip" && advanceToNextSeat(room)) beginTurn(room);
+    // "stay": lượt đã dựng xong và chỉ đang bị chặn — nên cửa chọn của Vera phải mở ra
+    // NGAY khi tấm thẻ Dynamite/Jail được gạt đi, vẫn trước draw phase.
+    else if (resume === "stay") openCopyChoice(room, room.players[room.turnIndex]);
+    return { ok: true };
+  }
+
+  // --- Vera Custer chọn năng lực để mượn ---
+  if (pending.kind === "copy") {
+    if (playerId !== pending.playerId) return err("not-your-reaction");
+    const src = room.players.find((p) => p.id === cardId);
+    // cardId mang id NGƯỜI ở cửa này — cùng một ô dữ liệu, hai nghĩa tuỳ cửa, y như
+    // `type` vốn đã vậy. Kiểm chặt: còn sống, khác chính cô ta.
+    if (!src || !src.alive || src.id === playerId) return err("invalid-target");
+    room.copiedAbilityFrom = src.id;
+    clearPending(room);
+    pushLog(room, { kind: "play", a: room.players.find((p) => p.id === playerId)!.name, card: "Vera Custer", b: src.name });
     return { ok: true };
   }
 
@@ -1728,10 +1786,11 @@ export function respond(
       // Tequila Joe hồi 2 mỗi Birra, nên anh ta cần ÍT chai hơn để đứng dậy — trừ đúng
       // số máu vừa hồi khỏi beersNeeded, đừng trừ 1 cứng, nếu không anh ta vẫn phải uống
       // đủ số chai của người thường và năng lực chỉ có tác dụng một nửa.
-      const gain = 1 + (charEffect(target).beerHealDelta ?? 0);
+      const gain = 1 + (effectiveEffect(room, target).beerHealDelta ?? 0);
       target.hp += gain;
       pushLog(room, { kind: "heal", a: target.name, n: gain });
       pending.beersNeeded -= gain;
+      noteOutOfTurnPlay(room, target);
       if (pending.beersNeeded <= 0) {
         clearPending(room);
         processDeathQueue(room);
@@ -1796,10 +1855,11 @@ export function respond(
     if (playerId !== pending.turnId) return err("not-your-duel-turn");
     const me = room.players.find((p) => p.id === playerId)!;
     if (type === "bang") {
-      const idx = me.hand.findIndex((c) => c.id === cardId && canUseAs(me, c, "bang"));
-      if (idx < 0) return err("no-valid-card", { s: "Bang!" });
-      room.discard.push(me.hand.splice(idx, 1)[0]);
-      pushLog(room, { kind: "react", a: me.name, card: "Bang!" });
+      // Duel đòi lá Bang! THẬT trên tay — green không mang ký hiệu Bang!, nên findReaction
+      // ở đây vẫn chỉ chạm tới tay, đúng như luật.
+      const found = findReaction(room, me, "bang", cardId);
+      if (!found) return err("no-valid-card", { s: "Bang!" });
+      spendReaction(room, me, found);
       pending.turnId = pending.turnId === pending.aId ? pending.bId : pending.aId; // pass back
       return { ok: true };
     }
@@ -2054,7 +2114,7 @@ function processDeathQueue(room: Room) {
     const canSave =
       entry.saveable &&
       (beersInHand(t) >= entry.needed ||
-        (!!charEffect(t).burnTwoToHeal && t.hand.length >= 2 * entry.needed));
+        (!!effectiveEffect(room, t).burnTwoToHeal && t.hand.length >= 2 * entry.needed));
     if (canSave) {
       room.pending = {
         kind: "dying",
@@ -2104,8 +2164,8 @@ function dealDamage(room: Room, target: Player, amount: number, sourceId: string
   // damage is not something anyone needs telling about.
   if (src && src.id !== target.id) notify(room, target, hit);
   mission(room, { t: "damage", actor: src ?? null, target, n: amount });
-  if (charEffect(target).drawOnDamage) drawInto(room, target.hand, amount);
-  if (charEffect(target).stealOnDamage && src) {
+  if (effectiveEffect(room, target).drawOnDamage) drawInto(room, target.hand, amount);
+  if (effectiveEffect(room, target).stealOnDamage && src) {
     let took = 0;
     for (let i = 0; i < amount && src.hand.length > 0; i++) {
       target.hand.push(src.hand.splice(Math.floor(Math.random() * src.hand.length), 1)[0]);
@@ -2159,7 +2219,7 @@ function killPlayer(
   target.equipment = [];
   // Vulture Sam: a living Sam takes all the dead player's cards instead of discard.
   const heir = room.players.find(
-    (p) => p.alive && p.id !== target.id && charEffect(p).inheritsDeadCards
+    (p) => p.alive && p.id !== target.id && effectiveEffect(room, p).inheritsDeadCards
   );
   if (heir) heir.hand.push(...cards);
   else room.discard.push(...cards);
@@ -2169,7 +2229,7 @@ function killPlayer(
   // target.alive vừa bị đặt false ở trên nên vòng lặp tự bỏ qua anh ta.
   for (const p of room.players) {
     if (!p.alive) continue;
-    const ch = charEffect(p);
+    const ch = effectiveEffect(room, p);
     if (ch.healOnDeath) healPlayer(room, p, ch.healOnDeath);
     if (ch.drawOnDeath) drawInto(room, p.hand, ch.drawOnDeath);
   }
@@ -2206,7 +2266,7 @@ export function refillEmptyHands(room: Room) {
   // reaction (so she isn't left defenceless in a duel).
   if (room.phase !== "playing") return;
   for (const p of room.players) {
-    if (p.alive && charEffect(p).refillWhenEmpty && p.hand.length === 0) drawInto(room, p.hand, 1);
+    if (p.alive && effectiveEffect(room, p).refillWhenEmpty && p.hand.length === 0) drawInto(room, p.hand, 1);
   }
 }
 
@@ -2268,6 +2328,7 @@ export function restart(code: string): boolean {
   room.playsThisTurn = 0;
   room.playedDefsThisTurn = [];
   room.abilityUsesThisTurn = {};
+  room.copiedAbilityFrom = null;
   room.winner = null;
   room.deathQueue = [];
   room.checks = [];

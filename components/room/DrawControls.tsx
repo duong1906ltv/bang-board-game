@@ -18,7 +18,7 @@ export function DrawControls({
   onDraw,
 }: {
   you: PlayerView["you"];
-  onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
+  onDraw: (source?: "deck" | "discard" | "player" | "equipment", targetId?: string, cardId?: string) => void;
 }) {
   const locale = useLocale();
   const mode = you.character?.effect.drawMode ?? "";

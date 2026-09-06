@@ -35,8 +35,8 @@ function usableAs(room: Room, p: Player, defId: "bang" | "missed"): Card[] {
   // Cả tay LẪN bàn: bốn lá green mang ký hiệu Mancato! nằm trong equipment. Chỉ nhìn tay
   // là bot ôm một cái Iron Plate trước mặt mà vẫn chịu đòn.
   return [
-    ...p.hand.filter((c) => game.canUseAs(p, c, defId)),
-    ...p.equipment.filter((c) => game.reactionOnTable(room, c, defId)),
+    ...p.hand.filter((c) => game.canUseAs(room, p, c, defId)),
+    ...p.equipment.filter((c) => game.reactionOnTable(room, p, c, defId)),
   ];
 }
 
@@ -191,6 +191,26 @@ function pendingAction(room: Room): (() => boolean) | null {
     if (!me?.isBot) return null;
     return respondOrPass(me, "bang", findUsableAs(room, me, "bang"));
   }
+  // Vera Custer chọn năng lực để mượn. Không có nhánh này thì cửa không bao giờ đóng và
+  // bàn treo ngay đầu lượt cô ta — trước cả draw phase.
+  if (p.kind === "copy") {
+    const me = player(room, p.playerId);
+    if (!me?.isBot) return null;
+    // Mượn người có năng lực đáng mượn nhất trong tầm hiểu của bot: ưu tiên thứ đổi được
+    // cách rút bài, rồi tới thứ tăng sát thương.
+    const rank = (x: Player) => {
+      const e = x.character?.effect ?? {};
+      if (e.drawMode) return 3;
+      if (e.unlimitedBang || e.missedNeededDelta) return 2;
+      return 1;
+    };
+    const src = room.players
+      .filter((x) => x.alive && x.id !== me.id && !x.character?.effect.copiesAnotherAbility)
+      .sort((a, b) => rank(b) - rank(a))[0];
+    if (!src) return null;
+    return () => ok(game.respond(code, me.id, "pass", src.id));
+  }
+
   // Brawl: mỗi người tự bỏ 1 lá. Không có nhánh này thì cửa không bao giờ đóng và bàn
   // treo — cùng lý do với nhánh "taken" ngay dưới.
   if (p.kind === "toss") {
@@ -238,6 +258,16 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   const code = room.code;
 
   if (room.turnPhase === "draw") {
+    // Pat Brennan: một lá trên bàn thay cho cả hai lá nọc. Lấy lá đắt nhất mà engine cho
+    // phép — danh sách "bàn của ai với tới được" do view dựng, đọc thẳng từ đó.
+    if (game.effectiveEffect(room, me).drawMode === "brennan") {
+      const from = room.players.find((p) => p.alive && p.equipment.length > 0 && p.id !== me.id)
+        ?? room.players.find((p) => p.alive && p.equipment.length > 0);
+      if (from) {
+        const pick = bestPick(from.equipment);
+        return () => game.drawCards(code, me.id, "equipment", from.id, pick.id);
+      }
+    }
     return () => game.drawCards(code, me.id, "deck");
   }
 
@@ -337,7 +367,7 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   // lá chứ không lấy lá đầu tiên: hai lá Bang! khác chất có thể với tới hai tập mục tiêu
   // khác nhau, nên "lá đầu tiên không bắn được ai" không có nghĩa là không bắn được.
   if (game.bangBudget(room, me) > 0) {
-    for (const c of me.hand.filter((x) => game.canUseAs(me, x, "bang"))) {
+    for (const c of me.hand.filter((x) => game.canUseAs(room, me, x, "bang"))) {
       const t = nearestShootable(room, me, "bang", c);
       if (t && ok(c, t.id)) return play(c, t.id);
     }

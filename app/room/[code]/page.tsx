@@ -81,8 +81,8 @@ export default function RoomPage() {
   const removeBot = () => socket.emit("removeBot", { code });
   const setEventLevel = (level: EventLevel) => socket.emit("setEventLevel", { code, level });
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
-  const draw = (source?: "deck" | "discard" | "player", targetId?: string) =>
-    socket.emit("drawCards", { code, source, targetId });
+  const draw = (source?: "deck" | "discard" | "player" | "equipment", targetId?: string, cardId?: string) =>
+    socket.emit("drawCards", { code, source, targetId, cardId });
   const useEquip = (cardId: string, targetId?: string) => socket.emit("useEquip", { code, cardId, targetId });
   const useAbility = (kind: AbilityKind, cardIds: string[], targetId?: string) =>
     socket.emit("useAbility", { code, kind, cardIds, targetId });
