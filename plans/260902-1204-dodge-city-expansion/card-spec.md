@@ -70,7 +70,7 @@ Chỉ thêm `specs.dodgeCity`, không tạo `CardDef` mới.
 | `dodge` | `7D KH` | tính là Missed! + rút 1 lá | rút sau khi đã tính là Missed! |
 | `whisky` | `QH` | bỏ thêm 1 lá → tự hồi 2 máu | Rule 3 |
 | `tequila` | `9C` | bỏ thêm 1 lá → 1 người bất kỳ hồi 1 máu | Rule 3. Được chọn chính mình |
-| `brawl` | `JS` | bỏ thêm 1 lá → mọi người khác bỏ 1 lá | **người đánh chọn tay-hay-bàn cho TỪNG người** |
+| `brawl` | `JS` | bỏ thêm 1 lá → mọi người khác bỏ 1 lá | **mỗi nạn nhân tự chọn lá của mình**, tay hoặc bàn |
 | `rag-time` | `9H` | bỏ thêm 1 lá → cướp 1 lá của người bất kỳ | mọi khoảng cách |
 | `springfield` | `KS` | bỏ thêm 1 lá → Bang! người bất kỳ | Rule 5. Mọi khoảng cách |
 
@@ -115,6 +115,17 @@ Mỗi chất đúng 10 rank khác nhau. Không lá nào trùng giá trị lá n�
 
 Hộp có 63 lá = 40 bài + 15 nhân vật + 8 vai. Bản in xác nhận vai cho bàn 8 người:
 Sceriffo 1, Vice 2, Fuorilegge 3, Rinnegato 2 — khớp `ROLE_SETUP[8]` ở phase 02.
+
+## Brawl — sửa một ghi chú sai của chính bảng này
+
+Bảng này từng ghi "người đánh chọn tay-hay-bàn cho TỪNG người". Sai. Bản in ghi
+*"all other players discard a card of their choice"* — **của họ chọn**, không phải của
+người đánh. Tôi suy nhầm từ khuôn Cat Balou, nơi người đánh thật sự chọn tay-hay-bàn.
+
+Khác biệt không nhỏ: bản sai cần một chuỗi N lượt chọn của người đánh, bản đúng là một
+cửa phản ứng đồng thời giống Indians! — mỗi người tự bỏ, không ai phải chờ ai.
+
+Nếu bạn cầm lá thật và thấy ngược lại thì báo, đây là chỗ tôi suy chứ không đọc được.
 
 ## Rule 5 và hạn mức Bang!/lượt
 

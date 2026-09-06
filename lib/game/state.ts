@@ -169,6 +169,10 @@ export type Pending =
   | { kind: "bang"; targetId: string; sourceId: string; missedNeeded: number; missedPlayed: number }
   | { kind: "dying"; targetId: string; sourceId: string | null; creditId?: string | null; beersNeeded: number }
   | { kind: "multi"; effect: "indians" | "gatling"; sourceId: string; responders: { id: string; done: boolean; safe: boolean }[] }
+  // Brawl: mọi người khác tự bỏ 1 lá, TỰ CHỌN lá nào — tay hay bàn. Khác "taken" ở chỗ
+  // đó: taken là người đánh chọn hộ và nạn nhân chỉ bấm xác nhận, còn đây nạn nhân thật
+  // sự quyết định. Nên nó giống "multi" (đồng thời, ai xong trước cũng được) hơn.
+  | { kind: "toss"; sourceId: string; responders: { id: string; done: boolean }[] }
   | { kind: "duel"; aId: string; bId: string; turnId: string }
   | { kind: "store"; sourceId: string; cards: Card[]; order: string[] }
   | { kind: "kit"; playerId: string; cards: Card[]; picksLeft: number }

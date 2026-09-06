@@ -16,7 +16,9 @@ import { predictionProblem } from "../predictions";
 import { Player, Room } from "./state";
 
 // Grouped so the noHeal event effect can suppress them together.
-export const HEAL_DEF_IDS = ["beer", "saloon"];
+// Lá nào bị sự kiện "cấm hồi máu" chặn. Whisky và Tequila vào đây cùng lý do với Beer —
+// cấm hồi máu mà quên chúng thì sự kiện chỉ cấm được một nửa số đường hồi máu trên bàn.
+export const HEAL_DEF_IDS = ["beer", "saloon", "whisky", "tequila"];
 
 // Read from the card's TargetRule. Both the play handlers and viewFor come through here.
 export function targetProblem(
@@ -98,6 +100,11 @@ export function playBlock(room: Room, p: Player, card: Card, targetId?: string):
   if (isBangLike(p, card, targetId) && bangBudget(room, p) <= 0) {
     return { code: eff.noBang ? "event-bans-bang" : "bang-limit-reached" };
   }
+  // Đủ lá để trả giá không. Ở đây chứ không phải trong handler, vì bot lọc nước đi qua
+  // playBlock và client vẽ nút mờ từ blockedDefIdsFor — cả hai đọc chung một câu trả lời.
+  // +1 vì chính lá đang đánh cũng nằm trên tay và không trả giá cho chính nó được.
+  const cost = def.costDiscard ?? 0;
+  if (cost > 0 && p.hand.length < cost + 1) return { code: "need-cards-to-pay" };
   if (!isExemptPlay(room, p, card, targetId) && room.playedDefsThisTurn.includes(card.defId)) {
     return { code: "card-already-used-this-turn", s: def.name };
   }
@@ -158,6 +165,10 @@ export function legalTargetIds(room: Room, actor: Player, defId: string, card?: 
 // Calamity Janet may swap Bang!/Missed!.
 export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
   if (card.defId === asDefId) return true;
+  // Dodge mang ký hiệu Mancato!. MỘT chiều: Dodge đỡ được Bang!, nhưng Mancato! không
+  // biến thành Dodge (nó sẽ không rút thêm lá nào). Calamity Janet cũng không bắn Dodge
+  // thành Bang! được — năng lực của cô ấy nói đích danh hai LÁ Bang! và Mancato!.
+  if (CARD_DEF_BY_ID[card.defId]?.countsAs === asDefId) return true;
   const ch = charEffect(player);
   // Elena Fuente, và chỉ theo MỘT chiều: mọi lá đỡ được Bang!, nhưng không lá nào biến
   // thành Bang!. Duel đòi Bang! thật, nên nó không lọt qua đây.

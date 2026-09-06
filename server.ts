@@ -294,10 +294,10 @@ app.prepare().then(() => {
       applyResult(code, game.useAbility(code, pid, kind, { cardIds, targetId }));
     });
 
-    socket.on("playCard", ({ code, cardId, targetId, targetCardId }) => {
+    socket.on("playCard", ({ code, cardId, targetId, targetCardId, payCardIds }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;
-      applyResult(code, game.playCard(code, pid, cardId, targetId, targetCardId));
+      applyResult(code, game.playCard(code, pid, cardId, targetId, targetCardId, payCardIds));
     });
 
     // Stake a guess on the running turn. Silent to everyone else until that turn ends —

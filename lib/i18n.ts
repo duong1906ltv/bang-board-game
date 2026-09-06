@@ -194,6 +194,8 @@ export function formatPending(l: Locale, p: PlayerView["pending"], youName?: str
       return p.effect === "indians"
         ? L(l, `${a} dùng Indians! — bỏ 1 Bang! hoặc mất 1 máu`, `${a} plays Indians! — discard a Bang! or lose 1 life`)
         : L(l, `${a} dùng Gatling — đánh Missed! hoặc mất 1 máu`, `${a} plays Gatling — play a Missed! or lose 1 life`);
+    case "toss":
+      return L(l, `${a} dùng Brawl — mỗi người bỏ 1 lá`, `${a} plays Brawl — everyone else discards a card`);
     case "duel":
       return L(l, `Duel: ${a} vs ${b} — tới lượt ${obj(p.turnName)} bỏ Bang!`, `Duel: ${a} vs ${b} — ${obj(p.turnName)} must discard a Bang!`);
     case "kit":
@@ -363,6 +365,8 @@ const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
     "Truce: the Sheriff cannot be shot",
   ],
   "hp-full": ["Máu đã đầy", "Already at full life"],
+  "pay-cards-invalid": ["Lá trả giá không hợp lệ", "Those payment cards are not valid"],
+  "need-cards-to-pay": ["Không đủ lá trên tay để trả giá cho lá này", "Not enough cards in hand to pay for this"],
   "pick-two-distinct": ["Chọn đúng 2 lá khác nhau", "Pick exactly 2 different cards"],
   "ability-unavailable": [
     "Nhân vật của bạn không làm được việc này",

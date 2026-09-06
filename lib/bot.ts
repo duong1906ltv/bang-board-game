@@ -27,16 +27,35 @@ function swappedFor(p: Player, defId: string): string | null {
   return defId === a ? b : defId === b ? a : null;
 }
 
-function findUsableAs(p: Player, defId: "bang" | "missed"): Card | undefined {
-  const direct = findCard(p, defId);
-  if (direct) return direct;
-  const alt = swappedFor(p, defId);
-  return alt ? findCard(p, alt) : undefined;
+// Lá nào dùng thay cho `defId` được — hỏi ENGINE, đừng tự suy. Ba luật khác nhau đổ vào
+// đây: Calamity Janet đổi Bang!/Mancato!, Dodge mang ký hiệu Mancato!, Elena Fuente đỡ
+// bằng lá bất kỳ. Bản cũ tự dựng lại luật từ `swappedFor` nên chỉ biết luật đầu tiên, và
+// hai luật kia thành tính năng chết: bot cầm Dodge suốt ván mà không bao giờ đỡ bằng nó.
+function usableAs(p: Player, defId: "bang" | "missed"): Card[] {
+  return p.hand.filter((c) => game.canUseAs(p, c, defId));
 }
 
 function countUsableAs(p: Player, defId: "bang" | "missed"): number {
+  return usableAs(p, defId).length;
+}
+
+// Lá NÊN dùng, không chỉ lá dùng được. Hai chế độ, vì hai luật cho ra hai kiểu lựa chọn:
+//
+//  - Có lá vốn thuộc loại đó (Mancato!, Dodge, hoặc lá Janet đổi được) → chọn lá LỢI nhất
+//    trong số đó. Dodge hơn Mancato! thường vì đỡ xong còn rút lại 1 lá, nên tiêu nó
+//    không mất gì.
+//  - Không có lá nào → Elena Fuente, đỡ bằng lá bất kỳ. Lúc này đốt lá RẺ nhất, chứ đốt
+//    lá Bang! để né một phát Bang! thì lỗ.
+function findUsableAs(p: Player, defId: "bang" | "missed"): Card | undefined {
+  const all = usableAs(p, defId);
+  if (all.length === 0) return undefined;
   const alt = swappedFor(p, defId);
-  return p.hand.filter((c) => c.defId === defId || (alt !== null && c.defId === alt)).length;
+  const native = all.filter(
+    (c) => c.defId === defId || CARD_DEF_BY_ID[c.defId]?.countsAs === defId || c.defId === alt,
+  );
+  return native.length
+    ? [...native].sort((a, b) => pickPriority(b) - pickPriority(a))[0]
+    : [...all].sort((a, b) => pickPriority(a) - pickPriority(b))[0];
 }
 
 // Rough alliance model (bots are omniscient server-side, which is fine for a
@@ -55,8 +74,11 @@ function isEnemy(me: Player, other: Player): boolean {
 // vào hai người. Bản cũ tự lọc theo tầm rồi tự nhớ Truce, và đó đúng là kiểu cuốn-luật-
 // thứ-hai đã làm bàn treo 19/200 ván khi Apache Kid vào bộ: bot ngắm được, engine từ
 // chối, step() trả false, lịch bot dừng hẳn và bàn đứng vĩnh viễn.
-function nearestShootable(room: Room, me: Player, card?: Card): Player | null {
-  const legal = new Set(game.legalTargetIds(room, me, "bang", card));
+// `asDefId` là luật ngắm ĐANG áp, không phải lá đang cầm: Punch với tới khoảng cách 1 còn
+// Springfield với tới mọi khoảng cách, trong khi lá Mancato! của Calamity Janet lại ngắm
+// theo luật của Bang!. Hỏi cứng "bang" cho cả ba là đúng cái làm treo bàn 41/200 ván.
+function nearestShootable(room: Room, me: Player, asDefId: string, card?: Card): Player | null {
+  const legal = new Set(game.legalTargetIds(room, me, asDefId, card));
   let best: Player | null = null;
   let bestDist = Infinity;
   for (const p of room.players) {
@@ -73,6 +95,9 @@ function pickPriority(c: Card): number {
     schofield: 4, volcanic: 4, barrel: 4, scope: 3, mustang: 3,
     gatling: 6, indians: 5, duel: 4, panic: 3, "cat-balou": 3,
     stagecoach: 4, "wells-fargo": 5, saloon: 3, "general-store": 2, jail: 2, dynamite: 1,
+    // Dodge City. Dodge trên Missed! vì nó đỡ xong còn rút lại 1 lá — giữ nó, bỏ lá khác.
+    dodge: 8, springfield: 6, whisky: 5, "rag-time": 5, punch: 4, brawl: 4, tequila: 3,
+    binocular: 3, hideout: 3,
   };
   return v[c.defId] ?? 2;
 }
@@ -156,6 +181,19 @@ function pendingAction(room: Room): (() => boolean) | null {
     if (!me?.isBot) return null;
     return respondOrPass(me, "bang", findUsableAs(me, "bang"));
   }
+  // Brawl: mỗi người tự bỏ 1 lá. Không có nhánh này thì cửa không bao giờ đóng và bàn
+  // treo — cùng lý do với nhánh "taken" ngay dưới.
+  if (p.kind === "toss") {
+    const r = p.responders.find((x) => !x.done && !!player(room, x.id)?.isBot);
+    if (!r) return null;
+    const me = player(room, r.id)!;
+    // Bỏ lá rẻ nhất trên tay; hết bài thì bỏ đồ trên bàn, vì bản in cho phép cả hai.
+    const worst = me.hand.length
+      ? [...me.hand].sort((a, b) => pickPriority(a) - pickPriority(b))[0]
+      : me.equipment[0];
+    if (!worst) return null;
+    return () => ok(game.respond(code, me.id, "toss", worst.id));
+  }
   // Nothing to decide — a bot losing a card just waves it through. Load-bearing: with
   // no bot branch here the table would sit on the dialog until the server's timer fired,
   // eight seconds per Panic! against a bot.
@@ -213,6 +251,17 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   // thì step() trả false và LỊCH BOT DỪNG HẲN — bàn treo vĩnh viễn, vì không chỗ nào
   // trong game có timeout.
   const canUse = (kind: AbilityKind) => game.abilityProblem(room, me, kind) === null;
+  // Đánh một lá phải trả giá: giá là lá rẻ nhất KHÁC lá đang đánh. playBlock đã bảo đảm
+  // trên tay đủ số, nên chỗ này không cần kiểm lại.
+  const playPaid = (c: Card, targetId?: string) => {
+    const cost = CARD_DEF_BY_ID[c.defId]?.costDiscard ?? 0;
+    const pay = [...me.hand]
+      .filter((x) => x.id !== c.id)
+      .sort((a, b) => pickPriority(a) - pickPriority(b))
+      .slice(0, cost)
+      .map((x) => x.id);
+    return () => game.playCard(code, me.id, c.id, targetId, undefined, pay).ok;
+  };
   const worstCards = (n: number) =>
     [...me.hand].sort((a, b) => pickPriority(a) - pickPriority(b)).slice(0, n).map((c) => c.id);
 
@@ -222,8 +271,10 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
     .sort((a, b) => gunRange(b) - gunRange(a))[0];
   if (ok(gun) && gunRange(gun) > game.rangeOf(me, room)) return play(gun);
 
-  // 2. Defensive blue cards (one of each in play, once per turn).
-  for (const defId of ["barrel", "scope", "mustang"]) {
+  // 2. Defensive blue cards (one of each in play, once per turn). Hideout và Binocular
+  // là bản Dodge City của Mustang và Scope, và chúng CỘNG DỒN với bản gốc — thiếu chúng
+  // ở đây thì hai lá phase 01 nằm chết trên tay bot suốt ván.
+  for (const defId of ["barrel", "scope", "mustang", "binocular", "hideout"]) {
     const c = usable(defId);
     if (c && !me.equipment.some((e) => e.defId === defId)) return play(c);
   }
@@ -234,6 +285,13 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   if (me.alive && me.hp < me.maxHp) {
     const beer = usable("beer");
     if (beer) return play(beer);
+  }
+
+  // 3a. Whisky: 2 lá đổi 2 máu. Sau lá Bia (1 lá đổi 1-2 máu, rẻ hơn), và chỉ khi thủng
+  // từ 2 máu trở lên — hồi 2 lúc thiếu 1 là phí mất một máu.
+  if (me.alive && me.hp <= me.maxHp - 2) {
+    const whisky = usable("whisky");
+    if (whisky) return playPaid(whisky);
   }
 
   // 3b. Sid Ketchum: đốt 2 lá lấy 1 máu. Sau lá Bia vì Bia rẻ hơn — một lá đổi một máu,
@@ -248,14 +306,23 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   // khác nhau, nên "lá đầu tiên không bắn được ai" không có nghĩa là không bắn được.
   if (game.bangBudget(room, me) > 0) {
     for (const c of me.hand.filter((x) => game.canUseAs(me, x, "bang"))) {
-      const t = nearestShootable(room, me, c);
+      const t = nearestShootable(room, me, "bang", c);
       if (t && ok(c, t.id)) return play(c, t.id);
     }
   }
 
+  // 4a. Punch và Springfield: hiệu ứng Bang! mà không tiêu hạn mức, nên đánh được kể cả
+  // khi đã bắn. Springfield với tới mọi khoảng cách, Punch chỉ khoảng cách 1.
+  for (const defId of ["springfield", "punch"]) {
+    const c = usable(defId);
+    if (!c) continue;
+    const t = nearestShootable(room, me, defId, c);
+    if (t && ok(c, t.id)) return playPaid(c, t.id);
+  }
+
   // 4b. Doc Holyday: hết lá Bang! hoặc hết hạn mức thì vẫn bắn được, giá 2 lá. Đắt, nên
   // chỉ làm khi trên tay còn dư — bắn xong mà tay trắng thì lượt sau không đỡ được gì.
-  const docTarget = me.hand.length >= 4 ? nearestShootable(room, me) : null;
+  const docTarget = me.hand.length >= 4 ? nearestShootable(room, me, "bang") : null;
   if (docTarget && canUse("burn-two-to-shoot")) {
     const ids = worstCards(2);
     const tid = docTarget.id;
@@ -268,11 +335,32 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   const indians = usable("indians");
   if (indians) return play(indians);
 
+  // 5b. Rag Time: 2 lá đổi 1 lá của địch — hoà về số lá nhưng lấy mất tài nguyên của họ,
+  // nên chỉ làm khi mình còn dư bài.
+  if (me.hand.length >= 4) {
+    const rag = usable("rag-time");
+    const victim = room.players.find(
+      (x) => x.alive && x.id !== me.id && isEnemy(me, x) && (x.hand.length > 0 || x.equipment.length > 0),
+    );
+    if (rag && victim && ok(rag, victim.id)) return playPaid(rag, victim.id);
+    // Brawl: cả bàn bỏ 1 lá. Đắt 2 lá nên cũng chỉ khi dư bài — và nó chạm cả đồng minh.
+    const brawl = usable("brawl");
+    if (brawl && me.hand.length >= 5) return playPaid(brawl);
+  }
+
   // 6. Card advantage (safe draws).
   const stage = usable("stagecoach");
   if (stage) return play(stage);
   const wells = usable("wells-fargo");
   if (wells) return play(wells);
+
+  // 6a. Tequila: 2 lá đổi 1 máu cho người khác. Chỉ dùng cho đồng minh đang thủng máu —
+  // dùng lên chính mình thì Whisky luôn hơn (cùng giá, gấp đôi máu).
+  const ally = room.players.find((x) => x.alive && x.id !== me.id && !isEnemy(me, x) && x.hp < x.maxHp);
+  if (ally) {
+    const tequila = usable("tequila");
+    if (tequila && ok(tequila, ally.id)) return playPaid(tequila, ally.id);
+  }
 
   // 6b. Chuck Wengam: đổi máu lấy bài, chỉ khi máu còn dày. Ngưỡng 3 chứ không phải 2:
   // ở 2 máu một phát Bang! đưa anh ta vào cửa hấp hối, và anh ta vừa tiêu mất lá đỡ.

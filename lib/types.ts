@@ -189,13 +189,18 @@ export type Winner = "sheriff" | "outlaws" | "renegade";
 //  - multi: Indians!/Gatling — each other player defends or takes 1
 //  - duel:  two players alternate discarding Bang!; first to fail loses 1
 //  - store: General Store — players pick a revealed card in turn order
-export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit" | "check" | "taken";
-export type PendingAction = "missed" | "beer" | "bang" | "pass";
+export type PendingKind = "bang" | "dying" | "multi" | "duel" | "store" | "kit" | "check" | "taken" | "toss";
+// "toss" mang theo cardId: nạn nhân Brawl tự chọn lá, nên câu trả lời phải nói LÁ NÀO.
+export type PendingAction = "missed" | "beer" | "bang" | "pass" | "toss";
 
 export interface PendingView {
   kind: PendingKind;
   youMustRespond: boolean; // is it your turn to act right now
   actions: PendingAction[]; // response buttons to show you
+  // Lá NÀO trên tay bạn trả lời được cửa này, do server quyết. Trước đây panel tự tìm
+  // bằng `defId === "missed"`, và thế là Dodge (mang ký hiệu Mancato!) lẫn Elena Fuente
+  // (mọi lá đều đỡ được) đều bấm được nút mà không gửi được lá nào.
+  usableCardIds?: string[];
   storeCards?: Card[]; // store: revealed cards to pick from
   checks?: CheckView[]; // check: the Dynamite/Jail reveal(s) being acknowledged
   missedNeeded?: number; // bang: Missed! required (2 vs Slab)
@@ -205,7 +210,7 @@ export interface PendingView {
   targetName?: string; // secondary (bang target / duel B / dying player)
   turnName?: string; // duel: whose turn to discard now
   effect?: "indians" | "gatling"; // multi effect
-  waiting?: string[]; // multi: names of players who haven't reacted yet
+  waiting?: string[]; // multi/toss: names of players who haven't reacted yet
   takenMode?: "take" | "toss"; // taken: into their hand, or straight to the discard
   takenCard?: string; // taken: named only when it was face-up in play
   takenFromHand?: boolean; // taken: drawn blind out of the hand rather than off the table
@@ -480,8 +485,9 @@ export interface ClientToServerEvents {
   drawCards: (data: { code: string; source?: "deck" | "discard" | "player"; targetId?: string }) => void; // draw phase
   // Mọi năng lực bấm nút đi chung một sự kiện; `kind` nói là năng lực nào.
   useAbility: (data: { code: string; kind: AbilityKind; cardIds?: string[]; targetId?: string }) => void;
-  playCard: (data: { code: string; cardId: string; targetId?: string; targetCardId?: string }) => void; // play a card
-  respond: (data: { code: string; type: "missed" | "beer" | "bang" | "pass"; cardId?: string }) => void; // reply to a pending
+  // payCardIds: lá phải bỏ thêm để trả giá (Whisky/Tequila/Brawl/Rag Time/Springfield).
+  playCard: (data: { code: string; cardId: string; targetId?: string; targetCardId?: string; payCardIds?: string[] }) => void;
+  respond: (data: { code: string; type: PendingAction; cardId?: string }) => void; // reply to a pending
   choose: (data: { code: string; cardId: string }) => void; // pick a card (General Store)
   discardCard: (data: { code: string; cardId: string }) => void; // discard from hand
   endTurn: (data: { code: string }) => void;

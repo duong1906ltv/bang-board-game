@@ -53,7 +53,16 @@ export interface MissionRoom {
 
 // Lớp che thật, cho `no-cover`. KHÔNG phải mọi lá xanh: giữ một Jail không phải "từ chối lớp
 // che", nó là vũ khí dùng lên người khác, và Dynamite là thứ bạn muốn tống đi.
-const COVER_DEF_IDS = ["mustang", "barrel"];
+//
+// Hideout là bản in Dodge City của Mustang, cùng hiệu ứng đẩy xa khoảng cách — nó là lớp che
+// thật nên phải vào đây. Binocular thì KHÔNG: nó rút ngắn khoảng cách bạn NHÌN người khác,
+// một lá tấn công, chẳng che chắn gì.
+const COVER_DEF_IDS = ["mustang", "barrel", "hideout"];
+// Lá mang ký hiệu Mancato!. Dodge của Dodge City là một lá Mancato! có thưởng, nên với hai
+// nhiệm vụ đọc "bạn có lưới an toàn không" thì nó tính y hệt. Danh sách chép tay ở đây thay
+// vì đọc `countsAs` từ catalog, vì file này cố ý chỉ import type — cùng lý do đã ghi ở
+// `no-shield`: nó không đọc được Calamity Janet.
+const MISSED_DEF_IDS = ["missed", "dodge"];
 const hasCoverInHand = (p: Player) => p.hand.some((c) => COVER_DEF_IDS.includes(c.defId));
 const hasCoverInPlay = (p: Player) => p.equipment.some((c) => COVER_DEF_IDS.includes(c.defId));
 
@@ -95,7 +104,7 @@ export const MISSIONS: MissionDef[] = [
   // import type. Nên chỉ khớp lá `missed` thật. Nghiêng về phía KHÓ hơn, không lỏng hơn.
   { id: "no-shield", emoji: "🩸", tier: 1, weight: 8, goal: 1, reward: { cards: 2 },
     track: (s, me) =>
-      s.t === "damage" && s.target.id === me.id && me.hand.some((c) => c.defId === "missed") ? 1 : 0 },
+      s.t === "damage" && s.target.id === me.id && me.hand.some((c) => MISSED_DEF_IDS.includes(c.defId)) ? 1 : 0 },
 
   // Tự bỏ lưới an toàn của mình khi KHÔNG bị bắt bỏ. Missed! 12 bản + Beer 6 bản = 18 bản.
   // `forced` là thứ tạo ra hy sinh: bỏ vì quá giới hạn tay thì không phải tự nguyện.
@@ -108,7 +117,7 @@ export const MISSIONS: MissionDef[] = [
   // tay-dưới-giới-hạn mà UI không bao giờ cho tồn tại.
   { id: "throw-it-away", emoji: "🗑️", tier: 1, weight: 7, goal: 1, reward: { cards: 2 },
     track: (s, me) =>
-      s.t === "discard" && mine(s, me) && !s.forced && (s.defId === "missed" || s.defId === "beer") ? 1 : 0 },
+      s.t === "discard" && mine(s, me) && !s.forced && (MISSED_DEF_IDS.includes(s.defId) || s.defId === "beer") ? 1 : 0 },
 
   // Gatling/Indians lúc đang 1 HP: chọc cả bàn khi cách cái chết đúng một đòn. Gatling 1 bản +
   // Indians 2 bản = 3 bản — mỏng, và đó là lý do weight thấp hơn phần còn lại.
@@ -134,6 +143,10 @@ export const MISSIONS: MissionDef[] = [
 
   // Bang! là lá CUỐI trên tay: bắn xong là trần trụi. Bang! có 25 bản, dày nhất bộ, nên đường
   // hoàn thành chỉ là chờ tay xuống còn một lá Bang! rồi bắn thay vì giữ.
+  //
+  // Punch và Springfield KHÔNG tính, dù cũng bắn: nhiệm vụ này nói về lá Bang! cuối cùng,
+  // và Springfield còn phải trả thêm một lá nên "bắn bằng lá cuối" không diễn ra được với
+  // nó. Quyết một lần ở đây thay vì để mỗi người đọc hiểu một kiểu.
   { id: "last-bullet", emoji: "🔫", tier: 1, weight: 8, goal: 1, reward: { cards: 2 },
     track: (s, me) => (s.t === "play" && mine(s, me) && s.defId === "bang" && me.hand.length === 0 ? 1 : 0) },
 

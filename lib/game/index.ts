@@ -4,6 +4,7 @@
 import {
   AbilityKind,
   MAX_PLAYERS,
+  PendingAction,
   MIN_PLAYERS,
   Character,
   rankPriority,
@@ -551,7 +552,8 @@ export function playCard(
   playerId: string,
   cardId: string,
   targetId?: string,
-  targetCardId?: string
+  targetCardId?: string,
+  payCardIds?: string[]
 ): Result {
   // Capture card/target names before the play mutates state, then log on success.
   const room = rooms.get(code);
@@ -561,7 +563,7 @@ export function playCard(
   const exempt = !!playedCard && !!actor && !!room && isExemptPlay(room, actor, playedCard, targetId);
   const target = targetId ? room?.players.find((p) => p.id === targetId) : undefined;
   const targetName = target?.name;
-  const res = playCardImpl(code, playerId, cardId, targetId, targetCardId);
+  const res = playCardImpl(code, playerId, cardId, targetId, targetCardId, payCardIds);
   if (res.ok && room) {
     room.playsThisTurn += 1; // events may cap how many cards a turn allows
     // Mark this card type as used this turn (exempt plays don't consume a slot).
@@ -586,7 +588,8 @@ function playCardImpl(
   playerId: string,
   cardId: string,
   _targetId?: string,
-  targetCardId?: string
+  targetCardId?: string,
+  payCardIds?: string[]
 ): Result {
   const room = rooms.get(code);
   if (!room || room.phase !== "playing") return { ok: false };
@@ -600,7 +603,7 @@ function playCardImpl(
   if (room.turnPhase === "discard") {
     return err("jailed-discard-only");
   }
-  const idx = current.hand.findIndex((c) => c.id === cardId);
+  let idx = current.hand.findIndex((c) => c.id === cardId);
   if (idx < 0) return { ok: false };
   const card = current.hand[idx];
   const def = CARD_DEF_BY_ID[card.defId];
@@ -612,6 +615,22 @@ function playCardImpl(
   // `playCard` only once the play succeeds, so a rejection never burns the slot.
   const blocked = playBlock(room, current, card, _targetId);
   if (blocked) return { ok: false, error: blocked };
+
+  // ── Trả giá ──────────────────────────────────────────────────────────────
+  // Năm lá Dodge City mở đầu bằng "bỏ thêm 1 lá trên tay". Kiểm SẠCH mọi điều kiện trước
+  // khi bỏ: trả giá rồi mới phát hiện mục tiêu không hợp lệ thì người chơi mất hai lá mà
+  // chẳng được gì, và không có đường hoàn.
+  const cost = def.costDiscard ?? 0;
+  if (cost > 0) {
+    const problem = costPlayProblem(room, current, card, _targetId);
+    if (problem) return { ok: false, error: problem };
+    const bad = burnFromHand(room, current, payCardIds ?? [], cost, cardId);
+    if (bad) return { ok: false, error: bad };
+    // Tay bài vừa ngắn đi nên `idx` đã lệch. Tìm lại theo id — đây đúng chỗ một chỉ số
+    // giữ lại từ trước sẽ trỏ nhầm sang lá bên cạnh.
+    idx = current.hand.findIndex((c) => c.id === cardId);
+    if (idx < 0) return err("card-not-in-hand");
+  }
 
   if (def.kind === "gun") {
     // Equip the new gun, discarding any gun already in play (only one allowed).
@@ -656,6 +675,17 @@ function playCardImpl(
   if (card.defId === "gatling") return playMulti(room, current, idx, "gatling");
   if (card.defId === "duel") return playDuel(room, current, idx, _targetId);
   if (card.defId === "general-store") return playGeneralStore(room, current, idx);
+  // ── Dodge City ──
+  // Punch và Springfield đi thẳng vào luật bắn của playBang nhưng KHÔNG tăng bangsThisTurn:
+  // Rule 5, cùng nhóm Duel/Gatling của bộ gốc — có hiệu ứng Bang! mà không phải lá Bang!.
+  if (card.defId === "punch") return playBangLike(room, current, idx, _targetId, "punch");
+  if (card.defId === "springfield") return playBangLike(room, current, idx, _targetId, "springfield");
+  if (card.defId === "whisky") return playWhisky(room, current, idx);
+  if (card.defId === "tequila") return playTequila(room, current, idx, _targetId);
+  if (card.defId === "rag-time") return playPanicLike(room, current, idx, _targetId, targetCardId, "rag-time");
+  if (card.defId === "brawl") return playBrawl(room, current, idx);
+  // Dodge chỉ dùng được khi phản ứng, y như Missed!.
+  if (card.defId === "dodge") return err("missed-is-reaction-only");
   // Missed! is only playable as a reaction — except Calamity Janet may fire it as a Bang!.
   if (card.defId === "missed") {
     if (_targetId && canUseAs(current, card, "bang")) return playBang(room, current, idx, _targetId);
@@ -934,6 +964,107 @@ function openBangAt(room: Room, current: Player, target: Player): void {
     }
     if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // fully dodged
   }
+}
+
+// ─── Dodge City: bài nâu mới ─────────────────────────────────────────────────
+
+// Điều kiện riêng của một lá phải trả giá, kiểm TRƯỚC khi trả. Gom về một chỗ vì lý do
+// duy nhất khiến nó tồn tại là thứ tự: trả giá rồi mới từ chối thì người chơi mất hai lá.
+function costPlayProblem(room: Room, current: Player, card: Card, targetId?: string): GameError | null {
+  const def = CARD_DEF_BY_ID[card.defId];
+  if (def?.target && targetId) {
+    const t = room.players.find((p) => p.id === targetId);
+    if (!t) return { code: "invalid-target" };
+    const bad = targetProblem(room, current, card.defId, t, card);
+    if (bad) return bad;
+  }
+  // Hai lá hồi máu: đầy máu rồi thì đánh ra chỉ mất bài. Cùng lối từ chối với Beer.
+  if (card.defId === "whisky" && current.hp >= current.maxHp) return { code: "hp-full" };
+  if (card.defId === "tequila") {
+    const t = room.players.find((p) => p.id === targetId);
+    if (!t) return { code: "invalid-target" };
+    if (t.hp >= t.maxHp) return { code: "hp-full" };
+  }
+  return null;
+}
+
+// Punch và Springfield: hiệu ứng Bang! mà KHÔNG phải lá Bang!. Dùng lại nguyên luật bắn
+// — Barrel, Mancato!, Slab the Killer đều áp dụng — nhưng không tăng room.bangsThisTurn.
+// Đó là Rule 5, cùng nhóm với Duel và Gatling của bộ gốc.
+function playBangLike(
+  room: Room,
+  current: Player,
+  handIdx: number,
+  targetId: string | undefined,
+  defId: string,
+): Result {
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target) return err("invalid-target");
+  const problem = targetProblem(room, current, defId, target, current.hand[handIdx]);
+  if (problem) return { ok: false, error: problem };
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  openBangAt(room, current, target);
+  return { ok: true };
+}
+
+// Whisky: bỏ thêm 1 lá (đã trả ở playCardImpl) rồi tự hồi 2 máu.
+function playWhisky(room: Room, current: Player, handIdx: number): Result {
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  healPlayer(room, current, 2);
+  pushLog(room, { kind: "heal", a: current.name, n: 2 });
+  return { ok: true };
+}
+
+// Tequila: hồi 1 máu cho MỘT người bất kỳ, kể cả chính mình, mọi khoảng cách.
+function playTequila(room: Room, current: Player, handIdx: number, targetId?: string): Result {
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target) return err("invalid-target");
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  const got = healPlayer(room, target, 1);
+  if (got) pushLog(room, { kind: "heal", a: target.name, n: got });
+  return { ok: true };
+}
+
+// Rag Time: cướp 1 lá của người bất kỳ, mọi khoảng cách. Panic! ở khoảng cách 1 và nó ở
+// khoảng cách vô hạn — phần còn lại giống hệt, nên dùng chung một đường.
+function playPanicLike(
+  room: Room,
+  current: Player,
+  handIdx: number,
+  targetId: string | undefined,
+  targetCardId: string | undefined,
+  defId: string,
+): Result {
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target) return err("invalid-target");
+  const problem = targetProblem(room, current, defId, target, current.hand[handIdx]);
+  if (problem) return { ok: false, error: problem };
+  if (!openTaken(room, current, target, "take", CARD_DEF_BY_ID[defId].name, targetCardId)) {
+    return err("target-has-no-cards");
+  }
+  pushToDiscard(room, current.hand.splice(handIdx, 1)[0]);
+  return { ok: true };
+}
+
+// Brawl: mọi người khác bỏ 1 lá, và mỗi người TỰ CHỌN lá của mình — tay hay bàn. Không
+// phải Cat Balou N lần: ở đó người đánh chọn hộ. Nên nó là cửa đồng thời như Indians!,
+// ai bấm trước cũng được, không ai phải chờ ai.
+function playBrawl(room: Room, current: Player, handIdx: number): Result {
+  const played = current.hand.splice(handIdx, 1)[0];
+  pushToDiscard(room, played);
+  const victims = room.players.filter((p) => p.alive && p.id !== current.id);
+  for (const p of victims) {
+    notify(room, p, { kind: "play", a: current.name, card: played.name, b: p.name });
+  }
+  // Người tay trắng và bàn trắng thì không có gì để bỏ — đánh dấu xong ngay, nếu không
+  // cửa này không bao giờ đóng và bàn treo.
+  const responders = victims.map((p) => ({
+    id: p.id,
+    done: p.hand.length === 0 && p.equipment.length === 0,
+  }));
+  if (responders.every((r) => r.done)) return { ok: true };
+  room.pending = { kind: "toss", sourceId: current.id, responders };
+  return { ok: true };
 }
 
 // The proactive Beer. A dying player drinks through respond() instead.
@@ -1432,7 +1563,7 @@ const hasHandCard = (p: Player, defId: string, cardId?: string) =>
 export function respond(
   code: string,
   playerId: string,
-  type: "missed" | "beer" | "bang" | "pass",
+  type: PendingAction,
   cardId?: string
 ): Result {
   const room = rooms.get(code);
@@ -1490,9 +1621,16 @@ export function respond(
       const remaining = pending.missedNeeded - pending.missedPlayed;
       const available = target.hand.filter((c) => canUseAs(target, c, "missed")).length;
       if (available < remaining) return err("need-more-missed", { n: pending.missedNeeded });
-      room.discard.push(target.hand.splice(idx, 1)[0]);
-      pushLog(room, { kind: "react", a: target.name, card: "Missed!" });
+      const [used] = target.hand.splice(idx, 1);
+      room.discard.push(used);
+      pushLog(room, { kind: "react", a: target.name, card: used.name });
       pending.missedPlayed += 1;
+      // Dodge (Schivata) rút 1 lá — SAU khi đã tính là Mancato!, không phải trước: rút
+      // trước thì lá vừa rút có thể lại là một Mancato! và bị đếm nhầm vào cùng cú đỡ.
+      if (used.defId === "dodge") {
+        drawInto(room, target.hand, 1);
+        pushLog(room, { kind: "draw", a: target.name, n: 1 });
+      }
       if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // dodged
       return { ok: true };
     }
@@ -1540,6 +1678,25 @@ export function respond(
       return { ok: true };
     }
     return { ok: false };
+  }
+
+  // --- Toss (Brawl): mỗi người khác tự bỏ 1 lá, tay hoặc bàn ---
+  if (pending.kind === "toss") {
+    const r = pending.responders.find((x) => x.id === playerId);
+    if (!r || r.done) return err("not-your-reaction");
+    if (type !== "toss") return { ok: false };
+    const me = room.players.find((p) => p.id === playerId)!;
+    // Tay HOẶC bàn: bản in ghi "a card of their choice", và người chỉ còn đồ trên bàn mà
+    // không bỏ được thì cửa này không bao giờ đóng.
+    const pile = me.hand.some((c) => c.id === cardId) ? me.hand : me.equipment;
+    const i = pile.findIndex((c) => c.id === cardId);
+    if (i < 0) return err("card-not-in-hand");
+    const [gone] = pile.splice(i, 1);
+    pushToDiscard(room, gone);
+    pushLog(room, { kind: "discard", a: me.name, n: 1 });
+    r.done = true;
+    if (pending.responders.every((x) => x.done)) clearPending(room);
+    return { ok: true };
   }
 
   // --- Multi (Indians!/Gatling): each responder defends or takes 1 ---
@@ -1707,8 +1864,18 @@ export function useAbility(
 // Bỏ đúng `n` lá RIÊNG BIỆT khỏi tay vào chồng bỏ. Trả về lỗi thay vì ném, và không đụng
 // vào tay bài cho tới khi cả `n` lá đều đã xác nhận có thật — nửa chừng thất bại thì
 // người chơi mất bài mà chẳng được gì.
-function burnFromHand(room: Room, p: Player, cardIds: string[], n: number): GameError | null {
-  if (cardIds.length !== n || new Set(cardIds).size !== n) return { code: "pick-two-distinct" };
+function burnFromHand(
+  room: Room,
+  p: Player,
+  cardIds: string[],
+  n: number,
+  exclude?: string,
+): GameError | null {
+  if (cardIds.length !== n || new Set(cardIds).size !== n) {
+    return { code: n === 2 ? "pick-two-distinct" : "pay-cards-invalid" };
+  }
+  // Lá đang đánh không trả giá cho chính nó được — thiếu chỗ này là đánh lá miễn phí.
+  if (exclude && cardIds.includes(exclude)) return { code: "pay-cards-invalid" };
   if (cardIds.some((id) => !p.hand.some((c) => c.id === id))) return { code: "card-not-in-hand" };
   for (const id of cardIds) {
     const i = p.hand.findIndex((c) => c.id === id);

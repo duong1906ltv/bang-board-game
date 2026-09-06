@@ -80,6 +80,12 @@ export interface CardDef {
   effect: string;
   target?: TargetRule; // present only for cards that are aimed at somebody
   notes?: string[];
+  // Lá này dùng thay cho lá nào. Data chứ không phải một nhánh `if (defId === "dodge")`
+  // trong engine — Dodge mang ký hiệu Mancato! và bộ mở rộng sau còn thêm nữa.
+  countsAs?: string;
+  // Số lá PHẢI bỏ thêm khỏi tay để đánh được lá này. Năm lá Dodge City mở đầu bằng đúng
+  // câu "bỏ thêm 1 lá trên tay", nên nó là một cơ chế chứ không phải năm hiệu ứng.
+  costDiscard?: number;
   seenFartherBy?: number; // others see the holder this much farther away (Mustang, Hideout)
   seesCloserBy?: number; // the holder sees everyone this much closer (Scope, Binocular)
 }
@@ -162,6 +168,49 @@ export const CARD_DEFS: CardDef[] = [
     sets: { base: { count: 1, spec: "5H" } },
     effect: "Tất cả người chơi (kể cả bạn) hồi 1 máu.",
     notes: ["Rule 3"] },
+  // ── Dodge City, bài nâu mới ──
+  { id: "punch", it: "Pugno", name: "Punch", kind: "brown",
+    sets: { dodgeCity: { count: 1, spec: "10S" } },
+    effect: "Như một lá Bang! nhắm người ở khoảng cách 1.",
+    target: { maxDistance: 1, shoots: true },
+    notes: [
+      "Rule 5: không tiêu hạn mức Bang!/lượt.",
+      "Súng KHÔNG cộng tầm cho lá này; nhưng lá tăng tầm (Scope/Binocular) thì có — y hệt Panic.",
+    ] },
+  { id: "dodge", it: "Schivata", name: "Dodge", kind: "brown",
+    sets: { dodgeCity: { count: 2, spec: "7D KH" } },
+    countsAs: "missed",
+    effect: "Tính như một lá Mancato!, rồi rút 1 lá.",
+    notes: ["Rút SAU khi đã tính là Mancato!."] },
+  { id: "whisky", it: "Whisky", name: "Whisky", kind: "brown",
+    sets: { dodgeCity: { count: 1, spec: "QH" } },
+    costDiscard: 1,
+    effect: "Bỏ thêm 1 lá trên tay, rồi tự hồi 2 máu.",
+    notes: ["Rule 3"] },
+  { id: "tequila", it: "Tequila", name: "Tequila", kind: "brown",
+    sets: { dodgeCity: { count: 1, spec: "9C" } },
+    costDiscard: 1,
+    effect: "Bỏ thêm 1 lá trên tay, rồi 1 người chơi bất kỳ hồi 1 máu.",
+    target: { self: true },
+    notes: ["Rule 3", "Được chọn chính mình. Mọi khoảng cách."] },
+  { id: "brawl", it: "Rissa", name: "Brawl", kind: "brown",
+    sets: { dodgeCity: { count: 1, spec: "JS" } },
+    costDiscard: 1,
+    effect: "Bỏ thêm 1 lá trên tay, rồi mọi người chơi khác bỏ 1 lá.",
+    notes: ["Bạn chọn bỏ từ tay hay trên bàn cho TỪNG người, y như Cat Balou."] },
+  { id: "rag-time", it: "Rag Time", name: "Rag Time", kind: "brown",
+    sets: { dodgeCity: { count: 1, spec: "9H" } },
+    costDiscard: 1,
+    effect: "Bỏ thêm 1 lá trên tay, rồi lấy 1 lá của một người chơi bất kỳ.",
+    target: { self: true, needsCards: true },
+    notes: ["Mọi khoảng cách."] },
+  { id: "springfield", it: "Springfield", name: "Springfield", kind: "brown",
+    sets: { dodgeCity: { count: 1, spec: "KS" } },
+    costDiscard: 1,
+    effect: "Bỏ thêm 1 lá trên tay, rồi bắn Bang! vào một người chơi bất kỳ.",
+    target: { shoots: true },
+    notes: ["Rule 5: không tiêu hạn mức Bang!/lượt.", "Mọi khoảng cách. Barrel và Mancato! vẫn chống được."] },
+
   { id: "mustang", it: "Mustang", name: "Mustang", kind: "blue",
     sets: {
       base: { count: 2, spec: "8H 9H" },

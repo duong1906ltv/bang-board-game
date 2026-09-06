@@ -1,10 +1,10 @@
 # Phase 04 — Brown mới
 
-**Ngữ cảnh:** [plan.md](plan.md) · [card-spec.md](card-spec.md) ← spec lấy từ đây · [phase 01](phase-01-deck-infrastructure-and-toggle.md)
+**Ngữ cảnh:** [plan.md](plan.md) · [card-spec.md](card-spec.md) ← spec lấy từ đây · [phase 01](phase-01-deck-infrastructure-and-toggle.md) · **số đo:** [evidence/phase-04-brown.md](evidence/phase-04-brown.md)
 
 ## Tổng quan
 
-**Ưu tiên:** trung bình · **Trạng thái:** ⬜ chưa làm · **Phụ thuộc:** phase 01
+**Ưu tiên:** trung bình · **Trạng thái:** 🟡 xong engine + bot, chưa xem mắt · **Phụ thuộc:** phase 01
 
 8 lá brown mới, 7 loại. Năm trong số đó chỉ là **một** cơ chế duy nhất — làm cơ chế đó
 cho tử tế thì 5 lá xong cùng lúc.
@@ -92,18 +92,30 @@ có thể làm lá còn lại không đủ.
 
 ## Todo
 
-- [ ] `costDiscard` trên `CardDef` + `playBlock` từ chối khi thiếu lá
-- [ ] `playCard` nhận `payCardIds`, bỏ giá **trước** hiệu ứng
-- [ ] UI: chọn lá trả giá **trước** chọn mục tiêu
-- [ ] Whisky · Tequila · Rag Time · Springfield
-- [ ] Brawl (chuỗi chọn tay-hay-bàn từng người, làm sau cùng)
-- [ ] Punch (dùng luật bắn của `playBang`, tầm 1, **không** tăng `bangsThisTurn`)
-- [ ] Dodge trong `respond()` + nút phản ứng
-- [ ] Whisky/Tequila vào `HEAL_DEF_IDS`
-- [ ] Rà `bannedDefIds` các sự kiện + 13 nhiệm vụ
-- [ ] Bot: bảng giá trị + biết trả giá
-- [ ] Test 7 lá + test "hết bài không trả giá được"
-- [ ] Nâng `DC_CARDS_SO_FAR` 18 → 26 trong `lib/__tests__/deckSets.test.ts`
+- [x] `costDiscard` trên `CardDef` + `playBlock` từ chối khi thiếu lá
+- [x] `playCard` nhận `payCardIds`, bỏ giá **trước** hiệu ứng — và **kiểm sạch trước khi
+      trả**, xem `costPlayProblem`
+- [x] UI: chọn lá trả giá **trước** chọn mục tiêu
+- [x] Whisky · Tequila · Rag Time · Springfield
+- [x] Brawl — **không** phải chuỗi chọn từng người như plan ghi. Bản in cho nạn nhân tự
+      chọn, nên nó là cửa đồng thời như Indians!. `Pending` kind mới `"toss"`.
+- [x] Punch (dùng luật bắn của `playBang`, tầm 1, **không** tăng `bangsThisTurn`)
+- [x] Dodge trong `respond()` + nút phản ứng
+- [x] Whisky/Tequila vào `HEAL_DEF_IDS`
+- [x] Rà `bannedDefIds` các sự kiện + 13 nhiệm vụ — 4 quyết định ghi trong evidence
+- [x] Bot: bảng giá trị + biết trả giá
+- [x] Test 7 lá + test "hết bài không trả giá được"
+- [x] Nâng `DC_CARDS_SO_FAR` 18 → 26
+- [ ] Xem bằng mắt luồng trả giá và cửa Brawl — cần trình duyệt
+
+Phát sinh, đã sửa:
+
+- [x] **Bot treo bàn 41/200 ván.** `nearestShootable` hỏi cứng `"bang"`, mà Punch chỉ với
+      tới khoảng cách 1. Cùng họ lỗi phase 03.
+- [x] **Dodge, Hideout, Binocular là tính năng chết.** Bot không bao giờ dùng. Hai lá blue
+      ship từ phase 01 và đã chết im lặng từ đó.
+- [x] **`ReactionPanel` không tìm ra lá đỡ** với Dodge và Elena Fuente — nút hiện mà không
+      gửi được gì. Server giờ trả `usableCardIds`.
 
 ## Xong khi
 

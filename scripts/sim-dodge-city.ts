@@ -14,6 +14,7 @@
 import * as game from "../lib/game";
 import * as bot from "../lib/bot";
 import { ALL_ABILITY_KINDS, AbilityKind, CHARACTERS } from "../lib/types";
+import { CARD_DEFS } from "../lib/cards";
 
 const GAMES = Number(process.argv[2] || 200);
 const PLAYERS = Number(process.argv[3] || 6);
@@ -22,6 +23,10 @@ const STEP_CAP = 6000;
 const drafted = new Map<string, number>();
 const picked = new Map<string, number>();
 const abilityUses = new Map<AbilityKind, number>();
+const cardsPlayed = new Map<string, number>();
+// Lá chỉ có trong Dodge City — bản sao của lá bộ gốc không tính, chúng vốn đã chạy.
+const NEW_CARD_IDS = CARD_DEFS.filter((d) => d.sets.dodgeCity && !d.sets.base).map((d) => d.id);
+const NAME_TO_ID = new Map(CARD_DEFS.map((d) => [d.name, d.id]));
 let frozen = 0;
 let overCap = 0;
 let turns = 0;
@@ -52,6 +57,7 @@ function runGame(): "done" | "frozen" | "cap" {
   // Đếm bằng cách so bộ đếm lượt trước và sau mỗi nhịp: nó reset mỗi lượt, nên chỉ cộng
   // phần TĂNG và bỏ qua lúc nó tụt về 0.
   let before: Partial<Record<AbilityKind, number>> = {};
+  let seenLog = 0;
 
   for (let step = 0; step < STEP_CAP; step++) {
     if (room.phase === "result") {
@@ -62,6 +68,16 @@ function runGame(): "done" | "frozen" | "cap" {
       return "done";
     }
     game.refillEmptyHands(room);
+    // Đếm theo log: log ghi TÊN lá, không ghi defId, nên phải tra ngược. Đọc phần đuôi
+    // mới thêm kể từ nhịp trước — log bị cắt bớt nên tổng kết cuối ván sẽ mất phần lớn.
+    for (let i = seenLog; i < room.log.length; i++) {
+      const e = room.log[i];
+      const id = e.card ? NAME_TO_ID.get(e.card) : undefined;
+      if ((e.kind === "play" || e.kind === "react") && id) {
+        cardsPlayed.set(id, (cardsPlayed.get(id) ?? 0) + 1);
+      }
+    }
+    seenLog = room.log.length;
     if (!bot.step(code)) {
       report(room, "FREEZE");
       return "frozen";
@@ -111,10 +127,19 @@ for (const kind of ALL_ABILITY_KINDS) {
   console.log(`    ${n === 0 ? "✗" : "✓"} ${kind.padEnd(20)} ${n} lần`);
 }
 
-const bad = frozen > 0 || overCap > 0 || neverDrafted.length > 0 || dead > 0;
+// ── lá mới nào chưa bao giờ được đánh ──────────────────────────────────────
+console.log("\n  lá Dodge City mới:");
+let deadCards = 0;
+for (const id of NEW_CARD_IDS) {
+  const n = cardsPlayed.get(id) ?? 0;
+  if (n === 0) deadCards++;
+  console.log(`    ${n === 0 ? "✗" : "✓"} ${id.padEnd(14)} ${n} lần`);
+}
+
+const bad = frozen > 0 || overCap > 0 || neverDrafted.length > 0 || dead > 0 || deadCards > 0;
 console.log(
   bad
     ? "\n❌ có thứ chưa tới được tay người chơi — xem dấu ✗ ở trên. ĐỪNG vá bằng cách mớm bài."
-    : "\n✅ mọi nhân vật đều ra bàn và mọi năng lực đều được dùng, không cần mớm gì",
+    : "\n✅ mọi nhân vật, năng lực và lá bài mới đều thật sự được dùng, không cần mớm gì",
 );
 process.exit(bad ? 1 : 0);

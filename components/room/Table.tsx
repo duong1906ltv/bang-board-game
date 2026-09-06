@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { AbilityKind, Character, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
-import { type Card } from "@/lib/cards";
+import { AbilityKind, Character, PendingAction, PlayerView, PlayerPublic, ROLE_EMOJI } from "@/lib/types";
+import { CARD_DEF_BY_ID, type Card } from "@/lib/cards";
 import { getIntroSeen, setIntroSeen } from "@/lib/prefs";
 import { useDisplayPrefs } from "./useDisplayPrefs";
 import { useTableFeedback } from "./useTableFeedback";
@@ -33,6 +33,7 @@ export function Table({
   view,
   onDraw,
   onPlay,
+  onRespond,
   onDiscard,
   onUseAbility,
   onEndTurn,
@@ -45,7 +46,9 @@ export function Table({
 }: {
   view: PlayerView;
   onDraw: (source?: "deck" | "discard" | "player", targetId?: string) => void;
-  onPlay: (cardId: string, targetId?: string, targetCardId?: string) => void;
+  onPlay: (cardId: string, targetId?: string, targetCardId?: string, payCardIds?: string[]) => void;
+  // Brawl bắt bạn tự chọn lá bỏ, mà tay bài nằm ở đây chứ không ở ReactionPanel.
+  onRespond: (type: PendingAction, cardId?: string) => void;
   onDiscard: (cardId: string) => void;
   onUseAbility: (kind: AbilityKind, cardIds: string[], targetId?: string) => void;
   onEndTurn: () => void;
@@ -73,6 +76,7 @@ export function Table({
     id: string;
     defId: string;
     ability?: { kind: AbilityKind; cardIds: string[] };
+    pay?: string[];
   } | null>(null);
   // Lá đang chờ bạn xác nhận đánh. Cùng họ với `aiming` ở trên, và cố ý nằm ngay cạnh nó:
   // cả hai là "một nhát tap đã mở một nước đi nhưng nước đó CHƯA xảy ra", và giữa chúng là
@@ -87,6 +91,9 @@ export function Table({
   // Năng lực đang chờ bạn chọn lá cho nó. Một state cho cả bốn năng lực: chúng khác nhau
   // ở số lá và ở chỗ có phải ngắm ai không, và cả hai điều đó nằm trong ABILITY_SPEC.
   const [ability, setAbility] = useState<{ kind: AbilityKind; pick: string[] } | null>(null);
+  // Lá đang chờ bạn chọn đủ lá trả giá cho nó (Whisky/Tequila/Brawl/Rag Time/Springfield).
+  // Trả giá TRƯỚC khi ngắm, vì trả giá có thể làm số lá còn lại đổi.
+  const [paying, setPaying] = useState<{ card: Card; pick: string[] } | null>(null);
   // Hai chế độ bỏ bài, không phải một cờ. "forced" là bước bắt buộc trước khi hết lượt —
   // đúng số lá vượt giới hạn, rồi lượt tự kết thúc. "free" là bỏ CHỦ ĐỘNG, bao nhiêu lá cũng
   // được, và không kết thúc lượt.
@@ -132,7 +139,7 @@ export function Table({
       if (e.key !== "Escape") return;
       setInfoCard(null); setCharView(null); setPlayerInfo(null); closeBriefing(); dismissEvents();
       setConfirmSurrender(false); setDiscarding(false);
-      setAiming(null); setAbility(null); setConfirmPlay(null);
+      setAiming(null); setAbility(null); setPaying(null); setConfirmPlay(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -244,7 +251,25 @@ export function Table({
       else onUseAbility(ability.kind, next);
       return;
     }
+    // Brawl: bạn tự chọn lá của mình để bỏ. Ngoài lượt mình, nên không gác sau inPlayPhase.
+    if (view.pending?.kind === "toss" && view.pending.youMustRespond) {
+      return onRespond("toss", card.id);
+    }
     if (!inPlayPhase) return;
+    // Đang gom lá trả giá: chạm để chọn/bỏ chọn, đủ số thì mới đi tiếp.
+    if (paying) {
+      const need = CARD_DEF_BY_ID[paying.card.defId]?.costDiscard ?? 0;
+      if (card.id === paying.card.id) return; // lá đang đánh không trả giá cho chính nó
+      const next = paying.pick.includes(card.id)
+        ? paying.pick.filter((x) => x !== card.id)
+        : [...paying.pick, card.id];
+      if (next.length < need) return setPaying({ ...paying, pick: next });
+      const played = paying.card;
+      setPaying(null);
+      if (needsTarget(played.defId)) setAiming({ id: played.id, defId: played.defId, pay: next });
+      else onPlay(played.id, undefined, undefined, next);
+      return;
+    }
     // Selecting, NOT throwing. The cards go together when the confirm is pressed, so a
     // misplaced tap here costs nothing and there is a moment to look at the three you
     // are about to lose before they are gone.
@@ -252,6 +277,10 @@ export function Table({
       return setDiscardPick((s) => (s.includes(card.id) ? s.filter((x) => x !== card.id) : [...s, card.id]));
     }
     if (blockOneCard(card.defId)) return;
+    // Phải trả giá thì gom lá trả giá trước, ngắm sau.
+    if ((CARD_DEF_BY_ID[card.defId]?.costDiscard ?? 0) > 0) {
+      return setPaying({ card, pick: [] });
+    }
     if (needsTarget(card.defId)) {
       return setAiming({ id: card.id, defId: card.defId });
     }
@@ -303,7 +332,7 @@ export function Table({
   const fireAt = (targetId: string, targetCardId?: string) => {
     if (!aiming) return;
     if (aiming.ability) onUseAbility(aiming.ability.kind, aiming.ability.cardIds, targetId);
-    else onPlay(aiming.id, targetId, targetCardId);
+    else onPlay(aiming.id, targetId, targetCardId, aiming.pay);
     setAiming(null);
   };
   // Cat Balou / Panic! may hit a specific face-up card on the table.
@@ -707,9 +736,9 @@ export function Table({
                    with `waiting-for-reaction`, so every tap here would be an error
                    message. Answering a pending is the reaction panel's job, not the
                    hand's — except Sid's burn, which is legal at any time at all. */
-                canInteract={(inPlayPhase && !view.pending) || !!ability}
+                canInteract={(inPlayPhase && !view.pending) || !!ability || !!paying || (view.pending?.kind === "toss" && view.pending.youMustRespond)}
                 entering={justDrew.has(c.id)}
-                selected={!!ability?.pick.includes(c.id) || discardPick.includes(c.id) || aiming?.id === c.id}
+                selected={!!ability?.pick.includes(c.id) || !!paying?.pick.includes(c.id) || paying?.card.id === c.id || discardPick.includes(c.id) || aiming?.id === c.id}
                 onTap={() => cardAction(c)}
                 onInspect={() => setInfoCard(c)}
               />
@@ -720,7 +749,13 @@ export function Table({
 
       {inPlayPhase && !aiming && you.hand.length > 0 && (
         <div style={{ position: "fixed", left: "50%", bottom: 176, transform: "translateX(-50%)", zIndex: 55, color: "rgba(240,226,192,0.85)", fontSize: 13, fontFamily: "system-ui, sans-serif", textShadow: "0 1px 3px #000", whiteSpace: "nowrap", pointerEvents: "none" }}>
-          {ability
+          {paying
+            ? L(
+                locale,
+                `${paying.card.name}: chạm ${CARD_DEF_BY_ID[paying.card.defId]?.costDiscard} lá nữa để trả giá (${paying.pick.length}/${CARD_DEF_BY_ID[paying.card.defId]?.costDiscard})`,
+                `${paying.card.name}: tap ${CARD_DEF_BY_ID[paying.card.defId]?.costDiscard} more card(s) to pay (${paying.pick.length}/${CARD_DEF_BY_ID[paying.card.defId]?.costDiscard})`,
+              )
+            : ability
             ? `${L(locale, ABILITY_SPEC[ability.kind].picking[0], ABILITY_SPEC[ability.kind].picking[1])} (${ability.pick.length}/${ABILITY_SPEC[ability.kind].need})`
             : discardMode === "forced"
               ? L(locale, `Chọn ${overLimit} lá để bỏ (${discardPick.length}/${overLimit})`, `Pick ${overLimit} to discard (${discardPick.length}/${overLimit})`)

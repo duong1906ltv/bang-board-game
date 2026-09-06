@@ -31,9 +31,9 @@ test("the base deck stays 80 cards, expansion off", () => {
   assert.equal(buildDeck({ dodgeCity: false }).length, 80);
 });
 
-// A tripwire, not a target: 18 -> 26 with the new brown cards (phase 04), 26 -> 40 with
-// the green ones (phase 05). An unintended change here is the drift these tests exist for.
-const DC_CARDS_SO_FAR = 18;
+// A tripwire, not a target: 26 -> 40 with the green cards (phase 05). An unintended change
+// here is the drift these tests exist for.
+const DC_CARDS_SO_FAR = 26;
 
 test("Dodge City contributes exactly the cards transcribed so far", () => {
   assert.equal(dodgeCityHalf().length, DC_CARDS_SO_FAR);

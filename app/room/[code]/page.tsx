@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, loadIdentity, loadLook } from "@/lib/socketClient";
-import { PlayerView, type AbilityKind, type EventLevel } from "@/lib/types";
+import { PlayerView, type AbilityKind, type EventLevel, type PendingAction } from "@/lib/types";
 import TurnAlert from "@/components/TurnAlert";
 import { L, useLocale, initLocale, tError } from "@/lib/i18n";
 import { LangToggle } from "@/components/LangToggle";
@@ -85,9 +85,9 @@ export default function RoomPage() {
     socket.emit("drawCards", { code, source, targetId });
   const useAbility = (kind: AbilityKind, cardIds: string[], targetId?: string) =>
     socket.emit("useAbility", { code, kind, cardIds, targetId });
-  const play = (cardId: string, targetId?: string, targetCardId?: string) =>
-    socket.emit("playCard", { code, cardId, targetId, targetCardId });
-  const respond = (type: "missed" | "beer" | "bang" | "pass", cardId?: string) =>
+  const play = (cardId: string, targetId?: string, targetCardId?: string, payCardIds?: string[]) =>
+    socket.emit("playCard", { code, cardId, targetId, targetCardId, payCardIds });
+  const respond = (type: PendingAction, cardId?: string) =>
     socket.emit("respond", { code, type, cardId });
   const choose = (cardId: string) => socket.emit("choose", { code, cardId });
   const setMissionsOn = (on: boolean) => socket.emit("setMissionsOn", { code, on });
@@ -124,7 +124,7 @@ export default function RoomPage() {
       )}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onPlay={play} onDiscard={discard} onUseAbility={useAbility} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} onPredict={predict} onCancelPredict={cancelPredict} />
+        <Table view={view} onDraw={draw} onPlay={play} onRespond={respond} onDiscard={discard} onUseAbility={useAbility} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} onPredict={predict} onCancelPredict={cancelPredict} />
       )}
 
       {view.pending &&

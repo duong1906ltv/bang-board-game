@@ -35,6 +35,7 @@ export type ErrorCode =
   | "immune-suit"
   | "hp-full"
   | "pick-two-distinct"
+  | "pay-cards-invalid"
   | "ability-unavailable"
   | "ability-used-up"
   | "need-a-blue-card"
@@ -43,6 +44,7 @@ export type ErrorCode =
   | "event-bans-kind"
   | "event-bans-bang"
   | "bang-limit-reached"
+  | "need-cards-to-pay"
   // parametric — `n` or `s` carries the value the sentence needs
   | "room-full"
   | "need-players"

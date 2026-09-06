@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PlayerView } from "@/lib/types";
+import { PendingAction, PlayerView } from "@/lib/types";
 import { PlayingCard } from "@/components/PlayingCard";
 import { L, useLocale, formatPending, checkText, actionLabel } from "@/lib/i18n";
 import { PENDING_EMOJI, CHECK_ICON } from "./constants";
@@ -11,7 +11,7 @@ export function ReactionPanel({
   onRespond,
 }: {
   view: PlayerView;
-  onRespond: (type: "missed" | "beer" | "bang" | "pass", cardId?: string) => void;
+  onRespond: (type: PendingAction, cardId?: string) => void;
 }) {
   const locale = useLocale();
   const p = view.pending!;
@@ -19,20 +19,18 @@ export function ReactionPanel({
 
   const [open, setOpen] = useState(true);
 
-  const doAction = (a: "missed" | "beer" | "bang" | "pass") => {
+  // Lá nào trả lời được cửa này do SERVER quyết và gửi trong p.usableCardIds. Bản cũ tự
+  // tìm bằng `defId === a` rồi vá thêm nhánh cho Calamity Janet — và thế là mỗi luật mới
+  // (Dodge mang ký hiệu Mancato!, Elena Fuente đỡ bằng lá bất kỳ) lại là một nút bấm được
+  // mà không gửi được lá nào.
+  const usable = you.hand.filter((c) => (p.usableCardIds ?? []).includes(c.id));
+  // Nhiều LOẠI lá trả lời được thì để người chơi chọn: một Dodge đỡ xong còn rút thêm 1
+  // lá, chọn hộ họ là chọn mất phần hơn đó.
+  const choices = [...new Map(usable.map((c) => [c.defId, c])).values()];
+
+  const doAction = (a: PendingAction, cardId?: string) => {
     if (a === "pass") return onRespond("pass");
-    // Some characters may play one card as another (Calamity Janet swaps
-    // Bang!/Missed!) — fall back to the swapped card so the reaction is still
-    // possible without the literal card in hand.
-    const swap = you.character?.effect.useAs;
-    const alt =
-      swap && swap.includes(a)
-        ? swap[0] === a
-          ? swap[1]
-          : swap[0]
-        : null;
-    const card = you.hand.find((c) => c.defId === a) ?? (alt ? you.hand.find((c) => c.defId === alt) : undefined);
-    onRespond(a, card?.id);
+    onRespond(a, cardId ?? usable[0]?.id);
   };
 
   // Minimized: a small chip so you can look at your hand / other cards, then reopen.
@@ -110,7 +108,46 @@ export function ReactionPanel({
           </div>
         )}
 
-        {p.actions.map((a, i) => (
+        {/* Bỏ 1 lá cho Brawl: chạm lá trên tay ở dưới, hoặc chạm một lá đang bày ra bàn
+            ngay đây — người chỉ còn đồ trên bàn cũng phải bỏ được, nếu không cửa này
+            không bao giờ đóng. */}
+        {p.kind === "toss" && you.equipment.length > 0 && (
+          <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "4px 0 12px" }}>
+            {you.equipment.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => onRespond("toss", c.id)}
+                style={{ width: "auto", padding: 0, background: "none", border: "none" }}
+                title={c.name}
+              >
+                <PlayingCard card={c} size="sm" />
+              </button>
+            ))}
+          </div>
+        )}
+        {p.kind === "toss" && (
+          <p className="muted">
+            {L(locale, "Chạm 1 lá trên tay để bỏ", "Tap a card in your hand to discard")}
+          </p>
+        )}
+
+        {/* Hơn một loại lá đỡ được thì hiện cả hai, đừng chọn hộ. */}
+        {choices.length > 1 && p.kind !== "toss" && (
+          <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "4px 0 12px" }}>
+            {choices.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => doAction(p.actions[0], c.id)}
+                style={{ width: "auto", padding: 0, background: "none", border: "none" }}
+                title={c.name}
+              >
+                <PlayingCard card={c} size="sm" />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {p.actions.filter((a) => a !== "toss").map((a, i) => (
           <div key={a}>
             {i > 0 && <div style={{ height: 8 }} />}
             {/* "Bỏ qua" is the right word when passing is a CHOICE — declining to

@@ -107,15 +107,18 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
   const playerName = (id: string) =>
     room.players.find((x) => x.id === id)?.name ?? "";
   const meId = me?.id;
+  // canUseAs, not defId: Calamity Janet đổi Bang!/Mancato!, Dodge mang ký hiệu Mancato!,
+  // Elena Fuente đỡ bằng lá bất kỳ. Ba luật khác nhau, một câu trả lời.
+  const cardsAnswering = (primary: PendingAction | null): string[] =>
+    !me || !primary ? [] : me.hand.filter((c) => canUseAs(me, c, primary)).map((c) => c.id);
+
   const responseButtons = (
     waitingOnMe: boolean,
     primary: PendingAction | null,
   ): PendingAction[] => {
     if (!waitingOnMe) return [];
     if (!primary) return ["pass"];
-    // canUseAs, not defId: Calamity Janet answers a Bang! with a Missed! and vice versa.
-    const holdsOne = !!me && me.hand.some((c) => canUseAs(me, c, primary));
-    return holdsOne ? [primary, "pass"] : ["pass"];
+    return cardsAnswering(primary).length > 0 ? [primary, "pass"] : ["pass"];
   };
 
   if (p.kind === "check") {
@@ -143,6 +146,7 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
       kind: "bang",
       youMustRespond: waitingOnMe,
       actions: !waitingOnMe ? [] : canDodge ? ["missed", "pass"] : ["pass"],
+      usableCardIds: waitingOnMe ? cardsAnswering("missed") : [],
       missedNeeded: p.missedNeeded,
       missedPlayed: p.missedPlayed,
       actorName: playerName(p.sourceId),
@@ -155,6 +159,7 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
       kind: "dying",
       youMustRespond: waitingOnMe,
       actions: responseButtons(waitingOnMe, "beer"),
+      usableCardIds: waitingOnMe ? cardsAnswering("beer") : [],
       actorName: playerName(p.targetId),
     };
   }
@@ -165,8 +170,25 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
       kind: "multi",
       youMustRespond: waitingOnMe,
       actions: responseButtons(waitingOnMe, p.effect === "indians" ? "bang" : "missed"),
+      usableCardIds: waitingOnMe ? cardsAnswering(p.effect === "indians" ? "bang" : "missed") : [],
       actorName: playerName(p.sourceId),
       effect: p.effect,
+      waiting: p.responders.filter((x) => !x.done).map((x) => playerName(x.id)),
+    };
+  }
+  if (p.kind === "toss") {
+    const myResponse = p.responders.find((x) => x.id === meId);
+    const waitingOnMe = !!myResponse && !myResponse.done;
+    return {
+      kind: "toss",
+      youMustRespond: waitingOnMe,
+      // Không có nút "bỏ qua": Brawl không từ chối được. Bạn chọn LÁ NÀO, không chọn có
+      // hay không — nên câu trả lời đi kèm cardId và client gửi nó khi bạn chạm lá.
+      actions: waitingOnMe ? ["toss"] : [],
+      // Bỏ lá nào cũng được, và lá trên bàn cũng tính — bản in ghi "a card of their
+      // choice". Người chỉ còn đồ trên bàn mà không bỏ được thì cửa này không đóng.
+      usableCardIds: waitingOnMe && me ? [...me.hand, ...me.equipment].map((c) => c.id) : [],
+      actorName: playerName(p.sourceId),
       waiting: p.responders.filter((x) => !x.done).map((x) => playerName(x.id)),
     };
   }
@@ -176,6 +198,7 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
       kind: "duel",
       youMustRespond: waitingOnMe,
       actions: responseButtons(waitingOnMe, "bang"),
+      usableCardIds: waitingOnMe ? cardsAnswering("bang") : [],
       actorName: playerName(p.aId),
       targetName: playerName(p.bId),
       turnName: playerName(p.turnId),
