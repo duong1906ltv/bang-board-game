@@ -37,9 +37,12 @@ import { barrelAttempts, distanceBetween, hasEquip, rangeOf } from "./geometry";
 import {
   abilityProblem,
   bangBudget,
+  greenProblem,
+  isGreenReady,
   canUseAs,
   handLimitOf,
   isBlueBordered,
+  reactionOnTable,
   isExemptPlay,
   legalTargetIds,
   playBlock,
@@ -72,9 +75,12 @@ export { distanceBetween, rangeOf };
 export {
   abilityProblem,
   bangBudget,
+  greenProblem,
+  isGreenReady,
   canUseAs,
   handLimitOf,
   isBlueBordered,
+  reactionOnTable,
   legalTargetIds,
   playBlock,
   targetProblem,
@@ -642,6 +648,16 @@ function playCardImpl(
     return { ok: true };
   }
 
+  // Green đặt trước mặt như blue, nhưng KHÔNG chặn trùng loại: hai lá Iron Plate cùng
+  // nằm trên bàn là chuyện bình thường, mỗi lá là một lần đỡ. Blue thì chặn, vì hai cái
+  // Barrel không cho bạn hai lần Draw!.
+  if (def.kind === "green") {
+    current.hand.splice(idx, 1);
+    card.playedOnTurn = room.turnCounter;
+    current.equipment.push(card);
+    return { ok: true };
+  }
+
   if (def.kind === "blue") {
     // Jail: place on another non-Sheriff player who isn't already jailed.
     if (card.defId === "jail") {
@@ -699,11 +715,20 @@ function playCardImpl(
 function playMulti(room: Room, current: Player, handIdx: number, effect: "indians" | "gatling"): Result {
   const [played] = current.hand.splice(handIdx, 1);
   pushToDiscard(room, played);
+  openMulti(room, current, effect, played.name);
+  return { ok: true };
+}
+
+// Mở cửa phản ứng đồng loạt. Tách khỏi playMulti vì Howitzer là một lá green — nó bắn cả
+// bàn y hệt Gatling nhưng đi từ trước mặt bạn chứ không từ tay, nên không có handIdx nào.
+function openMulti(room: Room, current: Player, effect: "indians" | "gatling", playName?: string) {
   const targets = room.players.filter((p) => p.alive && p.id !== current.id);
   const responders = targets.map((p) => ({ id: p.id, done: false, safe: false }));
   // playCard's notify keys off a single targetId, which a multi doesn't have.
-  for (const p of targets) {
-    notify(room, p, { kind: "play", a: current.name, card: played.name, b: p.name });
+  if (playName) {
+    for (const p of targets) {
+      notify(room, p, { kind: "play", a: current.name, card: playName, b: p.name });
+    }
   }
   room.checks = [];
   // Gatling: auto-Barrel each defender up front (Jourdonnais included).
@@ -723,7 +748,6 @@ function playMulti(room: Room, current: Player, handIdx: number, effect: "indian
   }
   room.pending = { kind: "multi", effect, sourceId: current.id, responders };
   if (responders.every((r) => r.done)) resolveMulti(room);
-  return { ok: true };
 }
 
 // Duel: the target discards a Bang! first, then alternating; first to fail loses 1.
@@ -1559,6 +1583,56 @@ const hasHandCard = (p: Player, defId: string, cardId?: string) =>
   p.hand.findIndex((c) => c.defId === defId && (cardId ? c.id === cardId : true));
 
 
+// Lá trả lời được một cửa phản ứng — tìm ở CẢ tay lẫn trên bàn.
+//
+// Đây là dòng mà cả bộ mở rộng xoay quanh: bốn lá green (Bible, Iron Plate, Sombrero,
+// Ten Gallon Hat) mang ký hiệu Mancato! nhưng nằm trong equipment, nên mọi bản trước chỉ
+// tìm trên tay đều bỏ sót chúng hoàn toàn. Green còn phải "chín" — không đỡ được bằng lá
+// vừa đặt xuống trong chính lượt này.
+function findReaction(
+  room: Room,
+  p: Player,
+  asDefId: string,
+  cardId?: string,
+): { card: Card; pile: Card[] } | null {
+  const usable = (c: Card, onTable: boolean) => {
+    if (cardId && c.id !== cardId) return false;
+    // Trên bàn chỉ green nhóm "reaction" mới trả lời được. Không siết chỗ này thì Elena
+    // Fuente — "lá bất kỳ" — sẽ đốt được cả Barrel và khẩu súng đang đeo để né một phát
+    // Bang!, mà năng lực của cô ấy nói rõ là lá TRÊN TAY.
+    if (onTable) return reactionOnTable(room, c, asDefId);
+    return canUseAs(p, c, asDefId);
+  };
+  const hit = (pile: Card[], onTable: boolean) => {
+    const i = pile.findIndex((c) => usable(c, onTable));
+    return i < 0 ? null : { card: pile[i], pile };
+  };
+  return hit(p.hand, false) ?? hit(p.equipment, true);
+}
+
+// Đủ lá để hoàn thành một cú đỡ nhiều lớp không (Slab the Killer đòi 2). Đếm ở cả hai
+// chỗ, cùng lý do với findReaction.
+function countReactions(room: Room, p: Player, asDefId: string): number {
+  return (
+    p.hand.filter((c) => canUseAs(p, c, asDefId)).length +
+    p.equipment.filter((c) => reactionOnTable(room, c, asDefId)).length
+  );
+}
+
+// Tiêu lá vừa tìm được: bỏ xuống discard, ghi log, và rút thêm nếu lá đó có thưởng
+// (Dodge trên tay, Bible trên bàn — hai đường khác nhau, cùng một trường drawOnUse).
+function spendReaction(room: Room, p: Player, found: { card: Card; pile: Card[] }) {
+  const i = found.pile.indexOf(found.card);
+  const [used] = found.pile.splice(i, 1);
+  pushToDiscard(room, used);
+  pushLog(room, { kind: "react", a: p.name, card: used.name });
+  const bonus = CARD_DEF_BY_ID[used.defId]?.drawOnUse;
+  if (bonus) {
+    drawInto(room, p.hand, bonus);
+    pushLog(room, { kind: "draw", a: p.name, n: bonus });
+  }
+}
+
 // A player replies to the active pending. `type` meaning depends on the pending.
 export function respond(
   code: string,
@@ -1614,23 +1688,19 @@ export function respond(
     if (playerId !== pending.targetId) return err("not-your-reaction");
     const target = room.players.find((p) => p.id === pending.targetId)!;
     if (type === "missed") {
-      const idx = target.hand.findIndex((c) => c.id === cardId && canUseAs(target, c, "missed"));
-      if (idx < 0) return err("no-valid-card", { s: "Missed!" });
+      const found = findReaction(room, target, "missed", cardId);
+      if (!found) return err("no-valid-card", { s: "Missed!" });
       // Slab the Killer needs 2 Missed!: don't let a target burn a Missed! it can't
       // complete the dodge with (it would lose the card AND still take the hit).
       const remaining = pending.missedNeeded - pending.missedPlayed;
-      const available = target.hand.filter((c) => canUseAs(target, c, "missed")).length;
-      if (available < remaining) return err("need-more-missed", { n: pending.missedNeeded });
-      const [used] = target.hand.splice(idx, 1);
-      room.discard.push(used);
-      pushLog(room, { kind: "react", a: target.name, card: used.name });
-      pending.missedPlayed += 1;
-      // Dodge (Schivata) rút 1 lá — SAU khi đã tính là Mancato!, không phải trước: rút
-      // trước thì lá vừa rút có thể lại là một Mancato! và bị đếm nhầm vào cùng cú đỡ.
-      if (used.defId === "dodge") {
-        drawInto(room, target.hand, 1);
-        pushLog(room, { kind: "draw", a: target.name, n: 1 });
+      if (countReactions(room, target, "missed") < remaining) {
+        return err("need-more-missed", { n: pending.missedNeeded });
       }
+      // Rút thưởng (Dodge, Bible) nằm trong spendReaction, và nó chạy SAU khi lá đã tính
+      // là Mancato! — rút trước thì lá vừa rút có thể lại là một Mancato! và bị đếm nhầm
+      // vào cùng cú đỡ.
+      spendReaction(room, target, found);
+      pending.missedPlayed += 1;
       if (pending.missedPlayed >= pending.missedNeeded) clearPending(room); // dodged
       return { ok: true };
     }
@@ -1706,10 +1776,9 @@ export function respond(
     const me = room.players.find((p) => p.id === playerId)!;
     const need = pending.effect === "indians" ? "bang" : "missed";
     if (type === need) {
-      const idx = me.hand.findIndex((c) => c.id === cardId && canUseAs(me, c, need));
-      if (idx < 0) return err("no-valid-card", { s: need === "bang" ? "Bang!" : "Missed!" });
-      room.discard.push(me.hand.splice(idx, 1)[0]);
-      pushLog(room, { kind: "react", a: me.name, card: need === "bang" ? "Bang!" : "Missed!" });
+      const found = findReaction(room, me, need, cardId);
+      if (!found) return err("no-valid-card", { s: need === "bang" ? "Bang!" : "Missed!" });
+      spendReaction(room, me, found);
       r.done = true;
       r.safe = true;
     } else if (type === "pass") {
@@ -1782,6 +1851,74 @@ export function choose(code: string, playerId: string, cardId: string): Result {
   }
 
   return { ok: false };
+}
+
+// Kích hoạt một lá green đang nằm trước mặt bạn. KHÔNG phải playCard: lá đi từ equipment
+// chứ không từ tay, và điều kiện khác hẳn — nó phải đã "chín" từ lượt trước.
+export function useEquip(code: string, playerId: string, cardId: string, targetId?: string): Result {
+  const room = rooms.get(code);
+  if (!room || room.phase !== "playing") return { ok: false };
+  const p = room.players.find((x) => x.id === playerId);
+  if (!p) return { ok: false };
+  const problem = greenProblem(room, p, cardId);
+  if (problem) return { ok: false, error: problem };
+  const idx = p.equipment.findIndex((c) => c.id === cardId);
+  const card = p.equipment[idx];
+  const def = CARD_DEF_BY_ID[card.defId]!;
+
+  // Mục tiêu kiểm TRƯỚC khi lá rời bàn, cùng lý do với trả giá ở phase 04.
+  let target: Player | undefined;
+  if (def.target) {
+    target = room.players.find((x) => x.id === targetId);
+    if (!target) return err("invalid-target");
+    const bad = targetProblem(room, p, card.defId, target, card);
+    if (bad) return { ok: false, error: bad };
+  }
+
+  p.equipment.splice(idx, 1);
+  pushToDiscard(room, card);
+  pushLog(room, { kind: "play", a: p.name, card: card.name, b: target?.name });
+  if (target && target.id !== p.id) {
+    notify(room, target, { kind: "play", a: p.name, card: card.name, b: target.name });
+  }
+
+  const res = greenEffect(room, p, card, target);
+  if (res.ok && def.drawOnUse) {
+    drawInto(room, p.hand, def.drawOnUse);
+    pushLog(room, { kind: "draw", a: p.name, n: def.drawOnUse });
+  }
+  return res;
+}
+
+// Hiệu ứng của từng lá green kích-hoạt-trong-lượt. Lá đã rời bàn trước khi vào đây, nên
+// mọi kiểm tra phải xong từ useEquip.
+function greenEffect(room: Room, p: Player, card: Card, target?: Player): Result {
+  switch (card.defId) {
+    case "canteen":
+      healPlayer(room, p, 1);
+      pushLog(room, { kind: "heal", a: p.name, n: 1 });
+      return { ok: true };
+    case "pony-express":
+      drawInto(room, p.hand, 3);
+      pushLog(room, { kind: "draw", a: p.name, n: 3 });
+      return { ok: true };
+    // Bốn lá bắn một người. Dùng lại openBangAt nguyên vẹn — Barrel, Mancato!, Slab the
+    // Killer đều áp dụng — và không tăng bangsThisTurn, đó là Rule 5.
+    case "buffalo-rifle":
+    case "derringer":
+    case "knife":
+    case "pepperbox":
+      openBangAt(room, p, target!);
+      return { ok: true };
+    case "howitzer":
+      openMulti(room, p, "gatling", card.name);
+      return { ok: true };
+    case "can-can":
+      return openTaken(room, p, target!, "toss", card.name) ? { ok: true } : err("target-has-no-cards");
+    case "conestoga":
+      return openTaken(room, p, target!, "take", card.name) ? { ok: true } : err("target-has-no-cards");
+  }
+  return err("card-not-implemented");
 }
 
 // Mọi năng lực phải bấm nút đi qua đúng cửa này. Một cửa chứ không phải bốn: nó là điểm

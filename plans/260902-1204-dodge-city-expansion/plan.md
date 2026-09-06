@@ -31,7 +31,7 @@ Thêm bộ mở rộng chính thức **Dodge City** (DvGiochi, 2004): 15 nhân v
 | 02 | [Bàn 8 người](phase-02-eight-player-table.md) | `MAX_PLAYERS=8`, `ROLE_SETUP[8]`, hình học ghế 3D, màu áo thứ 8 | 🟡 còn ảnh |
 | 03 | [11 nhân vật rẻ + 3 nút năng lực](phase-03-characters-data-driven.md) | 8 field mới trên `CharacterEffect`, 3 ability action theo khuôn Sid Ketchum | 🟡 còn ảnh |
 | 04 | [Brown mới](phase-04-new-brown-cards.md) | `costDiscard` (Whisky/Tequila/Brawl/Rag Time/Springfield) + Punch + Dodge | 🟡 chưa xem mắt |
-| 05 | [Green](phase-05-green-cards.md) | `CardKind` thứ 4, cờ sẵn sàng, action kích hoạt, 4 lá Missed! ngoài lượt, bot, 3D | ⬜ |
+| 05 | [Green](phase-05-green-cards.md) | `CardKind` thứ 4, cờ sẵn sàng, action kích hoạt, 4 lá Missed! ngoài lượt, bot, 3D | 🟡 chưa xem mắt |
 | 06 | [4 nhân vật khó](phase-06-hard-characters.md) | Pat Brennan, Molly Stark, Belle Star, Vera Custer | ⬜ |
 
 ## Phụ thuộc
@@ -67,5 +67,5 @@ Sau phase 01 và 05: chạy lại `scripts/sim-events.ts`, `sim-missions.ts`, `s
 để đo lại cửa Draw! và nhịp nhiệm vụ trên nọc dày hơn.
 
 **Nọc lớn dần theo lát, đừng nhầm với đích:** 80 (gốc) → 98 (phase 01) → 106 (phase 04)
-→ 120 (phase 05). Test giữ hằng số `DC_CARDS_SO_FAR` trong `lib/__tests__/deckSets.test.ts`
+→ 120 (phase 05, ĐÃ ĐỦ). Test giữ hằng số `DC_CARDS_SO_FAR` trong `lib/__tests__/deckSets.test.ts`
 làm dây bẫy — phase 04 và 05 phải nâng nó, nếu không test đỏ.

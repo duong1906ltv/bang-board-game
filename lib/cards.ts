@@ -42,7 +42,10 @@ export function rankLabel(rank: number): string {
 //  - brown: played for a one-shot effect, then discarded
 //  - blue : played face-up in front of a player, stays in play
 //  - gun  : a blue card occupying the single weapon slot (sets base range)
-export type CardKind = "brown" | "blue" | "gun";
+//  - green: đặt trước mặt như blue, nhưng KHÔNG dùng được trong chính lượt vừa đánh ra;
+//           lượt sau kích hoạt MỘT lần rồi bỏ. Blue nằm mãi và tự phát huy; green nằm
+//           chờ một lần rồi biến mất.
+export type CardKind = "brown" | "blue" | "gun" | "green";
 
 // Who a card may be aimed at. Data, not code: the engine validates plays against
 // this AND publishes the resolved list of legal target ids in the view, so the UI
@@ -83,6 +86,13 @@ export interface CardDef {
   // Lá này dùng thay cho lá nào. Data chứ không phải một nhánh `if (defId === "dodge")`
   // trong engine — Dodge mang ký hiệu Mancato! và bộ mở rộng sau còn thêm nữa.
   countsAs?: string;
+  // Green dùng trong lượt mình (kích hoạt như một lá bài), hay dùng ngoài lượt (nó mang
+  // ký hiệu Mancato! và trả lời một cửa phản ứng). Hai nhóm đi hai đường hoàn toàn khác
+  // nhau trong engine, và quên nhóm thứ hai là chỗ dễ sót nhất của cả bộ mở rộng.
+  greenUse?: "turn" | "reaction";
+  // Rút thêm bao nhiêu lá SAU khi lá này đã phát huy tác dụng. Data chứ không phải một
+  // nhánh `if (defId === "dodge")`: Dodge, Bible và Derringer đều rút, ở ba đường khác nhau.
+  drawOnUse?: number;
   // Số lá PHẢI bỏ thêm khỏi tay để đánh được lá này. Năm lá Dodge City mở đầu bằng đúng
   // câu "bỏ thêm 1 lá trên tay", nên nó là một cơ chế chứ không phải năm hiệu ứng.
   costDiscard?: number;
@@ -180,6 +190,7 @@ export const CARD_DEFS: CardDef[] = [
   { id: "dodge", it: "Schivata", name: "Dodge", kind: "brown",
     sets: { dodgeCity: { count: 2, spec: "7D KH" } },
     countsAs: "missed",
+    drawOnUse: 1,
     effect: "Tính như một lá Mancato!, rồi rút 1 lá.",
     notes: ["Rút SAU khi đã tính là Mancato!."] },
   { id: "whisky", it: "Whisky", name: "Whisky", kind: "brown",
@@ -210,6 +221,88 @@ export const CARD_DEFS: CardDef[] = [
     effect: "Bỏ thêm 1 lá trên tay, rồi bắn Bang! vào một người chơi bất kỳ.",
     target: { shoots: true },
     notes: ["Rule 5: không tiêu hạn mức Bang!/lượt.", "Mọi khoảng cách. Barrel và Mancato! vẫn chống được."] },
+
+  // ── Dodge City, bài green ──
+  // Đặt trước mặt, lượt sau mới kích hoạt được, dùng xong bỏ. Rule 4 nằm trên tất cả.
+  { id: "buffalo-rifle", it: "Fucile da Caccia", name: "Buffalo Rifle", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "QC" } },
+    greenUse: "turn",
+    effect: "Bắn Bang! vào một người bất kỳ, mọi khoảng cách.",
+    target: { shoots: true },
+    notes: ["Rule 4 + Rule 5: không tiêu hạn mức Bang!/lượt."] },
+  { id: "can-can", it: "Can Can", name: "Can Can", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "JC" } },
+    greenUse: "turn",
+    effect: "Buộc một người bất kỳ bỏ 1 lá, mọi khoảng cách.",
+    target: { self: true, needsCards: true },
+    notes: ["Rule 4"] },
+  { id: "canteen", it: "Borraccia", name: "Canteen", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "7H" } },
+    greenUse: "turn",
+    effect: "Hồi 1 máu.",
+    notes: ["Rule 3 + Rule 4"] },
+  { id: "conestoga", it: "Conestoga", name: "Conestoga", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "9D" } },
+    greenUse: "turn",
+    effect: "Lấy 1 lá của một người bất kỳ, mọi khoảng cách.",
+    target: { self: true, needsCards: true },
+    notes: ["Rule 4"] },
+  { id: "derringer", it: "Derringer", name: "Derringer", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "7S" } },
+    greenUse: "turn",
+    drawOnUse: 1,
+    effect: "Bắn Bang! vào người ở khoảng cách 1, rồi rút 1 lá.",
+    target: { maxDistance: 1, shoots: true },
+    notes: ["Rule 4 + Rule 5"] },
+  { id: "howitzer", it: "Howitzer", name: "Howitzer", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "9S" } },
+    greenUse: "turn",
+    effect: "Bắn Bang! vào TẤT CẢ người chơi khác.",
+    notes: ["Rule 4 + Rule 5. Giống hệt Gatling."] },
+  { id: "knife", it: "Pugnale", name: "Knife", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "8H" } },
+    greenUse: "turn",
+    effect: "Bắn Bang! vào người ở khoảng cách 1.",
+    target: { maxDistance: 1, shoots: true },
+    notes: ["Rule 4 + Rule 5"] },
+  { id: "pepperbox", it: "Pepperbox", name: "Pepperbox", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "AH" } },
+    greenUse: "turn",
+    effect: "Bắn Bang! trong tầm súng BÌNH THƯỜNG của bạn.",
+    target: { maxDistance: "range", shoots: true },
+    notes: ["Rule 4 + Rule 5.", "KHÔNG phải vô hạn tầm — giá trị nằm ở chỗ nó không tốn lá Bang! trên tay."] },
+  { id: "pony-express", it: "Pony Express", name: "Pony Express", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "QD" } },
+    greenUse: "turn",
+    effect: "Rút 3 lá.",
+    notes: ["Rule 4"] },
+
+  // Bốn lá mang ký hiệu Mancato!: dùng NGOÀI lượt, từ trên bàn.
+  { id: "bible", it: "Bibbia", name: "Bible", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "10H" } },
+    greenUse: "reaction",
+    countsAs: "missed",
+    drawOnUse: 1,
+    effect: "Tính như một lá Mancato!, rồi rút 1 lá.",
+    notes: ["Rule 4"] },
+  { id: "iron-plate", it: "Placca di Ferro", name: "Iron Plate", kind: "green",
+    sets: { dodgeCity: { count: 2, spec: "AD QS" } },
+    greenUse: "reaction",
+    countsAs: "missed",
+    effect: "Tính như một lá Mancato!.",
+    notes: ["Rule 2 + Rule 4"] },
+  { id: "sombrero", it: "Sombrero", name: "Sombrero", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "7C" } },
+    greenUse: "reaction",
+    countsAs: "missed",
+    effect: "Tính như một lá Mancato!.",
+    notes: ["Rule 4"] },
+  { id: "ten-gallon-hat", it: "Cappello a 10 Galloni", name: "Ten Gallon Hat", kind: "green",
+    sets: { dodgeCity: { count: 1, spec: "JD" } },
+    greenUse: "reaction",
+    countsAs: "missed",
+    effect: "Tính như một lá Mancato!.",
+    notes: ["Rule 4"] },
 
   { id: "mustang", it: "Mustang", name: "Mustang", kind: "blue",
     sets: {
@@ -366,6 +459,12 @@ export interface Card {
   // order to pay out the Outlaw bounty. Held on the card instance rather than on the
   // room, so discarding it and playing it again re-attributes correctly.
   playedBy?: string;
+  // Green: số thứ tự lượt lúc lá được đặt xuống. Dùng được khi room.turnCounter đã đi
+  // QUA số này — đó là toàn bộ luật "không dùng được trong chính lượt vừa đánh ra".
+  //
+  // Nằm trên INSTANCE chứ không trên người chơi, cùng lý do với playedBy: lá bị cướp rồi
+  // người khác đánh lại phải đếm lại từ đầu, và một cờ trên người chơi thì không.
+  playedOnTurn?: number;
 }
 
 function setsInPlay(sets?: DeckSets): GameSet[] {

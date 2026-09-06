@@ -18,7 +18,7 @@ import { Player, Room } from "./state";
 // Grouped so the noHeal event effect can suppress them together.
 // Lá nào bị sự kiện "cấm hồi máu" chặn. Whisky và Tequila vào đây cùng lý do với Beer —
 // cấm hồi máu mà quên chúng thì sự kiện chỉ cấm được một nửa số đường hồi máu trên bàn.
-export const HEAL_DEF_IDS = ["beer", "saloon", "whisky", "tequila"];
+export const HEAL_DEF_IDS = ["beer", "saloon", "whisky", "tequila", "canteen"];
 
 // Read from the card's TargetRule. Both the play handlers and viewFor come through here.
 export function targetProblem(
@@ -168,7 +168,13 @@ export function canUseAs(player: Player, card: Card, asDefId: string): boolean {
   // Dodge mang ký hiệu Mancato!. MỘT chiều: Dodge đỡ được Bang!, nhưng Mancato! không
   // biến thành Dodge (nó sẽ không rút thêm lá nào). Calamity Janet cũng không bắn Dodge
   // thành Bang! được — năng lực của cô ấy nói đích danh hai LÁ Bang! và Mancato!.
-  if (CARD_DEF_BY_ID[card.defId]?.countsAs === asDefId) return true;
+  //
+  // GREEN thì không: Bible và Iron Plate cũng mang ký hiệu Mancato!, nhưng chúng chỉ đỡ
+  // được TỪ TRÊN BÀN, và phải nằm đó từ lượt trước. Trên tay chúng mới chỉ là lá chờ được
+  // đặt xuống. Bỏ điều kiện này ra là bot đỡ luôn bằng Bible trên tay, bỏ qua cả cái giá
+  // một lượt chờ vốn là toàn bộ thiết kế của loại bài này. reactionOnTable xét riêng.
+  const def = CARD_DEF_BY_ID[card.defId];
+  if (def?.countsAs === asDefId && def.kind !== "green") return true;
   const ch = charEffect(player);
   // Elena Fuente, và chỉ theo MỘT chiều: mọi lá đỡ được Bang!, nhưng không lá nào biến
   // thành Bang!. Duel đòi Bang! thật, nên nó không lọt qua đây.
@@ -222,6 +228,53 @@ export function abilityProblem(room: Room, p: Player, kind: AbilityKind): GameEr
     return blue ? null : { code: "need-a-blue-card" };
   }
   return kind satisfies never;
+}
+
+// Kích hoạt được lá green này ngay bây giờ không. Cùng khuôn abilityProblem và cùng lý do:
+// view dựng nút từ đây, engine nhận lệnh cũng qua đây.
+export function greenProblem(room: Room, p: Player, cardId: string): GameError | null {
+  const card = p.equipment.find((c) => c.id === cardId);
+  if (!card) return { code: "card-not-in-hand" };
+  const def = CARD_DEF_BY_ID[card.defId];
+  if (def?.kind !== "green") return { code: "invalid-card" };
+  // Nhóm "reaction" (Bible, Iron Plate, Sombrero, Ten Gallon Hat) không kích hoạt chủ
+  // động — chúng trả lời một cửa phản ứng, và đi qua respond().
+  if (def.greenUse !== "turn") return { code: "invalid-card" };
+  if (!isGreenReady(room, card)) return { code: "green-not-ready" };
+  if (room.pending) return { code: "waiting-for-reaction" };
+  if (room.players[room.turnIndex]?.id !== p.id) return { code: "not-your-turn" };
+  if (room.turnPhase !== "play") return { code: "not-your-turn" };
+  if (room.jailedTurn) return { code: "jailed-discard-only" };
+
+  // KHÔNG đọc bannedKinds ở đây, có chủ ý: tied-hands cấm ĐẶT một lá xuống trước mặt, còn
+  // lá đã nằm sẵn trên bàn thì vẫn dùng được — y như một cái Barrel đã bày ra vẫn nổ.
+  // Việc đặt xuống đi qua playBlock và đã bị chặn ở đó.
+  const eff = activeEffect(room);
+  if (eff.bannedDefIds?.includes(card.defId)) return { code: "event-bans-card", s: def.name };
+  // Sự kiện cấm Bang! cấm cả năm lá green có hiệu ứng Bang! — chúng vẫn là Bang!. Nhưng
+  // hạn mức Bang!/lượt thì KHÔNG áp: Rule 5.
+  if (eff.noBang && def.target?.shoots) return { code: "event-bans-bang" };
+  if (eff.noBang && card.defId === "howitzer") return { code: "event-bans-bang" };
+  if (HEAL_DEF_IDS.includes(card.defId) && eff.noHeal) return { code: "event-forbids-heal" };
+  if (card.defId === "canteen" && p.hp >= p.maxHp) return { code: "hp-full" };
+  if (def.target && legalTargetIds(room, p, card.defId, card).length === 0) {
+    return { code: "invalid-target" };
+  }
+  return null;
+}
+
+// "Không dùng được trong chính lượt vừa đánh ra." room.turnCounter chỉ tăng, nên "đã đi
+// qua lượt đó" là toàn bộ luật — đúng cho cả nhóm kích hoạt trong lượt lẫn nhóm phản ứng
+// ngoài lượt, mà không cần biết lượt của ai.
+export function isGreenReady(room: Room, card: Card): boolean {
+  return card.playedOnTurn == null || room.turnCounter > card.playedOnTurn;
+}
+
+// Lá green trên bàn có trả lời được cửa phản ứng `asDefId` không. Tách khỏi canUseAs vì
+// nó hỏi thêm hai điều canUseAs không biết: lá đang nằm ở đâu, và đã chín chưa.
+export function reactionOnTable(room: Room, card: Card, asDefId: string): boolean {
+  const def = CARD_DEF_BY_ID[card.defId];
+  return def?.greenUse === "reaction" && def.countsAs === asDefId && isGreenReady(room, card);
 }
 
 export function isBlueBordered(c: Card): boolean {

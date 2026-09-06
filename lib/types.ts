@@ -363,6 +363,10 @@ export interface PlayerView {
     // quyết cả hai (abilityProblem trong rules.ts) để client không có cuốn luật thứ hai.
     abilities: AbilityKind[];
     abilityTargets: string[];
+    // Lá green trước mặt bạn kích hoạt được NGAY BÂY GIỜ, và mục tiêu hợp lệ của từng lá.
+    // Server quyết cả hai (greenProblem trong rules.ts).
+    usableGreenIds: string[];
+    greenTargets: Record<string, string[]>;
     legalDrawTargets: string[]; // players whose hand your draw phase may take from
     handLimit: number; // cards you may keep at end of turn (= hp, ± events)
     inbox: LogEntry[]; // what others did to you since your turn last ended
@@ -378,6 +382,9 @@ export interface PlayerView {
   };
   players: PlayerPublic[];
   turnSeat: number | null;
+  // Số lượt đã bắt đầu. Client cần nó để làm mờ lá green vừa đặt xuống trong chính lượt
+  // này — chuyện hiển thị, còn quyền bấm thì vẫn do server nói qua usableGreenIds.
+  turnCounter: number;
   roleSetup: { role: Role; count: number }[];
   draft: DraftView | null; // present only during the drafting phase
   pending: PendingView | null; // an unresolved reaction locking the table
@@ -485,6 +492,8 @@ export interface ClientToServerEvents {
   drawCards: (data: { code: string; source?: "deck" | "discard" | "player"; targetId?: string }) => void; // draw phase
   // Mọi năng lực bấm nút đi chung một sự kiện; `kind` nói là năng lực nào.
   useAbility: (data: { code: string; kind: AbilityKind; cardIds?: string[]; targetId?: string }) => void;
+  // Kích hoạt một lá green đang nằm trước mặt bạn.
+  useEquip: (data: { code: string; cardId: string; targetId?: string }) => void;
   // payCardIds: lá phải bỏ thêm để trả giá (Whisky/Tequila/Brawl/Rag Time/Springfield).
   playCard: (data: { code: string; cardId: string; targetId?: string; targetCardId?: string; payCardIds?: string[] }) => void;
   respond: (data: { code: string; type: PendingAction; cardId?: string }) => void; // reply to a pending

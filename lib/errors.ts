@@ -38,6 +38,7 @@ export type ErrorCode =
   | "pay-cards-invalid"
   | "ability-unavailable"
   | "ability-used-up"
+  | "green-not-ready"
   | "need-a-blue-card"
   | "event-forbids-heal"
   | "ghost-cannot-heal"

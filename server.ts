@@ -288,6 +288,12 @@ app.prepare().then(() => {
       if (pid && game.drawCards(code, pid, source, targetId)) broadcast(code);
     });
 
+    socket.on("useEquip", ({ code, cardId, targetId }) => {
+      const pid = playerIdOf(code, socket.id);
+      if (!pid) return;
+      applyResult(code, game.useEquip(code, pid, cardId, targetId));
+    });
+
     socket.on("useAbility", ({ code, kind, cardIds, targetId }) => {
       const pid = playerIdOf(code, socket.id);
       if (!pid) return;

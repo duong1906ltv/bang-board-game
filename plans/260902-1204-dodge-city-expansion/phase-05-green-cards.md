@@ -4,7 +4,7 @@
 
 ## Tổng quan
 
-**Ưu tiên:** trung bình · **Trạng thái:** ⬜ chưa làm · **Phụ thuộc:** phase 01, phase 04
+**Ưu tiên:** trung bình · **Trạng thái:** 🟡 xong engine + bot + 3D, chưa xem mắt · **Phụ thuộc:** phase 01, phase 04
 
 Phần đắt nhất của bộ mở rộng: 14 lá, 13 loại, một `CardKind` hoàn toàn mới. Chiếm 35%
 số lá nhưng khoảng 60% công.

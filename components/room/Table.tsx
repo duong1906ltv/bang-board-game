@@ -9,6 +9,7 @@ import { useDisplayPrefs } from "./useDisplayPrefs";
 import { useTableFeedback } from "./useTableFeedback";
 import { L, useLocale, roleLabel, tError } from "@/lib/i18n";
 import { AbilityBar, ABILITY_SPEC } from "./AbilityBar";
+import { GreenCardBar } from "./GreenCardBar";
 import { Briefing } from "./Briefing";
 import { CardModal } from "./CardModal";
 import { CharacterFace } from "./CharacterFace";
@@ -36,6 +37,7 @@ export function Table({
   onRespond,
   onDiscard,
   onUseAbility,
+  onUseEquip,
   onEndTurn,
   onSurrender,
   onRestart,
@@ -51,6 +53,7 @@ export function Table({
   onRespond: (type: PendingAction, cardId?: string) => void;
   onDiscard: (cardId: string) => void;
   onUseAbility: (kind: AbilityKind, cardIds: string[], targetId?: string) => void;
+  onUseEquip: (cardId: string, targetId?: string) => void;
   onEndTurn: () => void;
   onSurrender: () => void;
   onRestart: () => void;
@@ -77,6 +80,7 @@ export function Table({
     defId: string;
     ability?: { kind: AbilityKind; cardIds: string[] };
     pay?: string[];
+    green?: boolean; // lá đi từ trước mặt bạn, không phải từ tay
   } | null>(null);
   // Lá đang chờ bạn xác nhận đánh. Cùng họ với `aiming` ở trên, và cố ý nằm ngay cạnh nó:
   // cả hai là "một nhát tap đã mở một nước đi nhưng nước đó CHƯA xảy ra", và giữa chúng là
@@ -94,6 +98,9 @@ export function Table({
   // Lá đang chờ bạn chọn đủ lá trả giá cho nó (Whisky/Tequila/Brawl/Rag Time/Springfield).
   // Trả giá TRƯỚC khi ngắm, vì trả giá có thể làm số lá còn lại đổi.
   const [paying, setPaying] = useState<{ card: Card; pick: string[] } | null>(null);
+  // Lá green đang chờ bạn chọn mục tiêu cho nó. Chỉ dùng cho lá CÓ mục tiêu — lá không
+  // cần ngắm thì bấm là chạy luôn.
+  const [greenAim, setGreenAim] = useState<string | null>(null);
   // Hai chế độ bỏ bài, không phải một cờ. "forced" là bước bắt buộc trước khi hết lượt —
   // đúng số lá vượt giới hạn, rồi lượt tự kết thúc. "free" là bỏ CHỦ ĐỘNG, bao nhiêu lá cũng
   // được, và không kết thúc lượt.
@@ -139,7 +146,7 @@ export function Table({
       if (e.key !== "Escape") return;
       setInfoCard(null); setCharView(null); setPlayerInfo(null); closeBriefing(); dismissEvents();
       setConfirmSurrender(false); setDiscarding(false);
-      setAiming(null); setAbility(null); setPaying(null); setConfirmPlay(null);
+      setAiming(null); setAbility(null); setPaying(null); setGreenAim(null); setConfirmPlay(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -326,14 +333,18 @@ export function Table({
     // tiêu riêng do server dựng — legalTargets khoá theo lá thì không có chỗ cho nó.
     const ids = aiming.ability
       ? you.abilityTargets
+      : aiming.green
+      ? you.greenTargets[aiming.id]
       : you.legalTargets[aiming.id] ?? you.legalTargets[aiming.defId];
     return !!ids?.includes(p.id);
   };
   const fireAt = (targetId: string, targetCardId?: string) => {
     if (!aiming) return;
     if (aiming.ability) onUseAbility(aiming.ability.kind, aiming.ability.cardIds, targetId);
+    else if (aiming.green) onUseEquip(aiming.id, targetId);
     else onPlay(aiming.id, targetId, targetCardId, aiming.pay);
     setAiming(null);
+    setGreenAim(null);
   };
   // Cat Balou / Panic! may hit a specific face-up card on the table.
   const pickCardMode = aiming?.defId === "cat-balou" || aiming?.defId === "panic";
@@ -686,6 +697,27 @@ export function Table({
           )}
         </div>
       )}
+
+      <GreenCardBar
+        view={view}
+        active={greenAim}
+        onPress={(cardId) => {
+          const c = you.equipment.find((x) => x.id === cardId);
+          if (!c) return;
+          setAbility(null);
+          setPaying(null);
+          setDiscarding(false);
+          if (greenAim === cardId) {
+            setGreenAim(null);
+            return setAiming(null);
+          }
+          // Lá có mục tiêu thì ngắm trước; lá không có thì chạy luôn.
+          if (CARD_DEF_BY_ID[c.defId]?.target) {
+            setGreenAim(cardId);
+            setAiming({ id: cardId, defId: c.defId, green: true });
+          } else onUseEquip(cardId);
+        }}
+      />
 
       <AbilityBar
         view={view}

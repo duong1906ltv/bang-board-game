@@ -289,6 +289,7 @@ export function YourAvatar({
   reach,
   onInspect,
   models,
+  turnCounter,
 }: {
   // Read off view.you, not the players array: the array hides roles from everyone,
   // including from you, so your own sheriff star would never light up.
@@ -297,6 +298,8 @@ export function YourAvatar({
   count: number;
   ring: number;
   felt: number;
+  // Số lượt đã bắt đầu — hàng trang bị cần nó để làm dấu lá green chưa dùng được.
+  turnCounter?: number;
   shot?: Gunfire | null;
   aiming?: boolean;
   reach?: ReachMotion | null;
@@ -332,7 +335,7 @@ export function YourAvatar({
           thứ hai của cùng thông tin, ở cỡ khác, chỉ làm che bàn. Đối thủ vẫn có biển,
           vì với họ đó là bản DUY NHẤT. */}
       {plaque?.isTurn && <TurnMarker position={[x, markY(), z]} />}
-      <FeltCards cards={you.equipment} ang={YOUR_SEAT_ANG} radius={equipRadius(ring)} onInspect={onInspect} color={color} />
+      <FeltCards cards={you.equipment} ang={YOUR_SEAT_ANG} radius={equipRadius(ring)} onInspect={onInspect} color={color} turnCounter={turnCounter} />
       <FeltGun equipment={you.equipment} x={x} z={z} face={faceCentre(YOUR_SEAT_ANG)} models={models} />
       {/* Quạt bài úp cho ghế của CHÍNH BẠN, cùng khung với mọi đối thủ: ở VÀNH NỈ (ring), không
           phải ở ghế (seatR — chỗ đó nằm ngoài mặt nỉ), quay -ang - π/2.
@@ -389,9 +392,11 @@ export function Opponents({
   stealIds,
   onSteal,
   models,
+  turnCounter,
 }: {
   players: PlayerPublic[];
   youSeat: number;
+  turnCounter?: number;
   ring: number;
   felt: number;
   arc: number;
@@ -418,6 +423,7 @@ export function Opponents({
     <>
       {others.map((p, i) => (
         <Seat
+          turnCounter={turnCounter}
           key={p.id}
           p={p}
           // Spread across the far arc (centered straight ahead, away from the camera).
@@ -454,9 +460,11 @@ function Seat({
   stealable,
   onSteal,
   models,
+  turnCounter,
 }: {
   p: PlayerPublic;
   ang: number;
+  turnCounter?: number;
   color: string;
   ring: number;
   seatR: number;
@@ -523,7 +531,7 @@ function Seat({
       )}
       <Nameplate p={p} position={[ax, PLATE_Y, az]} onClick={onInspectPlayer ? () => onInspectPlayer(p) : undefined} />
       {p.isTurn && (p.alive || p.ghost) && <TurnMarker position={[ax, markY(), az]} />}
-      <FeltCards cards={p.equipment} ang={ang} radius={equipRadius(ring)} onInspect={onInspect} color={color} pickable={!!pickCardMode && targetable} onPickCard={(cid) => onPickCard?.(p.id, cid)} />
+      <FeltCards cards={p.equipment} ang={ang} radius={equipRadius(ring)} onInspect={onInspect} color={color} pickable={!!pickCardMode && targetable} onPickCard={(cid) => onPickCard?.(p.id, cid)} turnCounter={turnCounter} />
       {/* Gated on the seat still being occupied: killPlayer sends a corpse's equipment to
           the discard, so heldGun would fall back to the free Colt .45 and stand a gun up at
           an empty chair. FeltCards above needs no such guard — an empty array draws nothing. */}

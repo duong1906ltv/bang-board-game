@@ -31,12 +31,17 @@ function swappedFor(p: Player, defId: string): string | null {
 // đây: Calamity Janet đổi Bang!/Mancato!, Dodge mang ký hiệu Mancato!, Elena Fuente đỡ
 // bằng lá bất kỳ. Bản cũ tự dựng lại luật từ `swappedFor` nên chỉ biết luật đầu tiên, và
 // hai luật kia thành tính năng chết: bot cầm Dodge suốt ván mà không bao giờ đỡ bằng nó.
-function usableAs(p: Player, defId: "bang" | "missed"): Card[] {
-  return p.hand.filter((c) => game.canUseAs(p, c, defId));
+function usableAs(room: Room, p: Player, defId: "bang" | "missed"): Card[] {
+  // Cả tay LẪN bàn: bốn lá green mang ký hiệu Mancato! nằm trong equipment. Chỉ nhìn tay
+  // là bot ôm một cái Iron Plate trước mặt mà vẫn chịu đòn.
+  return [
+    ...p.hand.filter((c) => game.canUseAs(p, c, defId)),
+    ...p.equipment.filter((c) => game.reactionOnTable(room, c, defId)),
+  ];
 }
 
-function countUsableAs(p: Player, defId: "bang" | "missed"): number {
-  return usableAs(p, defId).length;
+function countUsableAs(room: Room, p: Player, defId: "bang" | "missed"): number {
+  return usableAs(room, p, defId).length;
 }
 
 // Lá NÊN dùng, không chỉ lá dùng được. Hai chế độ, vì hai luật cho ra hai kiểu lựa chọn:
@@ -46,8 +51,8 @@ function countUsableAs(p: Player, defId: "bang" | "missed"): number {
 //    không mất gì.
 //  - Không có lá nào → Elena Fuente, đỡ bằng lá bất kỳ. Lúc này đốt lá RẺ nhất, chứ đốt
 //    lá Bang! để né một phát Bang! thì lỗ.
-function findUsableAs(p: Player, defId: "bang" | "missed"): Card | undefined {
-  const all = usableAs(p, defId);
+function findUsableAs(room: Room, p: Player, defId: "bang" | "missed"): Card | undefined {
+  const all = usableAs(room, p, defId);
   if (all.length === 0) return undefined;
   const alt = swappedFor(p, defId);
   const native = all.filter(
@@ -98,6 +103,11 @@ function pickPriority(c: Card): number {
     // Dodge City. Dodge trên Missed! vì nó đỡ xong còn rút lại 1 lá — giữ nó, bỏ lá khác.
     dodge: 8, springfield: 6, whisky: 5, "rag-time": 5, punch: 4, brawl: 4, tequila: 3,
     binocular: 3, hideout: 3,
+    // Green: đắt hơn lá nâu tương đương vì đánh ra không tốn lượt bài của lượt sau, nhưng
+    // rẻ hơn Bang! vì phải chờ một lượt mới dùng được.
+    "buffalo-rifle": 6, howitzer: 6, pepperbox: 6, "pony-express": 6, conestoga: 5,
+    bible: 5, "iron-plate": 5, sombrero: 5, "ten-gallon-hat": 5,
+    derringer: 4, knife: 4, "can-can": 4, canteen: 3,
   };
   return v[c.defId] ?? 2;
 }
@@ -155,8 +165,8 @@ function pendingAction(room: Room): (() => boolean) | null {
     // Only dodge if it can complete the full count (2 vs Slab the Killer);
     // otherwise pass rather than waste a Missed! it can't finish with.
     const remaining = p.missedNeeded - p.missedPlayed;
-    const usable = countUsableAs(me, "missed");
-    const missed = findUsableAs(me, "missed");
+    const usable = countUsableAs(room, me, "missed");
+    const missed = findUsableAs(room, me, "missed");
     if (missed && usable >= remaining) return () => ok(game.respond(code, me.id, "missed", missed.id));
     return () => ok(game.respond(code, me.id, "pass"));
   }
@@ -174,12 +184,12 @@ function pendingAction(room: Room): (() => boolean) | null {
     const me = player(room, r.id);
     if (!me?.isBot) return null;
     const need = p.effect === "indians" ? "bang" : "missed";
-    return respondOrPass(me, need, findUsableAs(me, need));
+    return respondOrPass(me, need, findUsableAs(room, me, need));
   }
   if (p.kind === "duel") {
     const me = player(room, p.turnId);
     if (!me?.isBot) return null;
-    return respondOrPass(me, "bang", findUsableAs(me, "bang"));
+    return respondOrPass(me, "bang", findUsableAs(room, me, "bang"));
   }
   // Brawl: mỗi người tự bỏ 1 lá. Không có nhánh này thì cửa không bao giờ đóng và bàn
   // treo — cùng lý do với nhánh "taken" ngay dưới.
@@ -265,6 +275,20 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   const worstCards = (n: number) =>
     [...me.hand].sort((a, b) => pickPriority(a) - pickPriority(b)).slice(0, n).map((c) => c.id);
 
+  // 0. Green đã chín trước mặt: dùng nó trước mọi thứ khác. Nó đã trả tiền rồi — lá nằm
+  // trên bàn từ lượt trước — nên bất kỳ lá nào trên tay cũng đắt hơn.
+  const green = me.equipment.find((c) => game.greenProblem(room, me, c.id) === null);
+  if (green) {
+    const def = CARD_DEF_BY_ID[green.defId];
+    if (!def?.target) return () => game.useEquip(code, me.id, green.id).ok;
+    const t = nearestShootable(room, me, green.defId, green);
+    // Lá không bắn (Can Can, Conestoga) ngắm ai cũng được — lấy mục tiêu hợp lệ đầu tiên
+    // là kẻ địch, và danh sách hợp lệ do engine trả.
+    const ids = game.legalTargetIds(room, me, green.defId, green);
+    const victim = t ?? room.players.find((x) => ids.includes(x.id) && x.id !== me.id && isEnemy(me, x));
+    if (victim) return () => game.useEquip(code, me.id, green.id, victim.id).ok;
+  }
+
   // 1. Equip a better gun.
   const gun = me.hand
     .filter((c) => CARD_DEF_BY_ID[c.defId]?.kind === "gun")
@@ -277,6 +301,14 @@ function turnAction(room: Room, me: Player): (() => boolean) | null {
   for (const defId of ["barrel", "scope", "mustang", "binocular", "hideout"]) {
     const c = usable(defId);
     if (c && !me.equipment.some((e) => e.defId === defId)) return play(c);
+  }
+
+  // 2b. Đặt lá green xuống bàn. Không có bước này thì cả 13 lá green nằm chết trên tay
+  // bot cả ván: chúng không dùng được từ tay, phải đặt xuống rồi chờ một lượt. Giữ lại
+  // vài lá để còn chơi trong chính lượt này.
+  if (me.hand.length >= 3) {
+    const green = me.hand.find((c) => CARD_DEF_BY_ID[c.defId]?.kind === "green");
+    if (ok(green)) return play(green);
   }
 
   // 3. Heal if hurt. A ghost is at 0 hp and can never be topped up, so it reads as the

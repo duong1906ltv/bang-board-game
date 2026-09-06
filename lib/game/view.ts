@@ -8,6 +8,7 @@ import {
   Role,
   ALL_ABILITY_KINDS,
 } from "../types";
+import { CARD_DEF_BY_ID } from "../cards";
 import { MISSION_BY_ID } from "../missions";
 import { charEffect } from "./deck";
 import { toEventView } from "./events-read";
@@ -15,6 +16,8 @@ import { distanceBetween, rangeOf } from "./geometry";
 import {
   abilityProblem,
   bangBudget,
+  greenProblem,
+  reactionOnTable,
   blockedDefIdsFor,
   canUseAs,
   handLimitOf,
@@ -109,8 +112,15 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
   const meId = me?.id;
   // canUseAs, not defId: Calamity Janet đổi Bang!/Mancato!, Dodge mang ký hiệu Mancato!,
   // Elena Fuente đỡ bằng lá bất kỳ. Ba luật khác nhau, một câu trả lời.
-  const cardsAnswering = (primary: PendingAction | null): string[] =>
-    !me || !primary ? [] : me.hand.filter((c) => canUseAs(me, c, primary)).map((c) => c.id);
+  // Cả tay LẪN bàn: bốn lá green mang ký hiệu Mancato! nằm trong equipment, và chúng còn
+  // phải "chín" — lá vừa đặt xuống lượt này không đỡ được.
+  const cardsAnswering = (primary: PendingAction | null): string[] => {
+    if (!me || !primary) return [];
+    return [
+      ...me.hand.filter((c) => canUseAs(me, c, primary)),
+      ...me.equipment.filter((c) => reactionOnTable(room, c, primary)),
+    ].map((c) => c.id);
+  };
 
   const responseButtons = (
     waitingOnMe: boolean,
@@ -261,6 +271,9 @@ export function viewFor(room: Room, playerId: string): PlayerView {
   const turnId = turnPlayer?.id ?? null;
   const isMyTurn = !!(me && turnPlayer && turnPlayer.id === me.id);
   const predictReason = predictBlock(room, me);
+  // Không gác sau isMyTurn: greenProblem tự kiểm điều đó, và gác hai lần là hai chỗ có
+  // thể lệch nhau.
+  const usableGreens = me ? me.equipment.filter((c) => greenProblem(room, me, c.id) === null) : [];
 
   return {
     code: room.code,
@@ -296,6 +309,12 @@ export function viewFor(room: Room, playerId: string): PlayerView {
         me && abilityProblem(room, me, "burn-two-to-shoot") === null
           ? legalTargetIds(room, me, "bang")
           : [],
+      usableGreenIds: usableGreens.map((c) => c.id),
+      greenTargets: Object.fromEntries(
+        usableGreens
+          .filter((c) => CARD_DEF_BY_ID[c.defId]?.target)
+          .map((c) => [c.id, legalTargetIds(room, me!, c.defId, c)]),
+      ),
       // Whose hand the draw phase may reach (Jesse Jones' drawMode).
       legalDrawTargets:
         me && charEffect(me).drawMode === "jesse"
@@ -316,6 +335,7 @@ export function viewFor(room: Room, playerId: string): PlayerView {
     },
     players: room.players.map((p, seat) => playerAsSeenBy(p, seat, room, me, turnId)),
     turnSeat: turnPlayer ? room.players.indexOf(turnPlayer) : null,
+    turnCounter: room.turnCounter,
     roleSetup: roleSetupFor(room.players.length),
     draft: room.phase === "drafting" ? draftFor(room, me) : null,
     pending: pendingFor(room, me),

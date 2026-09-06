@@ -20,7 +20,7 @@ export const FELT_CARD_GAP = 0.38;
 // gone: the gun a player owns now waits on the cloth in front of them at full size and
 // is picked up to fire (see restGun in Avatars.tsx), so a second one next to the card
 // was the same weapon twice — and the wrong size of the two.
-export function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string; pickable?: boolean; onPickCard?: (cardId: string) => void }) {
+export function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPickCard, turnCounter }: { cards: Card[]; ang: number; radius: number; onInspect?: (c: Card) => void; color?: string; pickable?: boolean; onPickCard?: (cardId: string) => void; turnCounter?: number }) {
   if (!cards.length) return null;
   const cx = radius * Math.cos(ang);
   const cz = radius * Math.sin(ang);
@@ -32,14 +32,21 @@ export function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPi
       {cards.map((c, i) => {
         const o = (i - (cards.length - 1) / 2) * gap;
         const def = CARD_DEF_BY_ID[c.defId];
+        // Đọc từ catalog thay vì gọi tên lá: Hideout và Binocular là bản in Dodge City của
+        // Mustang và Scope, và bảng gọi-tên cũ bỏ sót chúng nên hai lá đó hiện lên bàn mà
+        // không nói chúng làm gì.
         const suffix =
           def?.kind === "gun" && def.range
             ? `${def.range}`
-            : c.defId === "scope"
-            ? "−1"
-            : c.defId === "mustang"
-            ? "+1"
+            : def?.seesCloserBy
+            ? `−${def.seesCloserBy}`
+            : def?.seenFartherBy
+            ? `+${def.seenFartherBy}`
             : "";
+        // Green: lá vừa đặt xuống trong chính lượt này chưa dùng được. Người chơi không
+        // đoán được điều đó từ mặt lá, nên phải nói ra.
+        const waiting =
+          def?.kind === "green" && c.playedOnTurn != null && turnCounter != null && turnCounter <= c.playedOnTurn;
         return (
           <group key={c.id} position={[o, 0, 0]}>
             <CardMesh card={c} scale={0.46} position={[0, FELT_Y + CARD_LIFT, 0]} rotation={[-Math.PI / 2, 0, 0]} />
@@ -60,7 +67,7 @@ export function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPi
                 CheckFx reveal (which sits at 70–80) instead of poking through it. */}
             <Html center position={[0, 0.14, -0.28]} distanceFactor={9} style={{ pointerEvents: "auto" }} zIndexRange={[45, 30]}>
               <div
-                title={pickable ? "Chọn lá này" : def?.effect}
+                title={pickable ? "Chọn lá này" : waiting ? `${def?.effect} (chờ tới lượt sau)` : def?.effect}
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
                 onClick={() => (pickable && onPickCard ? onPickCard(c.id) : onInspect?.(c))}
@@ -85,6 +92,7 @@ export function FeltCards({ cards, ang, radius, onInspect, color, pickable, onPi
                     the green water-pistol 🔫 emoji and the dark, hard-to-see rifle art. */}
                 {def?.kind === "gun" ? "🎯" : (CARD_FALLBACK_GLYPH[c.defId] ?? "🔵")}
                 {suffix && <span style={{ fontSize: 10, fontWeight: 800, marginLeft: 2 }}>{suffix}</span>}
+                {waiting && <span style={{ fontSize: 10, marginLeft: 2 }} title="Chưa dùng được — chờ lượt sau">⏳</span>}
               </div>
             </Html>
           </group>

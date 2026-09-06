@@ -355,6 +355,7 @@ const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
     "Only from a player at distance 1",
   ],
   "target-has-no-cards": ["Mục tiêu không có bài", "The target has no cards"],
+  "green-not-ready": ["Lá này phải chờ tới lượt sau mới dùng được", "This card cannot be used until your next turn"],
   "ability-used-up": ["Năng lực này đã dùng hết lượt rồi", "That ability is spent for this turn"],
   "need-a-blue-card": ["Cần một lá xanh trên tay", "Needs a blue card in hand"],
   "immune-suit": ["Người này miễn nhiễm với chất bài đó", "This player is immune to that suit"],

@@ -57,7 +57,13 @@ export interface MissionRoom {
 // Hideout là bản in Dodge City của Mustang, cùng hiệu ứng đẩy xa khoảng cách — nó là lớp che
 // thật nên phải vào đây. Binocular thì KHÔNG: nó rút ngắn khoảng cách bạn NHÌN người khác,
 // một lá tấn công, chẳng che chắn gì.
-const COVER_DEF_IDS = ["mustang", "barrel", "hideout"];
+// Bốn lá green mang ký hiệu Mancato! cũng là lớp che thật: trên bàn chúng chặn đứng một
+// phát Bang!, và trên tay chúng là lớp che bạn đang từ chối bày ra. Khác Binocular ở chỗ
+// đó — Binocular không che gì cả.
+const COVER_DEF_IDS = [
+  "mustang", "barrel", "hideout",
+  "bible", "iron-plate", "sombrero", "ten-gallon-hat",
+];
 // Lá mang ký hiệu Mancato!. Dodge của Dodge City là một lá Mancato! có thưởng, nên với hai
 // nhiệm vụ đọc "bạn có lưới an toàn không" thì nó tính y hệt. Danh sách chép tay ở đây thay
 // vì đọc `countsAs` từ catalog, vì file này cố ý chỉ import type — cùng lý do đã ghi ở

@@ -31,9 +31,9 @@ test("the base deck stays 80 cards, expansion off", () => {
   assert.equal(buildDeck({ dodgeCity: false }).length, 80);
 });
 
-// A tripwire, not a target: 26 -> 40 with the green cards (phase 05). An unintended change
-// here is the drift these tests exist for.
-const DC_CARDS_SO_FAR = 26;
+// Bộ mở rộng giờ đã chép đủ 40 lá, nên hằng này thôi là dây bẫy di động và trở thành số
+// đích thật. Nó đổi nghĩa là có người sửa nhầm bảng bài.
+const DC_CARDS_SO_FAR = 40;
 
 test("Dodge City contributes exactly the cards transcribed so far", () => {
   assert.equal(dodgeCityHalf().length, DC_CARDS_SO_FAR);

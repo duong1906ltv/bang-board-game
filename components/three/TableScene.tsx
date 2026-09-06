@@ -194,8 +194,8 @@ function Scene({ view, targetIds, onPickTarget, onInspect, onInspectPlayer, pick
       <Decor felt={felt} models={models} />
       <Table felt={felt} models={models} low={lowSpec} />
       <CenterPiles deckCount={view.deckCount} discardCount={view.discardCount} topDiscard={view.topDiscard} canDraw={canDraw} onDrawDeck={onDrawDeck} onZoomDiscard={discardZoom.toggle} />
-      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} shot={shot} aimingSeat={aimingSeat} reaches={reaches} stealIds={stealIds} onSteal={onSteal} models={models} />
-      <YourAvatar you={view.you} players={view.players} count={view.players.length} ring={ring} felt={felt} shot={shot} aiming={aimingSeat === view.you.seat} reach={yourReach} onInspect={onInspect} models={models} />
+      <Opponents players={view.players} youSeat={view.you.seat} ring={ring} felt={felt} arc={arc} targetIds={targetIds} onPickTarget={onPickTarget} onInspect={onInspect} onInspectPlayer={onInspectPlayer} pickCardMode={pickCardMode} onPickCard={onPickCard} shot={shot} aimingSeat={aimingSeat} reaches={reaches} stealIds={stealIds} onSteal={onSteal} models={models} turnCounter={view.turnCounter} />
+      <YourAvatar you={view.you} players={view.players} count={view.players.length} ring={ring} felt={felt} shot={shot} aiming={aimingSeat === view.you.seat} reach={yourReach} onInspect={onInspect} models={models} turnCounter={view.turnCounter} />
       <FlyingCards hand={view.you.hand} felt={felt} camY={camY} camZ={camZ} />
       <CheckFx check={view.checks.at(-1) ?? null} felt={felt} />
       {/* Cinematic pass: the lamp globe blooms, the corners fall away. Threshold

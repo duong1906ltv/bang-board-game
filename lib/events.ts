@@ -109,8 +109,12 @@ export const EVENTS: GameEventDef[] = [
     effect: { bannedDefIds: ["beer", "saloon"], noHeal: true } },
   { id: "fasting", emoji: "🍽️", scope: "lasting", weight: 6,
     effect: { bannedDefIds: ["stagecoach", "wells-fargo", "general-store"] } },
+  // Green vào cùng nhóm blue và gun vì đây là cùng MỘT hành động: đặt một lá xuống trước
+  // mặt mình. Nhưng nó chỉ chặn việc ĐẶT XUỐNG — lá green đã nằm trên bàn từ trước vẫn
+  // kích hoạt được, y như một cái Barrel đã bày ra vẫn nổ. Xem greenProblem: nó cố ý
+  // không đọc bannedKinds.
   { id: "tied-hands", emoji: "⛓️", scope: "lasting", weight: 6,
-    effect: { bannedKinds: ["blue", "gun"] } },
+    effect: { bannedKinds: ["blue", "gun", "green"] } },
   { id: "silence", emoji: "🤫", scope: "lasting", weight: 5,
     effect: { bannedDefIds: ["gatling", "indians", "duel"] } },
   { id: "no-looting", emoji: "🧤", scope: "lasting", weight: 6,

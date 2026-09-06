@@ -83,6 +83,7 @@ export default function RoomPage() {
   const pick = (characterId: string) => socket.emit("pickCharacter", { code, characterId });
   const draw = (source?: "deck" | "discard" | "player", targetId?: string) =>
     socket.emit("drawCards", { code, source, targetId });
+  const useEquip = (cardId: string, targetId?: string) => socket.emit("useEquip", { code, cardId, targetId });
   const useAbility = (kind: AbilityKind, cardIds: string[], targetId?: string) =>
     socket.emit("useAbility", { code, kind, cardIds, targetId });
   const play = (cardId: string, targetId?: string, targetCardId?: string, payCardIds?: string[]) =>
@@ -124,7 +125,7 @@ export default function RoomPage() {
       )}
       {view.phase === "drafting" && <Draft view={view} onPick={pick} />}
       {(view.phase === "playing" || view.phase === "result") && (
-        <Table view={view} onDraw={draw} onPlay={play} onRespond={respond} onDiscard={discard} onUseAbility={useAbility} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} onPredict={predict} onCancelPredict={cancelPredict} />
+        <Table view={view} onDraw={draw} onPlay={play} onRespond={respond} onDiscard={discard} onUseAbility={useAbility} onUseEquip={useEquip} onEndTurn={endTurn} onSurrender={surrender} onRestart={restart} onPlayAgain={playAgain} onChoose={choose} onPredict={predict} onCancelPredict={cancelPredict} />
       )}
 
       {view.pending &&
