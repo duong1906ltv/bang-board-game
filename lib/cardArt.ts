@@ -8,14 +8,13 @@ const svg = (inner: string) =>
   encodeURIComponent(
     // width/height are required: without an intrinsic size an SVG data-URI
     // won't render as a CSS background-image or via canvas drawImage.
-    `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='96' viewBox='0 0 120 96'>${inner}</svg>`
+    `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='96' viewBox='0 0 120 96'>${inner}</svg>`,
   );
 
 // A reusable "hand holding a card" symbol (local coords ~ -6..31 wide, 2..56
 // tall). Referenced via <use href='#hc'> by the draw cards (Stagecoach / Wells
 // Fargo) so N hands = draw N.
-const HAND_CARD =
-  `<g id='hc'>
+const HAND_CARD = `<g id='hc'>
      <rect x='6' y='2' width='22' height='34' rx='3' fill='#fdf9ef' stroke='#3f2a12' stroke-width='2'/>
      <line x1='10' y1='8' x2='24' y2='8' stroke='#cbb489' stroke-width='1.6'/>
      <line x1='10' y1='13' x2='21' y2='13' stroke='#cbb489' stroke-width='1.6'/>
@@ -41,8 +40,7 @@ const rangeBadge = (n: number) =>
    </g>`;
 
 // Dùng cho Schofield.
-const revolver =
-  `<g fill='#222' stroke='#222' stroke-linejoin='round'>
+const revolver = `<g fill='#222' stroke='#222' stroke-linejoin='round'>
      <rect x='52' y='30' width='36' height='6' rx='2'/>
      <path d='M40 26 h14 v16 h-14 z'/>
      <circle cx='45' cy='34' r='7'/>
@@ -66,14 +64,54 @@ const rifle = (barrel: number) =>
 // the <img> error path falls back to the SVG, then to the emoji icon, so an
 // unfinished set of illustrations degrades instead of breaking.
 export const CARD_PHOTO_IDS = [
-  "bang", "missed", "beer", "indians", "volcanic", "duel", "panic", "gatling",
-  "cat-balou", "general-store", "saloon", "stagecoach", "wells-fargo",
-  "remington", "rev-carabine", "winchester", "barrel", "dynamite", "jail",
-  "scope", "mustang", "schofield",
+  "bang",
+  "missed",
+  "beer",
+  "indians",
+  "volcanic",
+  "duel",
+  "panic",
+  "gatling",
+  "cat-balou",
+  "general-store",
+  "saloon",
+  "stagecoach",
+  "wells-fargo",
+  "remington",
+  "rev-carabine",
+  "winchester",
+  "barrel",
+  "dynamite",
+  "jail",
+  "scope",
+  "mustang",
+  "schofield",
+  "punch",
+  "dodge",
+  "tequila",
+  "rag-time",
+  "whisky",
+  "brawl",
+  "springfield",
+  "binocular",
+  "buffalo-rifle",
+  "can-can",
+  "canteen",
+  "conestoga",
+  "derringer",
+  "hideout",
+  "howitzer",
+  "iron-plate",
+  "knife",
+  "pepperbox",
+  "pony-express",
+  "bible",
+  "sombrero",
+  "ten-gallon-hat",
 ];
 
 export const CARD_PHOTO: Record<string, string> = Object.fromEntries(
-  CARD_PHOTO_IDS.map((id) => [id, `/cards/${id}.png`])
+  CARD_PHOTO_IDS.map((id) => [id, `/cards/${id}.png`]),
 );
 
 export const CARD_ART: Record<string, string> = {
@@ -86,7 +124,7 @@ export const CARD_ART: Record<string, string> = {
      <g fill='#f2b705' stroke='#c47f00' stroke-width='1'>
        <polygon points='34,50 16,40 22,50 16,60'/>
        <circle cx='12' cy='50' r='4'/>
-     </g>`
+     </g>`,
   ),
   // A hat pierced by an arrow — the shot went through the hat, not you: Missed!
   missed: svg(
@@ -100,7 +138,7 @@ export const CARD_ART: Record<string, string> = {
      <g stroke='#c0392b' stroke-width='3' stroke-linecap='round'>
        <line x1='20' y1='46' x2='12' y2='40'/>
        <line x1='20' y1='46' x2='12' y2='50'/>
-     </g>`
+     </g>`,
   ),
   // A near-horizontal bullet (slightly tilted) with a green + at its tail —
   // spend the shot, gain a life.
@@ -113,7 +151,7 @@ export const CARD_ART: Record<string, string> = {
      <g stroke='#2ecc71' stroke-width='7' stroke-linecap='round'>
        <line x1='52' y1='40' x2='52' y2='62'/>
        <line x1='41' y1='51' x2='63' y2='51'/>
-     </g>`
+     </g>`,
   ),
   // Three dynamite sticks with a lit fuse.
   dynamite: svg(
@@ -124,7 +162,7 @@ export const CARD_ART: Record<string, string> = {
      </g>
      <rect x='38' y='50' width='48' height='9' fill='#7a4a12'/>
      <path d='M82 34 q16 -8 18 -24' fill='none' stroke='#555' stroke-width='3'/>
-     <circle cx='100' cy='9' r='6' fill='#ffb300'/><circle cx='100' cy='9' r='3' fill='#fff3c4'/>`
+     <circle cx='100' cy='9' r='6' fill='#ffb300'/><circle cx='100' cy='9' r='3' fill='#fff3c4'/>`,
   ),
   // Draw! a Heart = a Missed!: a card with a heart, an equals sign, then the
   // hat-pierced-by-arrow Missed! symbol.
@@ -145,7 +183,7 @@ export const CARD_ART: Record<string, string> = {
      <g stroke='#c0392b' stroke-width='2.5' stroke-linecap='round'>
        <line x1='63' y1='47' x2='56' y2='42'/>
        <line x1='63' y1='47' x2='56' y2='51'/>
-     </g>`
+     </g>`,
   ),
   // Jail bars.
   jail: svg(
@@ -154,7 +192,7 @@ export const CARD_ART: Record<string, string> = {
        <rect x='40' y='24' width='6' height='54'/><rect x='54' y='24' width='6' height='54'/>
        <rect x='68' y='24' width='6' height='54'/><rect x='82' y='24' width='6' height='54'/>
      </g>
-     <rect x='30' y='22' width='62' height='6' fill='#5a5f63'/><rect x='30' y='76' width='62' height='6' fill='#5a5f63'/>`
+     <rect x='30' y='22' width='62' height='6' fill='#5a5f63'/><rect x='30' y='76' width='62' height='6' fill='#5a5f63'/>`,
   ),
   // Telescope / scope with crosshair glint.
   scope: svg(
@@ -163,7 +201,7 @@ export const CARD_ART: Record<string, string> = {
        <rect x='80' y='40' width='10' height='26' rx='3' fill='#26323e'/>
        <circle cx='40' cy='53' r='6' fill='#8fd0ff'/>
      </g>
-     <g stroke='#2ecc71' stroke-width='2'><line x1='96' y1='16' x2='108' y2='28'/><line x1='108' y1='16' x2='96' y2='28'/></g>`
+     <g stroke='#2ecc71' stroke-width='2'><line x1='96' y1='16' x2='108' y2='28'/><line x1='108' y1='16' x2='96' y2='28'/></g>`,
   ),
   // Gatling gun: rotating barrels + crank.
   gatling: svg(
@@ -172,7 +210,7 @@ export const CARD_ART: Record<string, string> = {
      <g fill='#4b5563' stroke='#2b333f' stroke-width='1'>
        <rect x='72' y='39' width='34' height='6' rx='3'/><rect x='72' y='49' width='34' height='6' rx='3'/><rect x='72' y='59' width='34' height='6' rx='3'/>
      </g>
-     <rect x='44' y='60' width='6' height='18' fill='#374151'/>`
+     <rect x='44' y='60' width='6' height='18' fill='#374151'/>`,
   ),
   // Cat Balou: a card struck out by a red X, a cowboy hat beside it — force a
   // card to be discarded.
@@ -186,7 +224,7 @@ export const CARD_ART: Record<string, string> = {
        <ellipse cx='88' cy='64' rx='27' ry='8'/>
        <path d='M75 64 C 73 43, 79 37, 88 37 C 97 37, 103 43, 101 64 Z'/>
      </g>
-     <path d='M75 60 q13 6 26 0' fill='none' stroke='#2a1a0c' stroke-width='4'/>`
+     <path d='M75 60 q13 6 26 0' fill='none' stroke='#2a1a0c' stroke-width='4'/>`,
   ),
   // Indians!: a bullet struck out by a red X (discard a Bang!) beside two
   // overlapping hats pierced by an arrow (the raid).
@@ -213,7 +251,7 @@ export const CARD_ART: Record<string, string> = {
      <g stroke='#c0392b' stroke-width='2.5' stroke-linecap='round'>
        <line x1='56' y1='50' x2='50' y2='45'/>
        <line x1='56' y1='50' x2='50' y2='54'/>
-     </g>`
+     </g>`,
   ),
   // Panic!: a hand holding a card beside a ①-distance token — take a card from a
   // player at distance 1.
@@ -242,7 +280,7 @@ export const CARD_ART: Record<string, string> = {
      <g stroke='#c9b48a' stroke-width='1.5' opacity='0.55' stroke-linecap='round'>
        <line x1='93' y1='34' x2='93' y2='62'/>
        <line x1='79' y1='48' x2='107' y2='48'/>
-     </g>`
+     </g>`,
   ),
   // Stagecoach: two hands each holding a card — draw 2.
   stagecoach: svg(`<defs>${HAND_CARD}</defs>
@@ -277,7 +315,7 @@ export const CARD_ART: Record<string, string> = {
          <ellipse cx='0' cy='6' rx='15' ry='4.5'/>
          <path d='M-10 6 C -11 -8, -6 -12, 0 -12 C 6 -12, 11 -8, 10 6 Z'/>
        </g>
-     </g>`
+     </g>`,
   ),
   // Guns: the weapon drawn up top, range token below. Barrel length grows with
   // range — revolver (1–2) → carbine (3) → rifle (4) → long rifle (5).
