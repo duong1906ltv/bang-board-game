@@ -333,7 +333,7 @@ export const actionLabel = (l: Locale, a: string) => (ACTIONS[a] ? ACTIONS[a][l 
 // Every refusal the engine can return, in both languages. `{n}` / `{s}` are filled
 // from the error's own fields — the engine never carries display copy.
 const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
-  "no-such-room": ["Phòng không tồn tại", "No such room"],
+  "no-such-room": ["Bàn không tồn tại", "No such room"],
   "cannot-start": ["Không thể bắt đầu", "Cannot start"],
   "cannot-add-bot": ["Không thêm được bot", "Could not add a bot"],
   "player-not-found": ["Không tìm thấy người chơi", "Player not found"],
@@ -387,7 +387,7 @@ const ERROR_TEXT: Record<ErrorCode, [string, string]> = {
     "Chỉ 1 Bang!/lượt (trừ Volcanic/Willy)",
     "Only 1 Bang! per turn (Volcanic/Willy aside)",
   ],
-  "room-full": ["Phòng đã đầy (tối đa {n})", "Room full (max {n})"],
+  "room-full": ["Bàn đã đầy (tối đa {n})", "Room full (max {n})"],
   "need-players": ["Cần tối thiểu {n} người", "Need at least {n} players"],
   "too-many-players": ["Tối đa {n} người", "At most {n} players"],
   "hand-over-limit": ["Bỏ bớt {n} lá (giới hạn = máu)", "Discard {n} card(s) (limit = life)"],
