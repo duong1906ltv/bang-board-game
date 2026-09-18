@@ -6,10 +6,11 @@
 // an illustration from public/cards/ when present, else our vector art, else a
 // per-type emoji icon.
 import { useEffect, useState } from "react";
+import { CardTextFace } from "./CardTextFace";
 import {
   Card,
   CARD_DEF_BY_ID,
-  CARD_FALLBACK_GLYPH,
+  type CardKind,
   SUIT_SYMBOL,
   cardArtFillsPanel,
   cardArtSources,
@@ -18,9 +19,13 @@ import {
 
 type Size = "sm" | "md";
 
-const KIND_CLASS: Record<string, string> = {
+// Mỗi loại lá một màu viền, đúng như bộ bài in. Thiếu một entry ở đây thì lá rơi về
+// `?? "brown"` phía dưới và lặng lẽ mặc áo nâu — đó là chuyện đã xảy ra với green suốt
+// từ lúc nó được thêm vào CardKind: engine biết nó là lục, màn hình vẽ nó thành nâu.
+const KIND_CLASS: Record<CardKind, string> = {
   brown: "pc-brown",
   blue: "pc-blue",
+  green: "pc-green",
   gun: "pc-gun",
 };
 
@@ -93,7 +98,8 @@ export function PlayingCard({
       onDragStart={(e) => e.preventDefault()}
     >
       <div className="pc-frame">
-        <div className={`pc-name${nameSizeClass(card.name)}`}>{card.name}</div>
+        {/* Tên tắt khi mặt chữ bật: mặt chữ ĐÃ là cái tên, in to ở giữa lá. */}
+        {img && <div className={`pc-name${nameSizeClass(card.name)}`}>{card.name}</div>}
         <div className="pc-center">
           {img ? (
             // eslint-disable-next-line @next/next/no-img-element -- local art with an onError source fallback; next/image cannot rotate sources
@@ -109,7 +115,7 @@ export function PlayingCard({
               }}
             />
           ) : (
-            <span className="pc-icon">{CARD_FALLBACK_GLYPH[card.defId] ?? "🂠"}</span>
+            <CardTextFace name={card.name} size={size} />
           )}
           {/* Range token for guns. The illustrations of the four long guns are
               near-identical, and at pcard-sm the effect line is hidden, so the

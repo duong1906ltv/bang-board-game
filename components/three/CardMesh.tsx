@@ -6,6 +6,7 @@
 // cards show a simple card-back pattern.
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
+import { paletteFor } from "@/lib/card-colors";
 import {
   Card,
   CARD_DEF_BY_ID,
@@ -23,12 +24,6 @@ export const CARD_H = 0.88;
 // Must match --pc-accent in globals.css (.pc-brown/.pc-blue/.pc-gun): the same
 // card is drawn in CSS while in hand and on canvas once on the table, and a
 // mismatch reads as two different cards.
-const KIND_BORDER: Record<string, string> = {
-  brown: "#a06a2c",
-  blue: "#3b82f6",
-  gun: "#8a8f98",
-};
-
 const EMOJI_FONT = "'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif";
 
 // `detail` is for a card the player actually READS — in practice the top of the
@@ -57,10 +52,11 @@ function drawFace(card: Card, detail: boolean): THREE.CanvasTexture {
   // Card body — same construction as the 2D PlayingCard: a wooden frame with a
   // screw in each corner holding an aged-parchment insert ringed by the kind
   // colour.
+  const pal = paletteFor(def?.kind);
   const wood = ctx.createLinearGradient(0, 0, W, H);
-  wood.addColorStop(0, "#8a5c2c");
-  wood.addColorStop(0.55, "#55381a");
-  wood.addColorStop(1, "#6b471f");
+  wood.addColorStop(0, pal.wood[0]);
+  wood.addColorStop(0.55, pal.wood[1]);
+  wood.addColorStop(1, pal.wood[2]);
   ctx.fillStyle = wood;
   roundRect(ctx, 2, 2, W - 4, H - 4, 22);
   ctx.fill();
@@ -87,7 +83,7 @@ function drawFace(card: Card, detail: boolean): THREE.CanvasTexture {
   roundRect(ctx, PARCH_X, PARCH_Y, W - PARCH_X * 2, H - PARCH_Y * 2, 9);
   ctx.fill();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = KIND_BORDER[def?.kind ?? "brown"];
+  ctx.strokeStyle = pal.accent;
   roundRect(ctx, PARCH_X, PARCH_Y, W - PARCH_X * 2, H - PARCH_Y * 2, 9);
   ctx.stroke();
 
