@@ -187,14 +187,14 @@ export function Table({
     setConfirmPlay((c) => (c && inPlayPhase && you.hand.some((h) => h.id === c.id) ? c : null));
   }, [inPlayPhase, you.hand]);
 
-  const TARGETED = ["bang", "jail", "panic", "cat-balou", "duel"];
+  const isTargeted = (defId: string) => !!CARD_DEF_BY_ID[defId]?.target;
   // A character whose useAs pair covers Bang! can fire the swapped card as one, so
   // that card aims like a Bang! (targeting + range) and counts against the
   // Bang!/turn limit.
   const swapPair = you.character?.effect.useAs;
   const bangLike = (defId: string) =>
     defId === "bang" || (!!swapPair && swapPair.includes("bang") && swapPair.includes(defId));
-  const needsTarget = (defId: string) => TARGETED.includes(defId) || bangLike(defId);
+  const needsTarget = (defId: string) => isTargeted(defId) || bangLike(defId);
 
   // Which plays are unavailable right now. The reasons (once-per-turn house rule,
   // random-event bans, the Bang! budget) are all resolved server-side and arrive as

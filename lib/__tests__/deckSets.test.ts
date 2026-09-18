@@ -3,7 +3,8 @@
 // because the totals still add up. So these tests check SHAPE, not only size.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDeck, CARD_DEFS, rankLabel, SUIT_SYMBOL, type Card, type Suit } from "../cards";
+import { readFileSync } from "node:fs";
+import { buildDeck, CARD_DEFS, CARD_DEF_BY_ID, rankLabel, SUIT_SYMBOL, type Card, type Suit } from "../cards";
 import * as game from "../game";
 import { startTable, card, equip, sock } from "./helpers/table";
 
@@ -107,4 +108,40 @@ test("a Dodge City room deals from the thicker deck", () => {
 
   const held = room.players.reduce((n, p) => n + p.hand.length + p.equipment.length, 0);
   assert.equal(room.deck.length + room.discard.length + held, 80 + DC_CARDS_SO_FAR);
+});
+
+// Client từng giữ một danh sách chép tay 5 id bộ gốc để biết lá nào cần chọn mục tiêu
+// (`const TARGETED = ["bang","jail","panic","cat-balou","duel"]` trong Table.tsx). Thêm
+// 22 lá Dodge City thì 10 lá có `target` rơi ra ngoài: chúng gọi onPlay KHÔNG kèm mục
+// tiêu, engine từ chối, và lá chỉ lặng lẽ về chỗ cũ — không báo lỗi, không có gì xảy ra.
+//
+// Punch còn hỏng thấy rõ hơn: nó hiện hộp "Đánh lá này / Hủy" dành cho lá không cần
+// ngắm, bấm vào thì không làm gì cả.
+//
+// Test này đọc THẲNG file Table.tsx, không import nó (file .tsx kéo theo cả React và
+// three.js). Nó canh đúng cái đã hỏng: client không được dựng lại một danh sách id cứng
+// để quyết lá nào cần ngắm — phải hỏi catalog. Chép tay là bản luật thứ hai, và nó lệch
+// ngay lần đầu thêm lá.
+test("client không giữ danh sách id cứng để quyết lá nào cần ngắm", () => {
+  const src = readFileSync(new URL("../../components/room/Table.tsx", import.meta.url), "utf8");
+  const needsTarget = src.match(/const needsTarget = [^;]+;/)?.[0] ?? "";
+  assert.ok(needsTarget, "không tìm thấy needsTarget trong Table.tsx");
+
+  // Không được xuất hiện id lá nào bên trong định nghĩa — nó phải tra catalog.
+  const hardcoded = CARD_DEFS.map((d) => d.id).filter((id) => needsTarget.includes(`"${id}"`));
+  assert.deepEqual(hardcoded, [], `needsTarget đang chép tay id: ${hardcoded.join(", ")}`);
+
+  // Và phải thật sự đi qua CARD_DEF_BY_ID (trực tiếp hoặc qua một helper đọc `.target`).
+  const reachesCatalog = /CARD_DEF_BY_ID|isTargeted/.test(needsTarget);
+  assert.ok(reachesCatalog, "needsTarget không tra catalog — nó lấy câu trả lời ở đâu?");
+});
+
+// Và cái bất biến phía dữ liệu: đủ số lá cần ngắm, để một lần xoá nhầm `target` trong
+// catalog cũng bị bắt.
+test("catalog giữ đủ số lá cần chọn mục tiêu", () => {
+  const targeted = CARD_DEFS.filter((d) => d.target).map((d) => d.id);
+  assert.equal(targeted.length, 15, `${targeted.length} lá cần ngắm — catalog đổi?`);
+  for (const id of ["punch", "springfield", "rag-time", "tequila", "knife", "derringer"]) {
+    assert.ok(CARD_DEF_BY_ID[id]?.target, `${id} phải cần chọn mục tiêu`);
+  }
 });
