@@ -147,9 +147,12 @@ function pendingFor(room: Room, me: Player | undefined): PendingView | null {
     const waitingOnMe = meId === p.targetId;
     // Only offer "Missed!" if the target holds enough to complete the dodge (2 vs Slab
     // the Killer) — otherwise a lone Missed! would be wasted.
-    const usableAsMissed = me
-      ? me.hand.filter((c) => canUseAs(room, me, c, "missed")).length
-      : 0;
+    //
+    // Đếm qua cardsAnswering chứ không đếm riêng `me.hand`: bốn lá green mang ký hiệu
+    // Missed! nằm ở equipment, và phép đếm cũ bỏ sót chúng. Hậu quả là usableCardIds có
+    // id của lá trên bàn nhưng actions lại thiếu "missed" — người tay trống mà có Iron
+    // Plate trước mặt chỉ được chào mỗi nút "Bỏ qua". Một nguồn, một câu trả lời.
+    const usableAsMissed = cardsAnswering("missed").length;
     const canDodge =
       waitingOnMe && usableAsMissed >= p.missedNeeded - p.missedPlayed;
     return {

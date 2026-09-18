@@ -335,3 +335,30 @@ test("id lá đỡ mà server gửi phải tìm được trong tay HOẶC trên 
   const found = [...view.you.hand, ...view.you.equipment].filter((c) => ids.includes(c.id));
   assert.equal(found.length, ids.length, "mọi id server gửi đều phải tìm ra lá");
 });
+
+// `canDodge` quyết có hiện nút "Né" hay không, và nó đếm số lá đỡ được. Bản cũ chỉ đếm
+// `me.hand` nên người có Iron Plate/Bible trên bàn mà TAY TRỐNG chỉ được chào mỗi nút
+// "Bỏ qua" — lá đỡ nằm ngay trước mặt mà không bấm được.
+//
+// Đây là nửa còn lại của cùng một lỗi: cardsAnswering ngay bên dưới đã đếm cả tay lẫn
+// bàn, dòng đếm này thì không, nên usableCardIds có id mà actions lại thiếu "missed".
+test("tay trống nhưng có lá đỡ trên bàn thì vẫn được chào nút Né", () => {
+  const { room, players } = startTable(4);
+  const [a, b] = players;
+  turnTo(room, b);
+
+  const plate = card("iron-plate", "diamonds", 1);
+  plate.playedOnTurn = room.turnCounter - 1; // đặt lượt trước → đã chín
+  equip(a, plate);
+  a.hand = [];
+
+  hand(b, card("bang", "clubs", 5));
+  assert.ok(game.playCard(room.code, b.id, b.hand[0].id, a.id).ok);
+
+  const v = game.viewFor(room, a.id);
+  assert.ok(v.pending?.usableCardIds?.includes(plate.id), "server phải chào lá trên bàn");
+  assert.ok(
+    v.pending?.actions?.includes("missed"),
+    `actions phải có "missed", đang là ${JSON.stringify(v.pending?.actions)}`,
+  );
+});
