@@ -306,3 +306,32 @@ test("Elena Fuente không đốt được đồ trên bàn để né", () => {
   assert.equal(game.respond(code, b.id, "missed", gun.id).ok, false);
   assert.equal(b.equipment.length, 1, "khẩu súng còn nguyên");
 });
+
+// Server tính usableCardIds từ CẢ tay lẫn bàn (cardsAnswering trong view.ts), nhưng
+// ReactionPanel từng chỉ lọc `you.hand`. Hậu quả: id của bốn lá green mang ký hiệu
+// Missed! có trong danh sách mà client không tìm ra lá, nên nút đỡ không bao giờ hiện —
+// người chơi có Iron Plate trên bàn mà vẫn ăn đạn.
+//
+// Test canh phía view: id trả về phải trỏ tới lá tìm được ở một trong hai chỗ.
+test("id lá đỡ mà server gửi phải tìm được trong tay HOẶC trên bàn", () => {
+  const { room, players } = startTable(4);
+  const [a, b] = players;
+  turnTo(room, b);
+
+  // Iron Plate đặt từ lượt trước → đã chín. Tay trống hoàn toàn.
+  const plate = card("iron-plate", "diamonds", 1);
+  plate.playedOnTurn = room.turnCounter - 1;
+  equip(a, plate);
+  a.hand = [];
+
+  hand(b, card("bang", "clubs", 5));
+  assert.ok(game.playCard(room.code, b.id, b.hand[0].id, a.id).ok);
+
+  const view = game.viewFor(room, a.id);
+  const ids = view.pending?.usableCardIds ?? [];
+  assert.ok(ids.includes(plate.id), "server phải chào lá Iron Plate trên bàn");
+
+  // Đúng phép client dùng. Chỉ lọc `hand` thì mảng này rỗng và nút đỡ biến mất.
+  const found = [...view.you.hand, ...view.you.equipment].filter((c) => ids.includes(c.id));
+  assert.equal(found.length, ids.length, "mọi id server gửi đều phải tìm ra lá");
+});

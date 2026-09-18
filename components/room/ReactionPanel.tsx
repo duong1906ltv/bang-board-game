@@ -23,7 +23,11 @@ export function ReactionPanel({
   // tìm bằng `defId === a` rồi vá thêm nhánh cho Calamity Janet — và thế là mỗi luật mới
   // (Dodge mang ký hiệu Mancato!, Elena Fuente đỡ bằng lá bất kỳ) lại là một nút bấm được
   // mà không gửi được lá nào.
-  const usable = you.hand.filter((c) => (p.usableCardIds ?? []).includes(c.id));
+  // Tìm trong CẢ tay lẫn bàn: bốn lá green mang ký hiệu Missed! (Bible, Iron Plate,
+  // Sombrero, Ten Gallon Hat) nằm ở equipment. Server đã tính cả hai chỗ vào
+  // usableCardIds (xem cardsAnswering trong view.ts) — chỉ lọc `hand` ở đây thì id của
+  // chúng có trong danh sách mà không tìm ra lá, nên nút không bao giờ hiện.
+  const usable = [...you.hand, ...you.equipment].filter((c) => (p.usableCardIds ?? []).includes(c.id));
   // Nhiều LOẠI lá trả lời được thì để người chơi chọn: một Dodge đỡ xong còn rút thêm 1
   // lá, chọn hộ họ là chọn mất phần hơn đó.
   const choices = [...new Map(usable.map((c) => [c.defId, c])).values()];
