@@ -98,6 +98,8 @@ export function Table({
   // Lá đang chờ bạn chọn đủ lá trả giá cho nó (Whisky/Tequila/Brawl/Rag Time/Springfield).
   // Trả giá TRƯỚC khi ngắm, vì trả giá có thể làm số lá còn lại đổi.
   const [paying, setPaying] = useState<{ card: Card; pick: string[] } | null>(null);
+  // Nhịp xác nhận cuối cho lá trả giá KHÔNG cần ngắm (Whisky, Brawl).
+  const [confirmPay, setConfirmPay] = useState<{ card: Card; pay: string[] } | null>(null);
   // Lá green đang chờ bạn chọn mục tiêu cho nó. Chỉ dùng cho lá CÓ mục tiêu — lá không
   // cần ngắm thì bấm là chạy luôn.
   const [greenAim, setGreenAim] = useState<string | null>(null);
@@ -146,7 +148,7 @@ export function Table({
       if (e.key !== "Escape") return;
       setInfoCard(null); setCharView(null); setPlayerInfo(null); closeBriefing(); dismissEvents();
       setConfirmSurrender(false); setDiscarding(false);
-      setAiming(null); setAbility(null); setPaying(null); setGreenAim(null); setConfirmPlay(null);
+      setAiming(null); setAbility(null); setPaying(null); setGreenAim(null); setConfirmPlay(null); setConfirmPay(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -273,8 +275,13 @@ export function Table({
       if (next.length < need) return setPaying({ ...paying, pick: next });
       const played = paying.card;
       setPaying(null);
-      if (needsTarget(played.defId)) setAiming({ id: played.id, defId: played.defId, pay: next });
-      else onPlay(played.id, undefined, undefined, next);
+      // Lá cần ngắm đi thẳng sang bước chọn mục tiêu — bước đó đã có nút Huỷ, chèn thêm
+      // một hộp xác nhận nữa chỉ là một nhát bấm thừa.
+      if (needsTarget(played.defId)) return setAiming({ id: played.id, defId: played.defId, pay: next });
+      // Lá không ngắm thì nhát chạm vừa rồi là nhát cuối: với need=1, chạm một lá là mất
+      // NGAY hai lá (lá đánh + lá trả giá) và không có đường lui. Dừng lại một nhịp để
+      // nhìn xem mình sắp mất gì.
+      setConfirmPay({ card: played, pay: next });
       return;
     }
     // Selecting, NOT throwing. The cards go together when the confirm is pressed, so a
@@ -473,6 +480,43 @@ export function Table({
               },
             },
             { label: L(locale, "Hủy", "Cancel"), onClick: () => setConfirmPlay(null), ghost: true },
+          ]}
+        />
+      )}
+      {/* Xác nhận cuối cho lá trả giá không cần ngắm. Nói RÕ số lá sắp mất: lá đánh ra
+          cộng lá trả giá, tức bấm một cái là tay ngắn đi hai. Bấm ra ngoài = Huỷ, và huỷ
+          thì trả lại luôn chế độ chọn lá trả giá chứ không bắt bấm lại từ đầu. */}
+      {confirmPay && (
+        <CardModal
+          card={confirmPay.card}
+          showEffect
+          onClose={() => {
+            const back = confirmPay;
+            setConfirmPay(null);
+            setPaying({ card: back.card, pick: [] });
+          }}
+          actions={[
+            {
+              label: L(
+                locale,
+                `Đánh, bỏ ${confirmPay.pay.length} lá`,
+                `Play, discard ${confirmPay.pay.length}`
+              ),
+              onClick: () => {
+                const c = confirmPay;
+                setConfirmPay(null); // đóng TRƯỚC khi đánh: onPlay có thể sinh pending (Brawl)
+                onPlay(c.card.id, undefined, undefined, c.pay);
+              },
+            },
+            {
+              label: L(locale, "Huỷ", "Cancel"),
+              onClick: () => {
+                const back = confirmPay;
+                setConfirmPay(null);
+                setPaying({ card: back.card, pick: [] });
+              },
+              ghost: true,
+            },
           ]}
         />
       )}
@@ -725,6 +769,7 @@ export function Table({
           if (!c) return;
           setAbility(null);
           setPaying(null);
+          setConfirmPay(null);
           setDiscarding(false);
           if (greenAim === cardId) {
             setGreenAim(null);
