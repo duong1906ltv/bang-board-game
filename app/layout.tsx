@@ -1,5 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { Rye } from "next/font/google";
 import "./globals.css";
+
+// Chỉ dùng cho chữ "Bang!" ở màn chờ, không phải font nền của cả app: Rye là mặt chữ
+// display kiểu bảng hiệu Viễn Tây, đọc dài thì mỏi và nó không có bộ chữ tiếng Việt.
+// Buộc vào biến CSS nên chỗ nào cần thì gọi qua .brand, không rò ra chỗ khác.
+const rye = Rye({ weight: "400", subsets: ["latin"], display: "swap", variable: "--font-brand" });
 
 export const metadata: Metadata = {
   title: "Bang!",
@@ -15,7 +21,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="vi">
+    <html lang="vi" className={rye.variable}>
       <body>{children}</body>
     </html>
   );
