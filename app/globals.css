@@ -50,11 +50,6 @@ h1 {
   letter-spacing: 0.5px;
 }
 
-.moon {
-  font-size: 3rem;
-  filter: drop-shadow(0 0 18px var(--moon));
-}
-
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -402,7 +397,7 @@ button.ghost:hover:not(:disabled) {
     radial-gradient(circle, #e8d6ae 0 1.1px, #3a2410 1.4px 2.3px, rgba(0, 0, 0, 0) 2.5px),
     radial-gradient(circle, #e8d6ae 0 1.1px, #3a2410 1.4px 2.3px, rgba(0, 0, 0, 0) 2.5px),
     repeating-linear-gradient(96deg, rgba(255, 255, 255, 0.045) 0 2px, rgba(0, 0, 0, 0.05) 2px 5px),
-    linear-gradient(155deg, #8a5c2c, #55381a 55%, #6b471f);
+    linear-gradient(155deg, var(--pc-wood-1, #8a5c2c), var(--pc-wood-2, #55381a) 55%, var(--pc-wood-3, #6b471f));
   background-repeat: no-repeat;
   /* Every entry needs the 4-value form: one 3-value entry invalidates the whole
      list and all four screws pile up in the top-left corner. */
@@ -419,10 +414,14 @@ button.ghost:hover:not(:disabled) {
 }
 .pcard-md { width: 104px; height: 150px; padding: 7px; }
 .pcard-sm { width: 72px; height: 104px; padding: 5px; }
-.pc-brown { --pc-accent: #a06a2c; }
-.pc-blue { --pc-accent: #3b82f6; }
-.pc-gun { --pc-accent: #8a8f98; }
-.pc-character { --pc-accent: #a855f7; }
+/* Bảng màu gốc nằm ở lib/card-colors.ts — bàn 3D (CardMesh.tsx) vẽ bằng canvas nên
+   không đọc được biến CSS, phải lấy số từ đó. Đổi màu thì sửa BÊN ĐÓ trước rồi sinh lại
+   năm dòng dưới đây; lệch nhau là cùng một lá đọc ra khác nhau tuỳ đang ở tay hay trên bàn. */
+.pc-brown { --pc-accent: #a06a2c; --pc-wood-1: #8a5c2c; --pc-wood-2: #55381a; --pc-wood-3: #6b471f; }
+.pc-blue { --pc-accent: #3b82f6; --pc-wood-1: #3f5f86; --pc-wood-2: #22354d; --pc-wood-3: #2f4a68; }
+.pc-green { --pc-accent: #e3c50b; --pc-wood-1: #8a7420; --pc-wood-2: #4a3d0f; --pc-wood-3: #6b5a18; }
+.pc-gun { --pc-accent: #8a8f98; --pc-wood-1: #6a6f78; --pc-wood-2: #3a3e46; --pc-wood-3: #50555d; }
+.pc-character { --pc-accent: #a855f7; --pc-wood-1: #6b4a8a; --pc-wood-2: #3c2a52; --pc-wood-3: #513a6b; }
 .pc-red .pc-corner { color: #c0392b; }
 .pc-black .pc-corner { color: #241a10; }
 
@@ -550,6 +549,27 @@ button.ghost:hover:not(:disabled) {
 }
 .pc-icon { font-size: 2.1rem; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2)); }
 .pcard-sm .pc-icon { font-size: 1.5rem; }
+
+/* Mặt bài toàn chữ cho lá chưa có tranh — cỡ chữ tính trong components/CardTextFace.tsx,
+   ở đây chỉ lo cách xếp. Dùng đúng Georgia đậm như .pc-name chứ không dùng font display
+   Rye: Rye có nét trang trí, ở 12–20px nó nhoè thành một vệt. */
+.pc-textface {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 2px;
+  overflow: hidden;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: #46290d;
+  text-shadow: 0 1px 0 rgba(255, 245, 220, 0.5);
+}
 
 .pc-desc {
   text-align: center;
@@ -778,4 +798,761 @@ button.ghost:hover:not(:disabled) {
 .tc-deal {
   animation: tcDeal 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) backwards;
   transform-style: preserve-3d;
+}
+
+/* ═══ Màn chờ ════════════════════════════════════════════════════════════════
+   Nền là 16 tranh nhân vật trong public/characters, chuyển chậm sang nhau.
+   Xem components/home/SaloonBackdrop.tsx cho phần điều phối. */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.backdrop-plate {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 2200ms ease-in-out;
+  /* sepia() mới là thứ gộp 16 tấm lại, không phải lớp phủ bên dưới. Bộ tranh có tấm
+     nội thất tối om (slab-the-killer) và tấm trời xanh sa mạc (rose-doolan); sepia bóp
+     hết sắc về một dải nâu nên chúng đứng cạnh nhau mà không nháy. Lớp phủ chỉ lo phần
+     độ sáng, sepia lo phần màu — thiếu cái nào cũng hỏng. */
+  filter: sepia(0.88) saturate(1.2) brightness(0.75) contrast(1.06);
+}
+
+.backdrop-plate.on {
+  opacity: 1;
+}
+
+.backdrop-plate img {
+  object-fit: cover;
+  /* Tranh gần vuông (560×478) phủ lên khung 2:1, nên cover cắt rất nhiều theo chiều dọc.
+     Căn giữa (mặc định 50%) cắt mất 103–121px ảnh ở phía trên — tức trọn cái đầu, vì cả
+     16 tranh đều đặt mặt người ở khoảng y=20–140. 5% giữ phần cắt trên xuống còn 10–12px
+     trên mọi khung nhìn từ 1440×900 tới 2560×1080. */
+  object-position: 50% 5%;
+  /* Tâm phóng đặt ngay chỗ cái đầu: phóng quanh tâm giữa sẽ ăn thêm ~22px ảnh phía trên
+     ở cuối hành trình, thừa sức cắt lại đúng thứ vừa cứu được ở trên. */
+  transform-origin: 50% 12%;
+  /* 28s cho một lượt đi hết, mà mỗi tấm chỉ ở lại 7s — nên không ai thấy nó quay đầu. */
+  animation: kenburns 28s ease-in-out infinite alternate;
+}
+
+/* Phải giữ scale ≥ 1 + 2×|translateX|, nếu không lúc trượt ngang sẽ hở mép khung.
+   translateY chỉ đi xuống (dương) vì đi xuống là lộ thêm phần trên, tức đỡ cắt đầu. */
+@keyframes kenburns {
+  from { transform: scale(1.05) translate3d(-1.4%, 0.1%, 0); }
+  to   { transform: scale(1.14) translate3d(1.4%, 0.9%, 0); }
+}
+
+/* Kéo mọi tấm về cùng một độ tối. sepia gộp được màu nhưng không gộp được độ sáng: tấm
+   sa mạc vẫn sáng hơn tấm trong nhà, và chữ tiêu đề nằm đè lên chỗ sáng nhất đó. */
+.backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(115% 75% at 50% 0%, rgba(74, 52, 24, 0.12) 0%, rgba(26, 17, 9, 0.42) 48%, rgba(26, 17, 9, 0.52) 100%),
+    linear-gradient(to bottom, rgba(26, 17, 9, 0.35) 0%, rgba(26, 17, 9, 0) 30%);
+}
+
+/* Vũng tối cục bộ dưới khối chữ, KHÔNG phủ cả khung.
+   Đây là chỗ đã làm sai một lần: phủ tối toàn màn để chữ đọc được thì tranh chỉ còn
+   1.2–1.6:1 tương phản nội bộ, tức là bùn — mà cả ý tưởng là để người ta NHÌN THẤY tranh.
+   Chữ và tranh tranh nhau đúng một vùng, nên tách vùng đó ra thay vì chỉnh độ sáng chung.
+   Mép tan hẳn về 0 nên không thấy đường viền, chỉ thấy ánh sáng tụ lại quanh tiêu đề.
+   Đo lại bằng scripts/check-backdrop-contrast.py nếu đổi. */
+.center::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* z-index âm để nằm dưới chữ mà vẫn trong stacking context của .center (thẻ này có
+     z-index:1 nên -1 không tụt ra sau nền trang). */
+  z-index: -1;
+  background: radial-gradient(
+    70% 45% at 50% 24%,
+    rgba(26, 17, 9, 0.91) 0%,
+    rgba(26, 17, 9, 0.55) 55%,
+    rgba(26, 17, 9, 0) 100%
+  );
+}
+
+
+.center {
+  position: relative;
+  z-index: 1;
+  gap: 14px;
+}
+
+.brand-mark {
+  color: var(--moon);
+  filter: drop-shadow(0 0 16px rgba(255, 207, 110, 0.45));
+}
+
+/* Mặt chữ thương hiệu tách khỏi cỡ chữ: tiêu đề trang chủ dùng cỡ khổng lồ, còn đầu
+   trang trong bàn dùng đúng mặt chữ đó ở 1.5rem. */
+.brand {
+  font-family: var(--font-brand), Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+h1.brand {
+  font-size: clamp(3rem, 12vw, 5.5rem);
+  line-height: 0.95;
+  color: var(--text);
+  /* Chữ nằm trực tiếp trên tranh, không có thẻ nền đỡ — bóng đổ là thứ giữ tương phản
+     khi nền đổi sang tấm sáng. */
+  text-shadow: 0 2px 18px rgba(26, 17, 9, 0.95), 0 1px 3px rgba(26, 17, 9, 0.9);
+}
+
+.tagline {
+  margin: 0;
+  /* Câu dài hơn câu cũ nên trên máy hẹp nó xuống dòng — chặn bề ngang để chỗ ngắt rơi
+     vào giữa câu thay vì bỏ lại một từ lẻ ở dòng dưới. */
+  max-width: 34ch;
+  text-align: center;
+  text-wrap: balance;
+  line-height: 1.45;
+  text-shadow: 0 1px 10px rgba(26, 17, 9, 0.95);
+}
+
+/* Thẻ nổi trên tranh nên phải đục hơn thẻ thường, nếu không tranh xuyên qua làm chữ
+   trong form khó đọc. */
+.center .card {
+  background: rgba(46, 33, 20, 0.93);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+
+/* ─── Danh sách phòng ──────────────────────────────────────────────────────
+   Dữ liệu socket sống, trước đây bị vẽ như metadata xám. Tên người đang chờ mới là
+   lý do để bấm vào. */
+
+.lobby li {
+  position: relative;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px 11px 16px;
+  background: rgba(20, 13, 6, 0.55);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+/* Thanh dọc bên trái: dấu hiệu duy nhất phân biệt hàng phòng với một dòng danh sách
+   bất kỳ. Vàng đậm dần khi bàn gần đầy được đặt bằng biến ở JSX. */
+.lobby li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -1px;
+  bottom: -1px;
+  width: 3px;
+  background: var(--rail, var(--accent2));
+  border-radius: 10px 0 0 10px;
+}
+
+.lobby li:hover {
+  background: rgba(34, 22, 10, 0.8);
+  border-color: rgba(181, 112, 31, 0.7);
+}
+
+/* Cột trái nuốt chỗ thừa và được phép co, nên tên dài bị cắt bằng "…" thay vì đẩy nút
+   Vào ra khỏi thẻ. min-width:0 phải có ở CẢ hai cấp, thiếu một cấp là flex không co. */
+.lobby-who {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.lobby-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.lobby li button {
+  width: auto;
+  flex-shrink: 0;
+  padding: 9px 20px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  background: rgba(181, 112, 31, 0.9);
+}
+
+.lobby li:hover button:not(:disabled) {
+  background: var(--accent);
+  color: #241708;
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+}
+
+.chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid var(--bg2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  /* Chồng lên nhau như xếp bài, nên một bàn đông đọc ra ngay là đông. */
+  margin-left: -8px;
+}
+
+.chip:first-child {
+  margin-left: 0;
+}
+
+.chip.rest {
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.lobby-names {
+  color: var(--text);
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.lobby-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Mã bàn là thứ người ta đọc qua điện thoại cho bạn bè, không phải siêu dữ liệu.
+   Vẽ nó như một cái thẻ đóng dấu chứ đừng như chú thích xám. */
+.lobby-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--moon);
+  background: rgba(224, 169, 85, 0.09);
+  border: 1px solid rgba(224, 169, 85, 0.24);
+  border-radius: 6px;
+  padding: 2px 4px 2px 8px;
+  flex-shrink: 0;
+}
+
+.lobby-names {
+  font-weight: 600;
+}
+
+/* Ghế: chấm đầy là người, chấm rỗng là chỗ trống. Đọc nhanh hơn "3/8". */
+.seats {
+  display: flex;
+  gap: 3.5px;
+  align-items: center;
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+/* Ổ trống vẽ bằng nét viền, đạn đã lên ổ thì tô đặc: rỗng phải TRÔNG rỗng, nếu không
+   cả tám cái nhìn như nhau và hàng ghế mất nghĩa. */
+.seat {
+  width: 8px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.seat path {
+  fill: none;
+  stroke: rgba(122, 92, 52, 1);
+  stroke-width: 1.1;
+}
+
+.seat.taken path {
+  fill: var(--accent);
+  stroke: #8a5a1c;
+  stroke-width: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop-plate img { animation: none; transform: scale(1.05); }
+  .backdrop-plate { transition: none; }
+}
+
+/* ─── Thẻ nhập trên màn chờ ────────────────────────────────────────────────
+   Mọi thứ dưới đây bọc trong .center vì input/button/label là class dùng chung với
+   toàn bộ UI trong phòng — đổi trần trụi là hồi quy cả game.
+
+   Nền đã có chuyển động (tranh trôi + chuyển tấm), nên thẻ này cố ý ĐỨNG YÊN. Nó nặng
+   tay bằng thứ bậc, khung và trạng thái focus, không bằng thêm một hệ động thứ hai. */
+
+/* Viền đôi kiểu khung tờ truy nã: nét ngoài là border, nét trong là hai lớp shadow —
+   lớp đầu tô màu thẻ dày 4px, lớp sau tô vàng dày 5px, nên vàng chỉ lộ ra đúng 1px ở
+   độ sâu 4px. Một shadow không làm được khe hở này. */
+.center .card {
+  padding: 22px 20px;
+  border-color: rgba(122, 92, 52, 0.9);
+  box-shadow:
+    inset 0 0 0 4px rgba(46, 33, 20, 0.93),
+    inset 0 0 0 5px rgba(224, 169, 85, 0.16),
+    inset 0 1px 0 rgba(255, 220, 160, 0.07),
+    0 22px 60px rgba(0, 0, 0, 0.55);
+}
+
+/* Nhãn thành đầu mục, không phải chú thích: hoa nhỏ + giãn chữ, màu vàng nhạt. */
+.center label {
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.88;
+  margin-bottom: 8px;
+}
+
+.center input {
+  font-size: 1.05rem;
+  padding: 14px 16px;
+  background: rgba(20, 13, 6, 0.72);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.center input::placeholder {
+  color: rgba(194, 169, 136, 0.42);
+}
+
+/* Trước đây focus chỉ đổi màu viền 1px — gần như không thấy. Quầng vàng mới là thứ
+   nói "con trỏ đang ở đây". */
+.center input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(224, 169, 85, 0.18);
+}
+
+/* Con trực tiếp của .card = đúng nút "Tạo phòng mới". Nút trong danh sách phòng nằm
+   trong ul>li nên không dính. Đây là hành động chính, nó phải là thứ sáng nhất thẻ. */
+.center .card > button {
+  padding: 15px 18px;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent2) 100%);
+  color: #241708;
+  box-shadow: 0 6px 20px rgba(181, 112, 31, 0.32);
+}
+
+.center .card > button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f0bd6b 0%, var(--accent) 100%);
+}
+
+/* Bàn phím phải thấy mình đang ở đâu, không chỉ chuột. */
+.center input:focus-visible,
+.center button:focus-visible {
+  outline: 2px solid var(--moon);
+  outline-offset: 2px;
+}
+
+/* Ô tên + nút xúc xắc đứng chung một hàng. align-items:stretch để nút cao bằng ô nhập,
+   nên vùng chạm của nó cũng ≥44px chứ không phải một nút con con. */
+.center .name-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+
+.center .name-row input {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+/* Không phải hành động chính, nên không lấy dốc vàng của nút "Mở bàn mới". */
+.center .reroll {
+  width: auto;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 14px;
+  background: rgba(20, 13, 6, 0.72);
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.center .reroll:hover:not(:disabled) {
+  background: rgba(46, 33, 20, 0.95);
+  border-color: var(--accent);
+  color: var(--moon);
+}
+
+/* ═══ Trang tra cứu /luat ════════════════════════════════════════════════════ */
+
+.rules-wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 20px 16px 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.rules-head {
+  width: 100%;
+  display: flex;
+}
+
+.rules-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  padding: 6px 10px 6px 6px;
+  border-radius: 10px;
+}
+
+.rules-back:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+
+.rules-title {
+  font-size: clamp(2.2rem, 7vw, 3.4rem);
+  margin-top: 4px;
+}
+
+/* Hai hàng nút chọn. Gộp thành một dải liền để chúng đọc ra là MỘT nhóm lựa chọn,
+   không phải ba nút rời nhau. */
+.seg-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 6px 0 10px;
+}
+
+.seg {
+  display: flex;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.seg button {
+  width: auto;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.seg button:hover:not(.on) {
+  background: var(--panel2);
+  color: var(--text);
+}
+
+.seg button.on {
+  background: var(--accent2);
+  color: #fff;
+}
+
+.seg button.on .muted {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.gallery-heading {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 22px 0 10px;
+  text-align: center;
+}
+
+.gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+}
+
+.gallery-item {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.gallery-item figcaption {
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Nhãn cho lá chỉ có trong bộ mở rộng — người chơi bộ gốc sẽ không bao giờ gặp nó. */
+.dc-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--moon);
+  border: 1px solid rgba(224, 169, 85, 0.4);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.rules-note {
+  margin-top: 30px;
+  max-width: 60ch;
+  text-align: center;
+}
+
+/* ═══ Bàn chờ ════════════════════════════════════════════════════════════════ */
+
+.lobby-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Tám ghế, luôn hiện đủ tám. Ghế trống là thông tin: nó nói bàn còn chỗ. */
+.seat-grid {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 8px;
+}
+
+.seat-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  min-height: 48px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+}
+
+.seat-slot.you {
+  border-color: var(--accent2);
+  box-shadow: inset 0 0 0 1px rgba(224, 169, 85, 0.18);
+}
+
+/* Ghế trống vẽ bằng nét đứt — cùng ngôn ngữ với ổ đạn rỗng ở trang chủ: rỗng phải
+   TRÔNG rỗng, không phải một ô đặc màu khác. */
+.seat-slot.empty {
+  border-style: dashed;
+  background: transparent;
+  justify-content: center;
+}
+
+.seat-face {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.seat-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seat-tag {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+.seat-tag.host {
+  color: var(--moon);
+  border-color: rgba(224, 169, 85, 0.4);
+}
+
+.seat-tag.off {
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.seat-add {
+  width: auto;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--muted);
+}
+
+.seat-add:hover:not(:disabled) {
+  background: var(--panel2);
+  color: var(--accent);
+}
+
+.seat-drop {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0;
+  font-size: 1.05rem;
+  line-height: 1;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.seat-drop:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+}
+
+/* ─── Luật bàn ─────────────────────────────────────────────────────────────── */
+
+.rule-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.rule-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg2);
+  padding: 9px 12px;
+}
+
+.rule-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rule-label {
+  flex: 1;
+  min-width: 120px;
+  font-size: 0.92rem;
+}
+
+.rule-toggle {
+  width: auto;
+  flex-shrink: 0;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+}
+
+.rule-toggle.on {
+  background: var(--accent2);
+  border-color: var(--accent2);
+  color: #fff;
+}
+
+.rule-toggle.static {
+  cursor: default;
+}
+
+button.rule-toggle:hover:not(.on) {
+  border-color: var(--accent);
+  color: var(--text);
+  background: transparent;
+}
+
+.rule-more {
+  width: auto;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.rule-more:hover:not(:disabled) {
+  color: var(--accent);
+  background: transparent;
+}
+
+.rule-desc {
+  margin: 8px 0 2px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Đường dẫn phụ: có mặt nhưng không tranh chỗ với hành động chính. */
+.quiet-link {
+  align-self: center;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.quiet-link:hover {
+  color: var(--accent);
+}
+
+/* Đầu trang trong bàn: cũng là đường về trang chủ — trước đây vào phòng rồi thì không
+   có lối nào quay ra ngoài trừ nút Back của trình duyệt. */
+.room-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.room-brand .brand {
+  font-size: 1.5rem;
+}
+
+.room-brand:hover .brand-mark {
+  color: var(--accent);
 }
