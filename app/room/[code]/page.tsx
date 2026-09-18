@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { BrandMark } from "@/components/home/BrandMark";
+
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
@@ -142,9 +145,12 @@ function Header({ code, copied, onCopy }: { code: string; copied: boolean; onCop
   const locale = useLocale();
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-      <h1 style={{ fontSize: "1.8rem" }}>🤠 Bang!</h1>
+      <Link href="/" className="room-brand">
+        <BrandMark size={26} />
+        <span className="brand">Bang!</span>
+      </Link>
       <div className="row" style={{ alignItems: "center" }}>
-        <span className="muted">{L(locale, "Mã phòng:", "Room:")}</span>
+        <span className="muted">{L(locale, "Mã bàn:", "Room:")}</span>
         <span className="code-pill" style={{ fontSize: "1.2rem", letterSpacing: 4, padding: "6px 12px" }}>{code}</span>
         <button className="ghost" style={{ width: "auto", padding: "8px 12px" }} onClick={onCopy}>
           {copied ? L(locale, "Đã chép ✓", "Copied ✓") : L(locale, "Chép", "Copy")}

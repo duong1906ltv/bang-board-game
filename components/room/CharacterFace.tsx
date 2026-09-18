@@ -2,6 +2,7 @@
 
 import { Character } from "@/lib/types";
 import { CHARACTER_PHOTO } from "@/lib/characterArt";
+import { CardTextFace } from "@/components/CardTextFace";
 import { L, useLocale, charAbility } from "@/lib/i18n";
 
 // The character as a playing card, matching the printed ones. Shown in the draft
@@ -31,7 +32,7 @@ export function CharacterFace({ c }: { c: Character }) {
             // eslint-disable-next-line @next/next/no-img-element -- local portrait sized by CSS inside a fixed-height card
             <img className="pc-art pc-art-full" src={portrait} alt="" draggable={false} />
           ) : (
-            <span className="pc-icon" style={{ fontSize: "2.6rem" }}>🤠</span>
+            <CardTextFace name={c.name} size="lg" />
           )}
           <span className="pc-lives" title={`${c.maxHp} ${L(locale, "máu", "life")}`}>
             {Array.from({ length: c.maxHp }, (_, i) => (
