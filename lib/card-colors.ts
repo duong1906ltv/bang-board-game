@@ -19,7 +19,7 @@ export interface KindPalette {
 export const KIND_PALETTE: Record<CardKind, KindPalette> = {
   brown: { accent: "#a06a2c", wood: ["#8a5c2c", "#55381a", "#6b471f"] },
   blue: { accent: "#3b82f6", wood: ["#3f5f86", "#22354d", "#2f4a68"] },
-  green: { accent: "#e3c50b", wood: ["#8a7420", "#4a3d0f", "#6b5a18"] },
+  green: { accent: "#ffd230", wood: ["#9a7d13", "#5b490b", "#7b630f"] },
   gun: { accent: "#8a8f98", wood: ["#6a6f78", "#3a3e46", "#50555d"] },
 };
 

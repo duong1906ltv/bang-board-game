@@ -419,7 +419,7 @@ button.ghost:hover:not(:disabled) {
    năm dòng dưới đây; lệch nhau là cùng một lá đọc ra khác nhau tuỳ đang ở tay hay trên bàn. */
 .pc-brown { --pc-accent: #a06a2c; --pc-wood-1: #8a5c2c; --pc-wood-2: #55381a; --pc-wood-3: #6b471f; }
 .pc-blue { --pc-accent: #3b82f6; --pc-wood-1: #3f5f86; --pc-wood-2: #22354d; --pc-wood-3: #2f4a68; }
-.pc-green { --pc-accent: #e3c50b; --pc-wood-1: #8a7420; --pc-wood-2: #4a3d0f; --pc-wood-3: #6b5a18; }
+.pc-green { --pc-accent: #ffd230; --pc-wood-1: #9a7d13; --pc-wood-2: #5b490b; --pc-wood-3: #7b630f; }
 .pc-gun { --pc-accent: #8a8f98; --pc-wood-1: #6a6f78; --pc-wood-2: #3a3e46; --pc-wood-3: #50555d; }
 .pc-character { --pc-accent: #a855f7; --pc-wood-1: #6b4a8a; --pc-wood-2: #3c2a52; --pc-wood-3: #513a6b; }
 .pc-red .pc-corner { color: #c0392b; }
